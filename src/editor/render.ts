@@ -11,8 +11,16 @@ type Position = { x: number; y: number }
 type Side = 'input' | 'output'
 
 const CONNECTION_CURVATURE = 0.3
+// Padding (in px) around a connection's start/end points when sizing its
+// SVG. A connection's `<svg>` is sized to fit its own path rather than
+// relying on `width: 0; height: 0; overflow: visible`: that trick works for
+// plain elements, but Chromium does not paint an SVG root's overflowing
+// content when the root itself has zero width/height, which made every
+// connection invisible despite having a correct `d` attribute.
+const CONNECTION_PADDING = 20
 
 interface ConnectionState {
+  svg: SVGSVGElement
   path: SVGPathElement
   start?: Position
   end?: Position
@@ -235,25 +243,35 @@ function updateConnection(
   if (!state) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     svg.classList.add('connection')
-    svg.setAttribute('width', '0')
-    svg.setAttribute('height', '0')
 
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
     path.classList.add('connection-path')
     svg.appendChild(path)
     element.replaceChildren(svg)
 
-    state = { path }
+    state = { svg, path }
     connections.set(element, state)
   }
 
   const redraw = () => {
-    if (state.start && state.end) {
-      state.path.setAttribute(
-        'd',
-        classicConnectionPath([state.start, state.end], CONNECTION_CURVATURE),
-      )
-    }
+    if (!state.start || !state.end) return
+
+    // Position/size the svg to a bounding box around both endpoints (with
+    // padding) and draw the path in coordinates relative to that box, so
+    // the path never has to render outside its own svg's bounds.
+    const minX = Math.min(state.start.x, state.end.x) - CONNECTION_PADDING
+    const minY = Math.min(state.start.y, state.end.y) - CONNECTION_PADDING
+    const maxX = Math.max(state.start.x, state.end.x) + CONNECTION_PADDING
+    const maxY = Math.max(state.start.y, state.end.y) + CONNECTION_PADDING
+
+    state.svg.style.left = `${minX}px`
+    state.svg.style.top = `${minY}px`
+    state.svg.setAttribute('width', String(maxX - minX))
+    state.svg.setAttribute('height', String(maxY - minY))
+
+    const start = { x: state.start.x - minX, y: state.start.y - minY }
+    const end = { x: state.end.x - minX, y: state.end.y - minY }
+    state.path.setAttribute('d', classicConnectionPath([start, end], CONNECTION_CURVATURE))
   }
 
   // Real (non-pseudo) endpoints are tracked live via the socket position
