@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "lit": "^3.3.3",
+    "openscad-wasm-prebuilt": "^1.2.0",
     "rete": "^2.0.6",
     "rete-area-plugin": "^2.3.2",
     "rete-connection-plugin": "^2.0.2",
