@@ -4,6 +4,7 @@ import type { AreaPlugin } from 'rete-area-plugin'
 import type { ConnectionPlugin } from 'rete-connection-plugin'
 import { classicConnectionPath, getDOMSocketPosition } from 'rete-render-utils'
 
+import { CheckboxControl, LabeledNumberControl } from './controls'
 import type { AreaExtra, Schemes } from './schemes'
 
 type Position = { x: number; y: number }
@@ -95,9 +96,9 @@ function renderNode(
   const controls = document.createElement('div')
   controls.className = 'node-controls'
   element.appendChild(controls)
-  for (const control of Object.values(node.controls)) {
+  for (const [key, control] of Object.entries(node.controls)) {
     if (!control) continue
-    const rendered = renderControl(control)
+    const rendered = renderControl(key, control)
     if (rendered) controls.appendChild(rendered)
   }
 
@@ -143,26 +144,46 @@ function renderPort(
   return row
 }
 
-function renderControl(control: ClassicPreset.Control): HTMLElement | null {
-  if (!(control instanceof ClassicPreset.InputControl) || control.type !== 'number') {
-    return null
+function renderControl(key: string, control: ClassicPreset.Control): HTMLElement | null {
+  if (control instanceof CheckboxControl) {
+    const wrapper = document.createElement('label')
+    wrapper.className = 'node-control node-control--checkbox'
+
+    const input = document.createElement('input')
+    input.type = 'checkbox'
+    input.checked = control.value
+    // Prevent the node-drag handler from starting when interacting with the input.
+    input.addEventListener('pointerdown', (event) => event.stopPropagation())
+    input.addEventListener('change', () => control.setValue(input.checked))
+
+    const text = document.createElement('span')
+    text.textContent = control.label
+
+    wrapper.append(input, text)
+    return wrapper
   }
 
-  const wrapper = document.createElement('label')
-  wrapper.className = 'node-control'
+  if (control instanceof ClassicPreset.InputControl && control.type === 'number') {
+    const wrapper = document.createElement('label')
+    wrapper.className = 'node-control'
 
-  const input = document.createElement('input')
-  input.type = 'number'
-  input.value = String(control.value ?? '')
-  input.disabled = control.readonly
-  // Prevent the node-drag handler from starting when interacting with the input.
-  input.addEventListener('pointerdown', (event) => event.stopPropagation())
-  input.addEventListener('input', () => {
-    control.setValue(input.valueAsNumber)
-  })
+    const text = document.createElement('span')
+    text.className = 'node-control-label'
+    text.textContent = control instanceof LabeledNumberControl ? control.label : key
+    wrapper.appendChild(text)
 
-  wrapper.appendChild(input)
-  return wrapper
+    const input = document.createElement('input')
+    input.type = 'number'
+    input.value = String(control.value ?? '')
+    input.disabled = control.readonly
+    input.addEventListener('pointerdown', (event) => event.stopPropagation())
+    input.addEventListener('input', () => control.setValue(input.valueAsNumber))
+    wrapper.appendChild(input)
+
+    return wrapper
+  }
+
+  return null
 }
 
 function updateConnection(

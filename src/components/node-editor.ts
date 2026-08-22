@@ -68,8 +68,19 @@ export class NodeEditorElement extends LitElement {
       cursor: crosshair;
     }
 
-    .node-control input {
-      width: 100%;
+    .node-control {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .node-control--checkbox {
+      justify-content: flex-start;
+    }
+
+    .node-control input[type='number'] {
+      width: 64px;
       box-sizing: border-box;
     }
 
@@ -106,6 +117,10 @@ export class NodeEditorElement extends LitElement {
 
   async addCubeNode() {
     await this.instance?.addCubeNode()
+  }
+
+  async evaluate(): Promise<string> {
+    return (await this.instance?.evaluate()) ?? ''
   }
 }
 

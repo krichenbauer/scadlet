@@ -1,7 +1,9 @@
 import { NodeEditor } from 'rete'
 import { AreaExtensions, AreaPlugin } from 'rete-area-plugin'
 import { ConnectionPlugin, Presets as ConnectionPresets } from 'rete-connection-plugin'
+import { DataflowEngine } from 'rete-engine'
 
+import { evaluateOpenSCAD } from './evaluate'
 import { CubeNode } from './nodes/cube-node'
 import { attachRenderer } from './render'
 import type { AreaExtra, Schemes } from './schemes'
@@ -10,6 +12,7 @@ export interface SCADletEditor {
   editor: NodeEditor<Schemes>
   area: AreaPlugin<Schemes, AreaExtra>
   addCubeNode(): Promise<void>
+  evaluate(): Promise<string>
   destroy(): void
 }
 
@@ -25,6 +28,10 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   const editor = new NodeEditor<Schemes>()
   const area = new AreaPlugin<Schemes, AreaExtra>(container)
   const connection = new ConnectionPlugin<Schemes, AreaExtra>()
+  const engine = new DataflowEngine<Schemes>((node) => ({
+    inputs: () => Object.keys(node.inputs),
+    outputs: () => Object.keys(node.outputs),
+  }))
 
   AreaExtensions.selectableNodes(area, AreaExtensions.selector(), {
     accumulating: AreaExtensions.accumulateOnCtrl(),
@@ -33,6 +40,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   connection.addPreset(ConnectionPresets.classic.setup())
 
   editor.use(area)
+  editor.use(engine)
   area.use(connection)
   attachRenderer(area, connection)
 
@@ -50,6 +58,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     editor,
     area,
     addCubeNode,
+    evaluate: () => evaluateOpenSCAD(editor, engine),
     destroy: () => area.destroy(),
   }
 }
