@@ -452,16 +452,15 @@ Done so far:
   "Node editor rendering" above)
 
 Remaining primitives/transforms/CSG nodes (Sphere, Translate, Rotate,
-Scale, Union, Intersection) are tracked under Milestone 3, not required
+Scale, Union, Intersection) are tracked under Milestone 4, not required
 here.
 
 No OpenSCAD import, modules, iteration, code editor, or persistence is
 required for this milestone.
 
-### Milestone 2 — End-to-end browser rendering proof of concept (next)
+### Milestone 2 — End-to-end browser rendering proof of concept (substantially complete)
 
-This is now the immediate priority, ahead of adding more geometry nodes or
-value/math nodes. Prove the complete pipeline end to end:
+Prove the complete pipeline end to end:
 
 ```text
 Rete graph → Rete dataflow evaluation → OpenSCAD source → Render button →
@@ -469,25 +468,49 @@ Web Worker → OpenSCAD WASM → STL in memory → Three.js → interactive
 browser preview
 ```
 
-Required:
+Done so far:
 
-- `Render` button: evaluates the graph, generates OpenSCAD, sends it to a
-  Web Worker, runs OpenSCAD WASM, produces an STL, and updates the viewer
-- `Stop` button: terminates the active render worker; a new worker may be
+- OpenSCAD WASM integrated locally via `openscad-wasm-prebuilt`, with no
+  CDN dependency and no runtime network fetch required
+- OpenSCAD execution runs in a Web Worker, keeping the main thread
+  responsive
+- `Render` button: evaluates the graph, generates OpenSCAD, sends it to
+  the worker, runs OpenSCAD WASM, produces an STL in memory, and updates
+  the viewer
+- `Stop` button: terminates the active render worker; a new worker is
   created for a later render
 - `.scad` download
 - `.stl` download
 - Three.js interactive viewer: orbit/rotate, zoom, pan, grid, axes,
-  sensible camera defaults
-- preserve existing graph/editor functionality unchanged
+  sensible camera defaults, camera preserved across re-renders
+- failed renders surface an error without crashing and without discarding
+  the previously displayed valid preview
+- existing graph/editor functionality preserved unchanged
 
-Do not add automatic live rendering, debounce logic, render queues, or
-complex cancellation yet.
+SCADlet now functions as a minimal, end-to-end visual OpenSCAD editor.
+Automatic live rendering, debounce logic, render queues, and complex
+cancellation remain out of scope unless requested later.
 
-After this milestone, SCADlet should already function as a minimal,
-end-to-end visual OpenSCAD editor.
+### Milestone 3 — Editor usability baseline
 
-### Milestone 3 — More geometry, transformation, and CSG nodes
+Before adding more OpenSCAD node types, address usability gaps in the
+node editor itself. These are UX/editor improvements, not semantic
+changes to the Rete graph structure or the OpenSCAD generation
+architecture.
+
+Priorities:
+
+1. Nodes can be deleted cleanly, including their connections.
+2. Main UI areas (node canvas, 3D preview, and the development-only SCAD
+   output panel if still present) can be resized sensibly.
+3. Improve the add-node UI beyond the current basic controls; also fix
+   the current behavior where newly added nodes spawn stacked at the
+   same canvas position.
+4. Add a compact/collapsible node presentation so unused
+   parameters/options do not permanently consume canvas space, while
+   keeping connected/active parameters visible.
+
+### Milestone 4 — More geometry, transformation, and CSG nodes
 
 Fill out the node families described under "Node design principles" that
 aren't yet implemented: Sphere, Translate, Rotate, Scale, Union,
@@ -495,7 +518,7 @@ Intersection, and similar. Reuse the Cube/Cylinder/Difference patterns
 (pure codegen layer + Rete node + progressive disclosure where needed)
 rather than inventing new ones.
 
-### Milestone 4 — Parameters and simple dataflow
+### Milestone 5 — Parameters and simple dataflow
 
 Add value-driven parameters and a small supporting math layer.
 
@@ -511,7 +534,7 @@ Likely initial value nodes:
 
 Geometry-node parameters should still support convenient inline literal values.
 
-### Milestone 5 — Modules / reusable subgraphs
+### Milestone 6 — Modules / reusable subgraphs
 
 Support reusable, parameterized graph structures corresponding to OpenSCAD modules.
 
@@ -522,13 +545,13 @@ Focus on teaching:
 - reuse
 - composition
 
-### Milestone 6 — Iteration
+### Milestone 7 — Iteration
 
 Add a visual representation of repetition / OpenSCAD `for`.
 
 The precise UX is intentionally undecided. Do not assume the OpenSCAD syntax should be mapped literally to nodes.
 
-### Milestone 7 — Geometry code node
+### Milestone 8 — Geometry code node
 
 Add an OpenSCAD code escape hatch that:
 
@@ -538,11 +561,11 @@ Add an OpenSCAD code escape hatch that:
 
 Keep it secondary to normal visual nodes.
 
-### Milestone 8 — Project persistence
+### Milestone 9 — Project persistence
 
 Define and implement the SCADlet JSON project format, including graph layout and viewport state.
 
-### Milestone 9 — Teaching features and UX refinement
+### Milestone 10 — Teaching features and UX refinement
 
 Possible later features include:
 
@@ -574,7 +597,7 @@ editable Rete graph
 + SCAD/STL download
 ```
 
-Basic parameter dataflow/value nodes (Milestone 4) can follow after this
+Basic parameter dataflow/value nodes (Milestone 5) can follow after this
 proof of concept rather than being required before it.
 
 When working on the MVP, resist implementing later milestone features unless they are necessary to avoid a bad architectural dead end.
