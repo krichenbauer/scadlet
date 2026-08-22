@@ -10,10 +10,11 @@ export const geometrySocket = new ClassicPreset.Socket('geometry')
 /**
  * The value carried by a `geometry` socket during dataflow evaluation: an
  * OpenSCAD source fragment for the node's geometry (e.g. `cube(10);`).
- * Kept intentionally minimal - just enough for a node to hand its
- * generated statement to whatever consumes it (nothing consumes it yet,
- * since transformations/CSG nodes don't exist).
+ * Composition nodes (e.g. Difference) don't calculate geometry themselves
+ * and can be missing a required input, so `error` lets them report that
+ * without throwing or producing misleading OpenSCAD.
  */
 export interface GeometryValue {
   code: string
+  error?: string
 }

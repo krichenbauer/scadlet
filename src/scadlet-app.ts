@@ -81,6 +81,8 @@ export class ScadletApp extends LitElement {
       <header>
         <h1>SCADlet</h1>
         <button type="button" @click=${this._addCube}>Add Cube</button>
+        <button type="button" @click=${this._addCylinder}>Add Cylinder</button>
+        <button type="button" @click=${this._addDifference}>Add Difference</button>
         <button type="button" @click=${this._evaluate}>Evaluate OpenSCAD</button>
       </header>
       <main>
@@ -95,6 +97,14 @@ export class ScadletApp extends LitElement {
 
   private _addCube() {
     this.nodeEditor.addCubeNode()
+  }
+
+  private _addCylinder() {
+    this.nodeEditor.addCylinderNode()
+  }
+
+  private _addDifference() {
+    this.nodeEditor.addDifferenceNode()
   }
 
   private async _evaluate() {

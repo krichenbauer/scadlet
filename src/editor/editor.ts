@@ -5,6 +5,8 @@ import { DataflowEngine } from 'rete-engine'
 
 import { evaluateOpenSCAD } from './evaluate'
 import { CubeNode } from './nodes/cube-node'
+import { CylinderNode } from './nodes/cylinder-node'
+import { DifferenceNode } from './nodes/difference-node'
 import { attachRenderer } from './render'
 import type { AreaExtra, Schemes } from './schemes'
 
@@ -12,6 +14,8 @@ export interface SCADletEditor {
   editor: NodeEditor<Schemes>
   area: AreaPlugin<Schemes, AreaExtra>
   addCubeNode(): Promise<void>
+  addCylinderNode(): Promise<void>
+  addDifferenceNode(): Promise<void>
   evaluate(): Promise<string>
   destroy(): void
 }
@@ -52,12 +56,26 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     await AreaExtensions.zoomAt(area, editor.getNodes())
   }
 
+  async function addCylinderNode() {
+    const node = new CylinderNode({}, () => void area.update('node', node.id))
+    await editor.addNode(node)
+    await AreaExtensions.zoomAt(area, editor.getNodes())
+  }
+
+  async function addDifferenceNode() {
+    const node = new DifferenceNode()
+    await editor.addNode(node)
+    await AreaExtensions.zoomAt(area, editor.getNodes())
+  }
+
   await addCubeNode()
 
   return {
     editor,
     area,
     addCubeNode,
+    addCylinderNode,
+    addDifferenceNode,
     evaluate: () => evaluateOpenSCAD(editor, engine),
     destroy: () => area.destroy(),
   }

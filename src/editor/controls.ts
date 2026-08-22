@@ -25,6 +25,8 @@ export class LabeledNumberControl extends ClassicPreset.InputControl<'number'> {
 export class CheckboxControl extends ClassicPreset.Control {
   readonly label: string
   value: boolean
+  /** Called after `value` changes; used by nodes that need to react structurally (e.g. show/hide other controls). */
+  onChange?: (value: boolean) => void
 
   constructor(label: string, initial = false) {
     super()
@@ -34,5 +36,32 @@ export class CheckboxControl extends ClassicPreset.Control {
 
   setValue(value: boolean): void {
     this.value = value
+    this.onChange?.(value)
+  }
+}
+
+/**
+ * A labeled dropdown for choosing between a fixed set of mutually
+ * exclusive modes (e.g. a cylinder's radius/diameter/tapered sizing).
+ * Reusable by any future node with a small, fixed set of named modes -
+ * deliberately not a generic "options" framework beyond that.
+ */
+export class SelectControl<T extends string = string> extends ClassicPreset.Control {
+  readonly label: string
+  readonly options: readonly { value: T; label: string }[]
+  value: T
+  /** Called after `value` changes; used by nodes that need to react structurally (e.g. show/hide other controls). */
+  onChange?: (value: T) => void
+
+  constructor(label: string, options: readonly { value: T; label: string }[], initial: T) {
+    super()
+    this.label = label
+    this.options = options
+    this.value = initial
+  }
+
+  setValue(value: T): void {
+    this.value = value
+    this.onChange?.(value)
   }
 }

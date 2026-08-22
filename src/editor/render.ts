@@ -4,7 +4,7 @@ import type { AreaPlugin } from 'rete-area-plugin'
 import type { ConnectionPlugin } from 'rete-connection-plugin'
 import { classicConnectionPath, getDOMSocketPosition } from 'rete-render-utils'
 
-import { CheckboxControl, LabeledNumberControl } from './controls'
+import { CheckboxControl, LabeledNumberControl, SelectControl } from './controls'
 import type { AreaExtra, Schemes } from './schemes'
 
 type Position = { x: number; y: number }
@@ -78,6 +78,18 @@ function renderNode(
   node: Schemes['Node'],
 ): void {
   element.classList.add('node')
+
+  // Re-rendering a node (e.g. after `area.update('node', id)` for Cylinder's
+  // progressive disclosure) replaces all child DOM, including socket
+  // elements previously registered with the position tracker via a
+  // 'render' signal in `renderPort`. Without an explicit 'unmount' for each
+  // of those old elements, the tracker keeps stale entries around (visible
+  // as a "Found more than one element for socket..." console warning) and
+  // never lets go of detached nodes.
+  for (const socket of element.querySelectorAll<HTMLElement>('.node-socket')) {
+    void area.emit({ type: 'unmount', data: { element: socket } })
+  }
+
   element.replaceChildren()
 
   const title = document.createElement('div')
@@ -160,6 +172,30 @@ function renderControl(key: string, control: ClassicPreset.Control): HTMLElement
     text.textContent = control.label
 
     wrapper.append(input, text)
+    return wrapper
+  }
+
+  if (control instanceof SelectControl) {
+    const wrapper = document.createElement('label')
+    wrapper.className = 'node-control'
+
+    const text = document.createElement('span')
+    text.className = 'node-control-label'
+    text.textContent = control.label
+    wrapper.appendChild(text)
+
+    const select = document.createElement('select')
+    for (const option of control.options) {
+      const optionElement = document.createElement('option')
+      optionElement.value = option.value
+      optionElement.textContent = option.label
+      optionElement.selected = option.value === control.value
+      select.appendChild(optionElement)
+    }
+    select.addEventListener('pointerdown', (event) => event.stopPropagation())
+    select.addEventListener('change', () => control.setValue(select.value))
+    wrapper.appendChild(select)
+
     return wrapper
   }
 

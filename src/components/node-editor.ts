@@ -84,6 +84,10 @@ export class NodeEditorElement extends LitElement {
       box-sizing: border-box;
     }
 
+    .node-control select {
+      font: inherit;
+    }
+
     .connection {
       overflow: visible;
       position: absolute;
@@ -117,6 +121,14 @@ export class NodeEditorElement extends LitElement {
 
   async addCubeNode() {
     await this.instance?.addCubeNode()
+  }
+
+  async addCylinderNode() {
+    await this.instance?.addCylinderNode()
+  }
+
+  async addDifferenceNode() {
+    await this.instance?.addDifferenceNode()
   }
 
   async evaluate(): Promise<string> {
