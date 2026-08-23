@@ -20,6 +20,7 @@ export class NodeEditorElement extends LitElement {
     #canvas {
       position: absolute;
       inset: 0;
+      outline: none;
     }
 
     .node {
@@ -34,6 +35,11 @@ export class NodeEditorElement extends LitElement {
       color: #eee;
       font: 13px system-ui, sans-serif;
       box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
+    }
+
+    .node--selected {
+      border-color: #7ac0ff;
+      box-shadow: 0 0 0 2px rgb(122 192 255 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
     }
 
     .node-title {

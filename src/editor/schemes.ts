@@ -8,8 +8,11 @@ import type { DataflowNode } from 'rete-engine'
  * Every node must be able to evaluate itself into OpenSCAD via
  * `rete-engine`'s dataflow evaluation (see `evaluate.ts`), so `data()` is
  * baked into the shared node type rather than bolted on per node type.
+ * `selected` mirrors the flag `AreaExtensions.selectableNodes` sets on the
+ * node itself (see `editor.ts`/`render.ts`); it's declared here so the
+ * renderer can read it without casting.
  */
-type GeometryNode = ClassicPreset.Node & DataflowNode
+type GeometryNode = ClassicPreset.Node & DataflowNode & { selected?: boolean }
 
 /**
  * The graph is built entirely from `ClassicPreset.Node` (+ dataflow).

@@ -68,11 +68,23 @@ export function attachRenderer(
         )
       }
     } else if (context.type === 'unmount') {
-      const state = connections.get(context.data.element)
+      const { element } = context.data
+      const state = connections.get(element)
       if (state) {
         state.unlistenSource?.()
         state.unlistenTarget?.()
-        connections.delete(context.data.element)
+        connections.delete(element)
+      } else {
+        // Not a tracked connection root, so this is either a socket (a
+        // leaf with no further '.node-socket' descendants, making this a
+        // no-op) or a whole node's root element being unmounted on
+        // deletion. `renderNode()` only unmounts its own sockets when
+        // re-rendering a node in place; a deleted node never re-renders,
+        // so its sockets must be released here instead to avoid leaking
+        // stale entries in the position tracker.
+        for (const socket of element.querySelectorAll<HTMLElement>('.node-socket')) {
+          void area.emit({ type: 'unmount', data: { element: socket } })
+        }
       }
     }
 
@@ -86,6 +98,7 @@ function renderNode(
   node: Schemes['Node'],
 ): void {
   element.classList.add('node')
+  element.classList.toggle('node--selected', Boolean(node.selected))
 
   // Re-rendering a node (e.g. after `area.update('node', id)` for Cylinder's
   // progressive disclosure) replaces all child DOM, including socket

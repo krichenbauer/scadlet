@@ -4,6 +4,7 @@ import { ConnectionPlugin, Presets as ConnectionPresets } from 'rete-connection-
 import { DataflowEngine } from 'rete-engine'
 
 import { evaluateOpenSCAD } from './evaluate'
+import { isEditableTarget, removeNodeWithConnections } from './deletion'
 import { CubeNode } from './nodes/cube-node'
 import { CylinderNode } from './nodes/cylinder-node'
 import { DifferenceNode } from './nodes/difference-node'
@@ -50,6 +51,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
 
   AreaExtensions.simpleNodesOrder(area)
 
+  attachDeletion(editor, area, container)
+
   async function addCubeNode() {
     const node = new CubeNode()
     await editor.addNode(node)
@@ -79,4 +82,40 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     evaluate: () => evaluateOpenSCAD(editor, engine),
     destroy: () => area.destroy(),
   }
+}
+
+/**
+ * Wires up keyboard node deletion on top of the selection state that
+ * `AreaExtensions.selectableNodes` already maintains (`node.selected`,
+ * toggled by clicking a node or the empty canvas - see `createEditor`).
+ * No parallel selection tracking is introduced here.
+ */
+function attachDeletion(
+  editor: NodeEditor<Schemes>,
+  area: AreaPlugin<Schemes, AreaExtra>,
+  container: HTMLElement,
+): void {
+  // Not part of the tab order (a big pan/zoom canvas isn't a meaningful
+  // tab stop) but focusable programmatically, so a following
+  // Delete/Backspace keydown actually reaches the listener below instead
+  // of going to whatever was focused before the node was clicked.
+  container.tabIndex = -1
+
+  area.addPipe((context) => {
+    if (context.type === 'nodepicked') {
+      container.focus({ preventScroll: true })
+    }
+    return context
+  })
+
+  container.addEventListener('keydown', (event) => {
+    if (event.key !== 'Delete' && event.key !== 'Backspace') return
+    if (isEditableTarget(event.target)) return
+
+    const selected = editor.getNodes().filter((node) => node.selected)
+    if (selected.length === 0) return
+
+    event.preventDefault()
+    void Promise.all(selected.map((node) => removeNodeWithConnections(editor, node.id)))
+  })
 }
