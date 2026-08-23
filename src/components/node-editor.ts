@@ -24,12 +24,17 @@ export class NodeEditorElement extends LitElement {
       outline: none;
     }
 
+    /*
+     * Connector layout is normalized project-wide (AGENTS.md section 9):
+     * a node is a horizontal row of [inputs column | body | outputs
+     * column], so input sockets always sit at the far left edge and
+     * output sockets always sit at the far right edge, regardless of the
+     * node's collapsed/expanded state.
+     */
     .node {
       display: flex;
-      flex-direction: column;
-      gap: 8px;
-      min-width: 160px;
-      padding: 8px 10px;
+      align-items: stretch;
+      min-width: 130px;
       border-radius: 6px;
       border: 1px solid #666;
       background: #2a2a2a;
@@ -43,26 +48,93 @@ export class NodeEditorElement extends LitElement {
       box-shadow: 0 0 0 2px rgb(122 192 255 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
     }
 
-    .node-title {
-      font-weight: 600;
+    .node-body {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex: 1;
+      min-width: 0;
+      padding: 8px 10px;
     }
 
-    .node-outputs,
-    .node-inputs,
+    /* Collapsed nodes (no .node--expanded) only render a header, so the body naturally shrinks. */
+    .node--expanded .node-body {
+      min-width: 140px;
+    }
+
+    .node-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .node-title {
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+
+    .node-pin {
+      flex: none;
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      font-size: 12px;
+      line-height: 20px;
+      cursor: pointer;
+      opacity: 0.6;
+    }
+
+    .node-pin:hover {
+      opacity: 1;
+    }
+
+    .node-pin--active {
+      opacity: 1;
+      background: rgb(122 192 255 / 0.25);
+    }
+
     .node-controls {
       display: flex;
       flex-direction: column;
       gap: 4px;
     }
 
+    .node-inputs,
+    .node-outputs {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 8px;
+      padding: 8px 0;
+    }
+
+    .node-inputs {
+      align-items: flex-start;
+    }
+
+    .node-outputs {
+      align-items: flex-end;
+    }
+
     .node-port {
       display: flex;
       align-items: center;
       gap: 6px;
+      min-width: 0;
     }
 
+    /* Outputs reverse the (socket, label) DOM order visually, so the socket - not the label - stays flush with the node's outer edge. */
     .node-port--output {
-      justify-content: flex-end;
+      flex-direction: row-reverse;
+    }
+
+    .node-port-label {
+      white-space: nowrap;
     }
 
     .node-socket {
@@ -73,6 +145,15 @@ export class NodeEditorElement extends LitElement {
       background: #7ac0ff;
       border: 1px solid #2a6fb0;
       cursor: crosshair;
+    }
+
+    /* Pulls just the socket circle to straddle the node's outer border, keeping the label anchored beside it. */
+    .node-port--input .node-socket {
+      margin-left: -6px;
+    }
+
+    .node-port--output .node-socket {
+      margin-right: -6px;
     }
 
     .node-control {

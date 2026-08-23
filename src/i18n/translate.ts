@@ -18,6 +18,8 @@ const dictionaries: Record<LocaleId, Record<string, string>> = {
     'node.cube': 'Cube',
     'node.cylinder': 'Cylinder',
     'node.difference': 'Difference',
+    'node.pin': 'Pin node expanded',
+    'node.unpin': 'Unpin node',
   },
 }
 

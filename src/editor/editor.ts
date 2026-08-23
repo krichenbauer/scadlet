@@ -7,6 +7,7 @@ import { clientToGraphPosition, type Position } from './coordinates'
 import { evaluateOpenSCAD } from './evaluate'
 import { isEditableTarget, removeNodeWithConnections } from './deletion'
 import { findCatalogEntry } from './node-catalog'
+import { NodePresentationManager } from './presentation'
 import { attachRenderer } from './render'
 import type { AreaExtra, Schemes } from './schemes'
 
@@ -52,11 +53,30 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   editor.use(area)
   editor.use(engine)
   area.use(connection)
-  attachRenderer(area, connection)
+
+  // Presentation state (collapsed / temporarily expanded / pinned - see
+  // `presentation.ts`) is intentionally kept outside the Rete graph model,
+  // so it lives here rather than as node data. `onChange` re-renders just
+  // the affected node, the same mechanism Cylinder's progressive
+  // disclosure already uses.
+  const presentation = new NodePresentationManager({
+    onChange: (id) => void area.update('node', id),
+  })
+  attachRenderer(area, connection, presentation)
 
   AreaExtensions.simpleNodesOrder(area)
 
   attachDeletion(editor, area, container)
+
+  // Clears presentation timers/state whenever a node is removed, so no
+  // stale timer can ever fire and try to update a node that no longer
+  // exists (AGENTS.md section 3/15).
+  editor.addPipe((context) => {
+    if (context.type === 'noderemoved') {
+      presentation.remove(context.data.id)
+    }
+    return context
+  })
 
   // Deliberately does NOT call `AreaExtensions.zoomAt`/pan/zoom after
   // creating a node: the previous per-node-type add functions did, which

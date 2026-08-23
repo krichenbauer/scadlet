@@ -5,6 +5,8 @@ import type { ConnectionPlugin } from 'rete-connection-plugin'
 import { classicConnectionPath, getDOMSocketPosition } from 'rete-render-utils'
 
 import { CheckboxControl, LabeledNumberControl, SelectControl } from './controls'
+import { t } from '../i18n/translate'
+import type { NodePresentationManager } from './presentation'
 import type { AreaExtra, Schemes } from './schemes'
 
 type Position = { x: number; y: number }
@@ -41,6 +43,7 @@ interface ConnectionState {
 export function attachRenderer(
   area: AreaPlugin<Schemes, AreaExtra>,
   connection: ConnectionPlugin<Schemes, AreaExtra>,
+  presentation: NodePresentationManager,
 ): void {
   const socketPosition = getDOMSocketPosition<Schemes, AreaExtra>()
   // `attach()` only uses `connection` to walk up to its parent `area` via
@@ -50,13 +53,18 @@ export function attachRenderer(
   socketPosition.attach(connection as unknown as Scope<never, [AreaExtra]>)
 
   const connections = new Map<HTMLElement, ConnectionState>()
+  // Tracks which node root elements already have hover listeners attached.
+  // A node's root element is created once and reused across re-renders (only
+  // its children are replaced - see `renderNode`), so listeners must only be
+  // wired the first time a given element is seen, not on every re-render.
+  const hoverWired = new WeakSet<HTMLElement>()
 
   area.addPipe((context) => {
     if (context.type === 'render') {
       const { data } = context
 
       if (data.type === 'node') {
-        renderNode(area, data.element, data.payload)
+        renderNode(area, data.element, data.payload, presentation, hoverWired)
       } else if (data.type === 'connection') {
         updateConnection(
           connections,
@@ -96,52 +104,126 @@ function renderNode(
   area: AreaPlugin<Schemes, AreaExtra>,
   element: HTMLElement,
   node: Schemes['Node'],
+  presentation: NodePresentationManager,
+  hoverWired: WeakSet<HTMLElement>,
 ): void {
   element.classList.add('node')
   element.classList.toggle('node--selected', Boolean(node.selected))
 
+  // Feeds Rete's own selection flag into the presentation manager so a
+  // touch/no-hover device can expand-on-select and collapse-on-deselect
+  // (AGENTS.md section 5), reusing the existing selection mechanism
+  // instead of separate touch-only state.
+  presentation.syncSelection(node.id, Boolean(node.selected))
+
+  const hasControls = Object.values(node.controls).some(Boolean)
+  const expanded = hasControls && presentation.isExpanded(node.id)
+  element.classList.toggle('node--expanded', expanded)
+
+  // The node's root element persists across re-renders (only its children
+  // are replaced below), so hover listeners are wired exactly once per
+  // element rather than accumulating on every re-render.
+  if (!hoverWired.has(element)) {
+    hoverWired.add(element)
+    element.addEventListener('pointerenter', () => presentation.handlePointerEnter(node.id))
+    element.addEventListener('pointerleave', () => presentation.handlePointerLeave(node.id))
+  }
+
   // Re-rendering a node (e.g. after `area.update('node', id)` for Cylinder's
-  // progressive disclosure) replaces all child DOM, including socket
-  // elements previously registered with the position tracker via a
-  // 'render' signal in `renderPort`. Without an explicit 'unmount' for each
-  // of those old elements, the tracker keeps stale entries around (visible
-  // as a "Found more than one element for socket..." console warning) and
-  // never lets go of detached nodes.
+  // progressive disclosure, or a presentation expand/collapse) replaces all
+  // child DOM, including socket elements previously registered with the
+  // position tracker via a 'render' signal in `renderPort`. Without an
+  // explicit 'unmount' for each of those old elements, the tracker keeps
+  // stale entries around (visible as a "Found more than one element for
+  // socket..." console warning) and never lets go of detached nodes.
   for (const socket of element.querySelectorAll<HTMLElement>('.node-socket')) {
     void area.emit({ type: 'unmount', data: { element: socket } })
   }
 
   element.replaceChildren()
 
+  // Connector layout is normalized project-wide (AGENTS.md section 9):
+  // inputs sit in a column pinned to the node's far left edge, outputs in
+  // a column pinned to the far right edge, independent of the node's
+  // collapsed/expanded body in the middle. A side column is only rendered
+  // when the node actually has ports on that side (e.g. Cube/Cylinder have
+  // no inputs at all).
+  if (Object.values(node.inputs).some(Boolean)) {
+    const inputs = document.createElement('div')
+    inputs.className = 'node-inputs'
+    for (const [key, input] of Object.entries(node.inputs)) {
+      if (!input) continue
+      inputs.appendChild(renderPort(area, node.id, 'input', key, input.label))
+    }
+    element.appendChild(inputs)
+  }
+
+  const body = document.createElement('div')
+  body.className = 'node-body'
+  body.appendChild(renderHeader(node, presentation, hasControls))
+  if (expanded) {
+    const controls = document.createElement('div')
+    controls.className = 'node-controls'
+    for (const [key, control] of Object.entries(node.controls)) {
+      if (!control) continue
+      const rendered = renderControl(key, control)
+      if (rendered) controls.appendChild(rendered)
+    }
+    body.appendChild(controls)
+  }
+  element.appendChild(body)
+
+  if (Object.values(node.outputs).some(Boolean)) {
+    const outputs = document.createElement('div')
+    outputs.className = 'node-outputs'
+    for (const [key, output] of Object.entries(node.outputs)) {
+      if (!output) continue
+      outputs.appendChild(renderPort(area, node.id, 'output', key, output.label))
+    }
+    element.appendChild(outputs)
+  }
+}
+
+/**
+ * Title plus the pin/expand header control (AGENTS.md sections 2, 6, 7).
+ * A node with no controls at all (e.g. Difference) has nothing to
+ * collapse/expand, so the pin affordance is only rendered "where
+ * relevant" - i.e. when the node actually has a body worth hiding.
+ */
+function renderHeader(
+  node: Schemes['Node'],
+  presentation: NodePresentationManager,
+  hasControls: boolean,
+): HTMLElement {
+  const header = document.createElement('div')
+  header.className = 'node-header'
+
   const title = document.createElement('div')
   title.className = 'node-title'
   title.textContent = node.label
-  element.appendChild(title)
+  header.appendChild(title)
 
-  const outputs = document.createElement('div')
-  outputs.className = 'node-outputs'
-  element.appendChild(outputs)
-  for (const [key, output] of Object.entries(node.outputs)) {
-    if (!output) continue
-    outputs.appendChild(renderPort(area, node.id, 'output', key, output.label))
+  if (hasControls) {
+    const pinned = presentation.isPinned(node.id)
+
+    const pin = document.createElement('button')
+    pin.type = 'button'
+    pin.className = 'node-pin'
+    pin.classList.toggle('node-pin--active', pinned)
+    pin.setAttribute('aria-pressed', String(pinned))
+    pin.setAttribute('aria-label', pinned ? t('node.unpin') : t('node.pin'))
+    pin.textContent = '📌'
+    // Prevent the node-drag handler from starting when interacting with the
+    // pin button, mirroring the same pattern used for control inputs below.
+    // Clicking the pin toggles pinning (which also expands/collapses the
+    // node - see `NodePresentationManager.togglePin`); it never selects the
+    // node or picks a socket.
+    pin.addEventListener('pointerdown', (event) => event.stopPropagation())
+    pin.addEventListener('click', () => presentation.togglePin(node.id))
+    header.appendChild(pin)
   }
 
-  const controls = document.createElement('div')
-  controls.className = 'node-controls'
-  element.appendChild(controls)
-  for (const [key, control] of Object.entries(node.controls)) {
-    if (!control) continue
-    const rendered = renderControl(key, control)
-    if (rendered) controls.appendChild(rendered)
-  }
-
-  const inputs = document.createElement('div')
-  inputs.className = 'node-inputs'
-  element.appendChild(inputs)
-  for (const [key, input] of Object.entries(node.inputs)) {
-    if (!input) continue
-    inputs.appendChild(renderPort(area, node.id, 'input', key, input.label))
-  }
+  return header
 }
 
 function renderPort(
