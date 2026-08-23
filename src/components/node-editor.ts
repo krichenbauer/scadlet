@@ -2,6 +2,7 @@ import { LitElement, css, html } from 'lit'
 import { customElement, query } from 'lit/decorators.js'
 
 import { createEditor, type SCADletEditor } from '../editor/editor'
+import { NODE_DRAG_MIME_TYPE } from '../editor/node-catalog'
 
 /**
  * Hosts the Rete node graph. Owns the lifecycle of the underlying
@@ -118,23 +119,38 @@ export class NodeEditorElement extends LitElement {
 
   async firstUpdated() {
     this.instance = await createEditor(this.canvas)
+    this.canvas.addEventListener('dragover', this._onDragOver)
+    this.canvas.addEventListener('drop', this._onDrop)
   }
 
   disconnectedCallback() {
     super.disconnectedCallback()
+    this.canvas?.removeEventListener('dragover', this._onDragOver)
+    this.canvas?.removeEventListener('drop', this._onDrop)
     this.instance?.destroy()
   }
 
-  async addCubeNode() {
-    await this.instance?.addCubeNode()
+  /** Allows a palette drag to be dropped on the canvas, but only for the node-type payload the palette produces. */
+  private readonly _onDragOver = (event: DragEvent): void => {
+    if (!event.dataTransfer?.types.includes(NODE_DRAG_MIME_TYPE)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
   }
 
-  async addCylinderNode() {
-    await this.instance?.addCylinderNode()
+  /** Reads the dropped node type and places it under the pointer, converted to graph coordinates by the editor. */
+  private readonly _onDrop = (event: DragEvent): void => {
+    const type = event.dataTransfer?.getData(NODE_DRAG_MIME_TYPE)
+    if (!type) return
+    event.preventDefault()
+    void this.addNodeAt(type, { x: event.clientX, y: event.clientY })
   }
 
-  async addDifferenceNode() {
-    await this.instance?.addDifferenceNode()
+  async addNodeAt(type: string, clientPosition: { x: number; y: number }): Promise<void> {
+    await this.instance?.addNodeAt(type, clientPosition)
+  }
+
+  async addNodeAtCenter(type: string): Promise<void> {
+    await this.instance?.addNodeAtCenter(type)
   }
 
   async evaluate(): Promise<string> {

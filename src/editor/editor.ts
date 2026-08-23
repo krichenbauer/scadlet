@@ -3,20 +3,25 @@ import { AreaExtensions, AreaPlugin } from 'rete-area-plugin'
 import { ConnectionPlugin, Presets as ConnectionPresets } from 'rete-connection-plugin'
 import { DataflowEngine } from 'rete-engine'
 
+import { clientToGraphPosition, type Position } from './coordinates'
 import { evaluateOpenSCAD } from './evaluate'
 import { isEditableTarget, removeNodeWithConnections } from './deletion'
-import { CubeNode } from './nodes/cube-node'
-import { CylinderNode } from './nodes/cylinder-node'
-import { DifferenceNode } from './nodes/difference-node'
+import { findCatalogEntry } from './node-catalog'
 import { attachRenderer } from './render'
 import type { AreaExtra, Schemes } from './schemes'
 
 export interface SCADletEditor {
   editor: NodeEditor<Schemes>
   area: AreaPlugin<Schemes, AreaExtra>
-  addCubeNode(): Promise<void>
-  addCylinderNode(): Promise<void>
-  addDifferenceNode(): Promise<void>
+  /**
+   * Creates a node of the given catalog type and places it so that
+   * `clientPosition` (viewport coordinates, e.g. `event.clientX/Y`)
+   * becomes its top-left origin in graph space. The single creation path
+   * used by both palette drag/drop and the click fallback (`addNodeAtCenter`).
+   */
+  addNodeAt(type: string, clientPosition: Position): Promise<void>
+  /** Creates a node of the given catalog type near the visible center of the canvas, without changing pan/zoom. */
+  addNodeAtCenter(type: string): Promise<void>
   evaluate(): Promise<string>
   destroy(): void
 }
@@ -53,32 +58,35 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
 
   attachDeletion(editor, area, container)
 
-  async function addCubeNode() {
-    const node = new CubeNode()
+  // Deliberately does NOT call `AreaExtensions.zoomAt`/pan/zoom after
+  // creating a node: the previous per-node-type add functions did, which
+  // re-framed the whole viewport around every node (jarring, and doubly
+  // pointless once nodes get real positions instead of all stacking at
+  // (0, 0)). The current pan/zoom must survive node creation unchanged.
+  async function addNodeAt(type: string, clientPosition: Position): Promise<void> {
+    const entry = findCatalogEntry(type)
+    if (!entry) return
+
+    const node = entry.create({ onControlsChanged: (id) => void area.update('node', id) })
     await editor.addNode(node)
-    await AreaExtensions.zoomAt(area, editor.getNodes())
+
+    const rect = area.container.getBoundingClientRect()
+    const position = clientToGraphPosition(clientPosition, rect, area.area.transform)
+    await area.translate(node.id, position)
   }
 
-  async function addCylinderNode() {
-    const node = new CylinderNode({}, () => void area.update('node', node.id))
-    await editor.addNode(node)
-    await AreaExtensions.zoomAt(area, editor.getNodes())
+  async function addNodeAtCenter(type: string): Promise<void> {
+    const rect = area.container.getBoundingClientRect()
+    await addNodeAt(type, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
   }
 
-  async function addDifferenceNode() {
-    const node = new DifferenceNode()
-    await editor.addNode(node)
-    await AreaExtensions.zoomAt(area, editor.getNodes())
-  }
-
-  await addCubeNode()
+  await addNodeAtCenter('cube')
 
   return {
     editor,
     area,
-    addCubeNode,
-    addCylinderNode,
-    addDifferenceNode,
+    addNodeAt,
+    addNodeAtCenter,
     evaluate: () => evaluateOpenSCAD(editor, engine),
     destroy: () => area.destroy(),
   }

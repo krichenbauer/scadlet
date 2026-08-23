@@ -5,6 +5,7 @@ import { styleMap } from 'lit/directives/style-map.js'
 import './components/node-editor'
 import './components/geometry-viewer'
 import './components/splitter'
+import './components/node-palette'
 import type { NodeEditorElement } from './components/node-editor'
 import type { GeometryViewer } from './components/geometry-viewer'
 import { RenderController } from './render/render-controller'
@@ -66,6 +67,18 @@ export class ScadletApp extends LitElement {
       flex: 1;
     }
 
+    .workspace {
+      display: grid;
+      grid-template-columns: 200px minmax(0, 1fr);
+      min-height: 0;
+      min-width: 0;
+    }
+
+    node-palette {
+      min-height: 0;
+      border-right: 1px solid #444;
+    }
+
     main {
       display: grid;
       grid-template-columns: minmax(0, var(--editor-width, 65%)) auto minmax(0, 1fr);
@@ -111,6 +124,16 @@ export class ScadletApp extends LitElement {
        trying to keep the side-by-side split usable (AGENTS.md: desktop
        is the primary target, narrow widths just need to avoid breaking). */
     @media (max-width: 700px) {
+      .workspace {
+        display: flex !important;
+        flex-direction: column !important;
+      }
+
+      node-palette {
+        flex: none;
+        max-height: 30vh;
+      }
+
       main {
         display: flex !important;
         flex-direction: column !important;
@@ -178,9 +201,6 @@ export class ScadletApp extends LitElement {
     return html`
       <header>
         <h1>SCADlet</h1>
-        <button type="button" @click=${this._addCube}>Add Cube</button>
-        <button type="button" @click=${this._addCylinder}>Add Cylinder</button>
-        <button type="button" @click=${this._addDifference}>Add Difference</button>
         <button type="button" @click=${this._evaluate}>Evaluate OpenSCAD</button>
         <span class="toolbar-gap"></span>
         <button type="button" @click=${this._render} ?disabled=${this.rendering}>
@@ -192,21 +212,24 @@ export class ScadletApp extends LitElement {
         </button>
         <button type="button" @click=${this._downloadStl} ?disabled=${!this.stl}>Download .stl</button>
       </header>
-      <main style=${styleMap({ '--editor-width': this.editorWidth ? `${this.editorWidth}px` : undefined })}>
-        <node-editor></node-editor>
-        <layout-splitter orientation="vertical" @splitter-move=${this._onMainSplitterMove}></layout-splitter>
-        <div
-          class="side"
-          style=${styleMap({ '--viewer-height': this.viewerHeight ? `${this.viewerHeight}px` : undefined })}
-        >
-          <geometry-viewer></geometry-viewer>
-          <layout-splitter orientation="horizontal" @splitter-move=${this._onSideSplitterMove}></layout-splitter>
-          <div class="bottom-panel">
-            <pre class="scad-output">${this.scadSource || '// click "Evaluate OpenSCAD" to see the generated source'}</pre>
-            ${this.renderError ? html`<pre class="render-error">${this.renderError}</pre>` : nothing}
+      <div class="workspace">
+        <node-palette @node-palette-pick=${this._onPalettePick}></node-palette>
+        <main style=${styleMap({ '--editor-width': this.editorWidth ? `${this.editorWidth}px` : undefined })}>
+          <node-editor></node-editor>
+          <layout-splitter orientation="vertical" @splitter-move=${this._onMainSplitterMove}></layout-splitter>
+          <div
+            class="side"
+            style=${styleMap({ '--viewer-height': this.viewerHeight ? `${this.viewerHeight}px` : undefined })}
+          >
+            <geometry-viewer></geometry-viewer>
+            <layout-splitter orientation="horizontal" @splitter-move=${this._onSideSplitterMove}></layout-splitter>
+            <div class="bottom-panel">
+              <pre class="scad-output">${this.scadSource || '// click "Evaluate OpenSCAD" to see the generated source'}</pre>
+              ${this.renderError ? html`<pre class="render-error">${this.renderError}</pre>` : nothing}
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </div>
     `
   }
 
@@ -253,16 +276,8 @@ export class ScadletApp extends LitElement {
     this.viewerHeight = Math.min(Math.max(y, MIN_VIEWER_HEIGHT), max)
   }
 
-  private _addCube() {
-    this.nodeEditor.addCubeNode()
-  }
-
-  private _addCylinder() {
-    this.nodeEditor.addCylinderNode()
-  }
-
-  private _addDifference() {
-    this.nodeEditor.addDifferenceNode()
+  private _onPalettePick(event: CustomEvent<{ type: string }>): void {
+    void this.nodeEditor.addNodeAtCenter(event.detail.type)
   }
 
   private async _evaluate() {
