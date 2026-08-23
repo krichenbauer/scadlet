@@ -1,12 +1,23 @@
 import { LitElement, css, html, nothing } from 'lit'
 import { customElement, query, state } from 'lit/decorators.js'
+import { styleMap } from 'lit/directives/style-map.js'
 
 import './components/node-editor'
 import './components/geometry-viewer'
+import './components/splitter'
 import type { NodeEditorElement } from './components/node-editor'
 import type { GeometryViewer } from './components/geometry-viewer'
 import { RenderController } from './render/render-controller'
 import { scadBlob, stlBlob, triggerDownload } from './render/download'
+
+/** Pane size limits for the resizable workspace layout, in pixels. */
+const MIN_EDITOR_WIDTH = 280
+const MIN_PREVIEW_WIDTH = 240
+const MIN_VIEWER_HEIGHT = 160
+const MIN_OUTPUT_HEIGHT = 60
+const SPLITTER_SIZE = 7
+/** Fraction of the available space the editor/viewer pane gets by default. */
+const DEFAULT_SPLIT_FRACTION = 0.65
 
 /**
  * The SCADlet application shell: a toolbar, the node-editor area, and the
@@ -57,25 +68,35 @@ export class ScadletApp extends LitElement {
 
     main {
       display: grid;
-      grid-template-columns: 2fr 1fr;
+      grid-template-columns: minmax(0, var(--editor-width, 65%)) auto minmax(0, 1fr);
       min-height: 0;
+      min-width: 0;
     }
 
     node-editor {
+      min-width: 0;
       border-right: 1px solid #444;
     }
 
     .side {
       display: grid;
-      grid-template-rows: 1fr auto auto;
+      grid-template-rows: minmax(0, var(--viewer-height, 65%)) auto minmax(0, 1fr);
       min-height: 0;
+      min-width: 0;
+    }
+
+    .bottom-panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
     }
 
     .scad-output {
+      flex: 1;
       margin: 0;
       padding: 8px;
       overflow: auto;
-      max-height: 40%;
       border-top: 1px solid #444;
       font: 12px/1.4 ui-monospace, monospace;
       white-space: pre-wrap;
@@ -83,6 +104,27 @@ export class ScadletApp extends LitElement {
 
     geometry-viewer {
       min-height: 0;
+      min-width: 0;
+    }
+
+    /* At narrow widths, fall back to a simple stacked layout instead of
+       trying to keep the side-by-side split usable (AGENTS.md: desktop
+       is the primary target, narrow widths just need to avoid breaking). */
+    @media (max-width: 700px) {
+      main {
+        display: flex !important;
+        flex-direction: column !important;
+      }
+
+      main > node-editor,
+      main > .side {
+        flex: 1 1 50%;
+        min-height: 200px;
+      }
+
+      main > layout-splitter[orientation='vertical'] {
+        display: none;
+      }
     }
 
     .render-error {
@@ -102,7 +144,15 @@ export class ScadletApp extends LitElement {
   @query('geometry-viewer')
   private viewer!: GeometryViewer
 
+  @query('main')
+  private mainEl!: HTMLElement
+
+  @query('.side')
+  private sideEl!: HTMLElement
+
   private readonly renderController = new RenderController()
+  private mainResizeObserver?: ResizeObserver
+  private sideResizeObserver?: ResizeObserver
 
   @state()
   private scadSource = ''
@@ -115,6 +165,14 @@ export class ScadletApp extends LitElement {
 
   @state()
   private stl: ArrayBuffer | null = null
+
+  /** Width, in pixels, of the node-editor pane. 0 means "not measured yet". */
+  @state()
+  private editorWidth = 0
+
+  /** Height, in pixels, of the geometry-viewer pane. 0 means "not measured yet". */
+  @state()
+  private viewerHeight = 0
 
   render() {
     return html`
@@ -134,15 +192,65 @@ export class ScadletApp extends LitElement {
         </button>
         <button type="button" @click=${this._downloadStl} ?disabled=${!this.stl}>Download .stl</button>
       </header>
-      <main>
+      <main style=${styleMap({ '--editor-width': this.editorWidth ? `${this.editorWidth}px` : undefined })}>
         <node-editor></node-editor>
-        <div class="side">
+        <layout-splitter orientation="vertical" @splitter-move=${this._onMainSplitterMove}></layout-splitter>
+        <div
+          class="side"
+          style=${styleMap({ '--viewer-height': this.viewerHeight ? `${this.viewerHeight}px` : undefined })}
+        >
           <geometry-viewer></geometry-viewer>
-          <pre class="scad-output">${this.scadSource || '// click "Evaluate OpenSCAD" to see the generated source'}</pre>
-          ${this.renderError ? html`<pre class="render-error">${this.renderError}</pre>` : nothing}
+          <layout-splitter orientation="horizontal" @splitter-move=${this._onSideSplitterMove}></layout-splitter>
+          <div class="bottom-panel">
+            <pre class="scad-output">${this.scadSource || '// click "Evaluate OpenSCAD" to see the generated source'}</pre>
+            ${this.renderError ? html`<pre class="render-error">${this.renderError}</pre>` : nothing}
+          </div>
         </div>
       </main>
     `
+  }
+
+  firstUpdated() {
+    this.mainResizeObserver = new ResizeObserver(() => this._clampEditorWidth())
+    this.mainResizeObserver.observe(this.mainEl)
+    this.sideResizeObserver = new ResizeObserver(() => this._clampViewerHeight())
+    this.sideResizeObserver.observe(this.sideEl)
+  }
+
+  private _clampEditorWidth(): void {
+    const available = this.mainEl.clientWidth - SPLITTER_SIZE
+    if (available <= 0) return
+    const max = Math.max(MIN_EDITOR_WIDTH, available - MIN_PREVIEW_WIDTH)
+    this.editorWidth =
+      this.editorWidth === 0
+        ? Math.min(Math.max(available * DEFAULT_SPLIT_FRACTION, MIN_EDITOR_WIDTH), max)
+        : Math.min(Math.max(this.editorWidth, MIN_EDITOR_WIDTH), max)
+  }
+
+  private _clampViewerHeight(): void {
+    const available = this.sideEl.clientHeight - SPLITTER_SIZE
+    if (available <= 0) return
+    const max = Math.max(MIN_VIEWER_HEIGHT, available - MIN_OUTPUT_HEIGHT)
+    this.viewerHeight =
+      this.viewerHeight === 0
+        ? Math.min(Math.max(available * DEFAULT_SPLIT_FRACTION, MIN_VIEWER_HEIGHT), max)
+        : Math.min(Math.max(this.viewerHeight, MIN_VIEWER_HEIGHT), max)
+  }
+
+  private _onMainSplitterMove(event: CustomEvent<{ clientX: number }>): void {
+    const rect = this.mainEl.getBoundingClientRect()
+    const available = rect.width - SPLITTER_SIZE
+    const max = Math.max(MIN_EDITOR_WIDTH, available - MIN_PREVIEW_WIDTH)
+    const x = event.detail.clientX - rect.left
+    this.editorWidth = Math.min(Math.max(x, MIN_EDITOR_WIDTH), max)
+  }
+
+  private _onSideSplitterMove(event: CustomEvent<{ clientY: number }>): void {
+    const rect = this.sideEl.getBoundingClientRect()
+    const available = rect.height - SPLITTER_SIZE
+    const max = Math.max(MIN_VIEWER_HEIGHT, available - MIN_OUTPUT_HEIGHT)
+    const y = event.detail.clientY - rect.top
+    this.viewerHeight = Math.min(Math.max(y, MIN_VIEWER_HEIGHT), max)
   }
 
   private _addCube() {
@@ -207,6 +315,8 @@ export class ScadletApp extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback()
     this.renderController.destroy()
+    this.mainResizeObserver?.disconnect()
+    this.sideResizeObserver?.disconnect()
   }
 }
 
