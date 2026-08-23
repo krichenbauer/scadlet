@@ -51,14 +51,27 @@ export class GeometryViewer extends LitElement {
     this.renderer.setPixelRatio(window.devicePixelRatio)
     this.host.appendChild(this.renderer.domElement)
 
-    this.scene.add(new THREE.GridHelper(200, 20, 0x555555, 0x333333))
+    // OpenSCAD is Z-up; Three.js defaults to Y-up. Setting the camera's
+    // own up-vector (read once by OrbitControls below) is what actually
+    // controls the orbit/vertical convention - it must happen before the
+    // OrbitControls is constructed, since it captures `camera.up` then.
+    this.camera.up.set(0, 0, 1)
+
+    // GridHelper always lies in the XZ plane (horizontal for Y-up). Rotate
+    // it 90° around X so it lies flat in the XY plane instead, matching
+    // OpenSCAD's horizontal modeling plane.
+    const grid = new THREE.GridHelper(200, 20, 0x555555, 0x333333)
+    grid.rotation.x = Math.PI / 2
+    this.scene.add(grid)
+    // AxesHelper needs no rotation: its Z axis already renders vertically
+    // once the camera's up-vector is Z.
     this.scene.add(new THREE.AxesHelper(100))
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.7))
     const keyLight = new THREE.DirectionalLight(0xffffff, 0.8)
     keyLight.position.set(1, 2, 3)
     this.scene.add(keyLight)
 
-    this.camera.position.set(80, 60, 80)
+    this.camera.position.set(80, 80, 60)
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
     this.controls.enableDamping = true
@@ -110,7 +123,9 @@ export class GeometryViewer extends LitElement {
     if (!sphere || !this.controls) return
 
     const distance = (sphere.radius / Math.sin((this.camera.fov * Math.PI) / 360)) * 1.4
-    const direction = new THREE.Vector3(1, 0.8, 1).normalize()
+    // Z is up in this viewer, so the elevation component of the view
+    // direction belongs on Z rather than Y.
+    const direction = new THREE.Vector3(1, 1, 0.8).normalize()
     this.camera.position.copy(sphere.center).addScaledVector(direction, distance)
     this.camera.near = Math.max(distance / 100, 0.1)
     this.camera.far = distance * 100
