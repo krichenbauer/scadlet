@@ -201,7 +201,6 @@ export class ScadletApp extends LitElement {
     return html`
       <header>
         <h1>SCADlet</h1>
-        <button type="button" @click=${this._evaluate}>Evaluate OpenSCAD</button>
         <span class="toolbar-gap"></span>
         <button type="button" @click=${this._render} ?disabled=${this.rendering}>
           ${this.rendering ? 'Rendering…' : 'Render'}
@@ -224,7 +223,7 @@ export class ScadletApp extends LitElement {
             <geometry-viewer></geometry-viewer>
             <layout-splitter orientation="horizontal" @splitter-move=${this._onSideSplitterMove}></layout-splitter>
             <div class="bottom-panel">
-              <pre class="scad-output">${this.scadSource || '// click "Evaluate OpenSCAD" to see the generated source'}</pre>
+              <pre class="scad-output">${this.scadSource || '// click "Render" to see the generated source'}</pre>
               ${this.renderError ? html`<pre class="render-error">${this.renderError}</pre>` : nothing}
             </div>
           </div>
@@ -280,14 +279,13 @@ export class ScadletApp extends LitElement {
     void this.nodeEditor.addNodeAtCenter(event.detail.type)
   }
 
-  private async _evaluate() {
-    this.scadSource = await this.nodeEditor.evaluate()
-    console.log(this.scadSource)
-  }
-
   private async _render() {
     if (this.rendering) return
 
+    // Render always evaluates the current graph first, so it's the one
+    // action that keeps the SCAD output, the `.scad` download, and the
+    // WASM render in sync with each other - there is no separate
+    // "Evaluate" action/code path to fall out of sync with this one.
     const source = await this.nodeEditor.evaluate()
     this.scadSource = source
 

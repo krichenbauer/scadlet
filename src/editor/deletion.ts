@@ -25,12 +25,22 @@ export async function removeNodeWithConnections(
 }
 
 /**
- * True for `<input>`/`<textarea>`/contenteditable targets, so Delete and
- * Backspace keep working as ordinary text editing there instead of also
- * deleting the selected node.
+ * True for `<input>`/`<textarea>`/`<select>`/`<button>`/contenteditable
+ * targets - i.e. anything a node control renders as (see `render.ts`'s
+ * `renderControl` and pin button). Delete/Backspace keep working as
+ * ordinary editing there instead of also deleting the selected node, and
+ * `editor.ts`'s canvas-gesture isolation (double-click/wheel vs. zoom)
+ * reuses this exact same check.
  */
 export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
-  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return true
+  if (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    target instanceof HTMLButtonElement
+  ) {
+    return true
+  }
   return target.isContentEditable
 }

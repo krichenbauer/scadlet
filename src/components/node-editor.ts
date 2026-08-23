@@ -142,9 +142,21 @@ export class NodeEditorElement extends LitElement {
       height: 10px;
       flex: none;
       border-radius: 50%;
-      background: #7ac0ff;
       border: 1px solid #2a6fb0;
       cursor: crosshair;
+    }
+
+    /*
+     * Socket color communicates the value/data type (AGENTS.md section
+     * 4); visible port labels are reserved for disambiguating sibling
+     * ports on the same side (e.g. Difference's Base vs Subtract), not
+     * for restating the type - see ports.ts's isRedundantTypeLabel.
+     * A future non-geometry socket type would get its own rule here
+     * (e.g. a neutral/grey [data-socket-type='number']) rather than a
+     * full type-color framework.
+     */
+    .node-socket[data-socket-type='geometry'] {
+      background: #7ac0ff;
     }
 
     /* Pulls just the socket circle to straddle the node's outer border, keeping the label anchored beside it. */

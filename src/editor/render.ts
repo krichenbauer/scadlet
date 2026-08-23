@@ -6,6 +6,8 @@ import { classicConnectionPath, getDOMSocketPosition } from 'rete-render-utils'
 
 import { CheckboxControl, LabeledNumberControl, SelectControl } from './controls'
 import { t } from '../i18n/translate'
+import { bringNodeToFront } from './order'
+import { isRedundantTypeLabel } from './ports'
 import type { NodePresentationManager } from './presentation'
 import type { AreaExtra, Schemes } from './schemes'
 
@@ -125,7 +127,13 @@ function renderNode(
   // element rather than accumulating on every re-render.
   if (!hoverWired.has(element)) {
     hoverWired.add(element)
-    element.addEventListener('pointerenter', () => presentation.handlePointerEnter(node.id))
+    element.addEventListener('pointerenter', () => {
+      // Bring the node forward immediately on hover start, not after the
+      // presentation manager's expand delay elapses, so an about-to-expand
+      // node is never visually obscured by a neighbor once it does expand.
+      bringNodeToFront(area, node.id)
+      presentation.handlePointerEnter(node.id)
+    })
     element.addEventListener('pointerleave', () => presentation.handlePointerLeave(node.id))
   }
 
@@ -153,7 +161,7 @@ function renderNode(
     inputs.className = 'node-inputs'
     for (const [key, input] of Object.entries(node.inputs)) {
       if (!input) continue
-      inputs.appendChild(renderPort(area, node.id, 'input', key, input.label))
+      inputs.appendChild(renderPort(area, node.id, 'input', key, input.label, input.socket.name))
     }
     element.appendChild(inputs)
   }
@@ -178,7 +186,7 @@ function renderNode(
     outputs.className = 'node-outputs'
     for (const [key, output] of Object.entries(node.outputs)) {
       if (!output) continue
-      outputs.appendChild(renderPort(area, node.id, 'output', key, output.label))
+      outputs.appendChild(renderPort(area, node.id, 'output', key, output.label, output.socket.name))
     }
     element.appendChild(outputs)
   }
@@ -232,18 +240,37 @@ function renderPort(
   side: Side,
   key: string,
   label: string | undefined,
+  socketName: string,
 ): HTMLElement {
   const row = document.createElement('div')
   row.className = `node-port node-port--${side}`
 
+  const accessibleName = label ?? key
+
   const socket = document.createElement('div')
   socket.className = 'node-socket'
+  // Presentation hook for socket type (AGENTS.md section 4): color is the
+  // primary way a socket's data type is communicated, driven by this data
+  // attribute in CSS (`node-editor.ts`) rather than by permanently showing
+  // type text beside every connector.
+  socket.dataset.socketType = socketName
+  // The accessible name is always set, even when the visible label below
+  // is omitted, so screen readers/tooltips never lose the socket's meaning.
+  socket.title = accessibleName
+  socket.setAttribute('aria-label', accessibleName)
   row.appendChild(socket)
 
-  const text = document.createElement('span')
-  text.className = 'node-port-label'
-  text.textContent = label ?? key
-  row.appendChild(text)
+  // A label that just restates the socket's data type (e.g. a lone
+  // "Geometry" output) is redundant now that color communicates that
+  // type; a label that disambiguates sibling ports on the same side (e.g.
+  // Difference's "Base"/"Subtract") stays visible, since position alone
+  // can't tell those apart.
+  if (!isRedundantTypeLabel(label, socketName)) {
+    const text = document.createElement('span')
+    text.className = 'node-port-label'
+    text.textContent = accessibleName
+    row.appendChild(text)
+  }
 
   // Registers the socket with the connection plugin (drag-to-connect
   // hit-testing) and the position tracker (connection path anchoring).

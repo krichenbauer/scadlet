@@ -68,6 +68,12 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
 
   attachDeletion(editor, area, container)
 
+  // Rete's zoom extension listens for `wheel`/`dblclick` directly on this
+  // same `container` element that node controls render inside, so without
+  // isolation, e.g. double-clicking a number input to select its value
+  // also bubbles up and zooms the whole canvas (AGENTS.md section 3).
+  isolateControlGestures(container)
+
   // Clears presentation timers/state whenever a node is removed, so no
   // stale timer can ever fire and try to update a node that no longer
   // exists (AGENTS.md section 3/15).
@@ -146,4 +152,23 @@ function attachDeletion(
     event.preventDefault()
     void Promise.all(selected.map((node) => removeNodeWithConnections(editor, node.id)))
   })
+}
+
+/**
+ * Stops a `dblclick`/`wheel` event that started inside a node control
+ * (input, select, button, contenteditable) from ever reaching Rete's own
+ * `dblclick`/`wheel` listeners on this same container, which zoom the
+ * canvas. A capture-phase listener runs before those bubble-phase
+ * listeners regardless of attachment order, so this is a single,
+ * centralized isolation point rather than a `stopPropagation` call added
+ * to every individual control (AGENTS.md section 3). Double-clicking or
+ * scrolling anywhere else on the canvas (including a node's title/body)
+ * still zooms as before.
+ */
+function isolateControlGestures(container: HTMLElement): void {
+  const stopIfEditable = (event: Event): void => {
+    if (isEditableTarget(event.target)) event.stopPropagation()
+  }
+  container.addEventListener('dblclick', stopIfEditable, { capture: true })
+  container.addEventListener('wheel', stopIfEditable, { capture: true })
 }
