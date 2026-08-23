@@ -1,6 +1,6 @@
-# SCADlet — Agent Instructions
+**# SCADlet — Agent Instructions**
 
-## Project purpose
+**## Project purpose**
 
 SCADlet is an open-source, browser-based visual programming environment for OpenSCAD.
 
@@ -11,108 +11,169 @@ The node graph is the primary programming interface. OpenSCAD is the target lang
 Priorities, in order:
 
 1. Clear, learnable visual representation of functional programming concepts.
+
 2. Geometry-first interaction and immediate visual results.
+
 3. A fully client-side browser application.
+
 4. Clean OpenSCAD export.
+
 5. Simple, maintainable architecture.
+
 6. Desktop/laptop browser UX first; touch/iPad support is desirable but secondary.
+
 7. Full OpenSCAD language compatibility is not required if it conflicts with clarity.
 
 Do not turn SCADlet into a generic CAD system or a generic visual programming framework unless explicitly requested.
 
----
+**---**
 
-## Current architecture
+**## Current architecture**
 
 Use this stack unless a task explicitly changes an architectural decision:
 
 - TypeScript
+
 - Vite
+
 - Lit for application-level UI and Web Components (the app shell, toolbar,
+
   and other chrome around the node editor)
+
 - Rete.js for the node graph's structure, sockets/connections, and dataflow
+
   evaluation; rendering of nodes/connections inside the editor canvas is a
+
   custom DOM renderer (see "Node editor rendering" below), not
+
   `rete-lit-plugin`
+
 - OpenSCAD WASM for OpenSCAD execution and mesh generation, currently integrated locally through `openscad-wasm-prebuilt`
+
 - Three.js for the interactive 3D viewer
+
 - pnpm for JavaScript package management
+
 - Nix flake/devShell for the development environment
 
 Do not introduce React, Vue, Angular, Svelte, or another application framework without an explicit architectural decision.
 
-### Node editor rendering
+**### Node editor rendering**
 
 Rete is the source of truth for graph structure and dataflow, but its
-official Lit render plugin (`rete-lit-plugin`) is **not** used and should
+
+official Lit render plugin (`rete-lit-plugin`) is ****not**** used and should
+
 not be reintroduced without a documented reason: its published build is
+
 compiled against a legacy Babel decorator runtime that is incompatible
+
 with Lit 3's decorator implementation.
 
 Instead, `src/editor/render.ts` is a small, intentional, hand-written DOM
+
 renderer:
 
 - It subscribes to Rete's own area render/connection/socket signals
+
   (`area.addPipe`) to create and update plain DOM elements for nodes,
+
   controls, ports, and connections.
+
 - It uses `rete-render-utils` (`getDOMSocketPosition` for live socket
+
   position tracking, `classicConnectionPath` for the connection curve) —
+
   the same low-level utilities the official React/Vue/Svelte Rete render
+
   plugins build on internally.
+
 - Connections are drawn as SVG `<path>` elements sized to their own
+
   start/end bounding box, and stay in sync as nodes move or a new
+
   connection is dragged.
 
 This is the current, intended rendering architecture, not a temporary
+
 workaround. New node types should follow the existing patterns in
+
 `render.ts`/`controls.ts` (e.g. dynamic control add/remove plus
+
 `area.update('node', id)` for progressive disclosure) rather than
+
 introducing a second rendering approach or resurrecting
+
 `rete-lit-plugin`.
 
 Lit still owns the surrounding application UI (`<scadlet-app>`,
+
 `<node-editor>`, toolbar, panels); it does not render individual nodes or
+
 connections.
 
-### Data flow
+**### Data flow**
 
 The intended data flow is:
 
 ```text
+
 Rete node graph
+
       ↓
+
 Rete dataflow evaluation
+
       ↓
+
 OpenSCAD source string
+
       ├────────────→ .scad download
+
       ↓
+
 Render button
+
       ↓
+
 Web Worker
+
       ↓
+
 OpenSCAD WASM
+
       ↓
+
 STL ArrayBuffer
+
       ├────────────→ .stl download
+
       ↓
+
 Three.js viewer
+
 ```
 
 Keep this direction simple. Do not make the Three.js viewer part of the semantic graph and do not use the viewer as a source of model state.
 
----
+**---**
 
-## Rete responsibilities
+**## Rete responsibilities**
 
 Rete is currently intended to be the source of truth for the program graph.
 
 Use Rete for:
 
 - nodes
+
 - ports
+
 - connections
+
 - graph structure
+
 - node-editor interaction
+
 - graph evaluation/dataflow
 
 Do not create a second parallel graph/AST model unless there is a demonstrated need and the architectural change is discussed first.
@@ -122,57 +183,76 @@ Rete does not know OpenSCAD semantics automatically. SCADlet node implementation
 Conceptually:
 
 ```text
+
 Cube node
+
 → cube(...);
 
 Cylinder node
+
 → cylinder(...);
 
 Difference node
+
 → difference() {
+
     <input geometry>
+
     <subtracted geometry>
+
   }
+
 ```
 
 Prefer structured node implementations and reusable code-generation helpers over ad-hoc string concatenation scattered throughout UI components.
 
----
+**---**
 
-## Node design principles
+**## Node design principles**
 
 Geometry is the primary data type and should dominate the visual language.
 
 Initial node families include:
 
 - primitives: cube, sphere, cylinder
+
 - transformations: translate, rotate, scale
+
 - Boolean operations: union, difference, intersection
+
 - later: extrusion, hull, minkowski, mirror, resize, modules, iteration
+
 - values/math exist to support geometry, not to dominate the graph
 
 Cube, Cylinder, and Difference already exist and prove the pattern (a
+
 geometry-producing primitive, a parameterized primitive with progressive
+
 disclosure, and a composition node that combines connected inputs). The
+
 remaining primitives/transforms/Boolean nodes above are not yet implemented.
 
-### Parameters
+**### Parameters**
 
 Simple values should normally be editable directly inside geometry nodes.
 
 Example:
 
 ```text
+
 Cylinder
+
   radius: 5
+
   height: 20
+
 ```
 
 Parameters may later also expose ports so their values can come from other nodes.
 
 Avoid forcing users to create value nodes for every numeric literal.
 
-### Optional OpenSCAD parameters
+**### Optional OpenSCAD parameters**
 
 Use progressive disclosure.
 
@@ -183,35 +263,43 @@ For mutually exclusive OpenSCAD forms, expose semantic modes rather than indepen
 For example, a cylinder may offer:
 
 - radius
+
 - diameter
+
 - different bottom/top radii
 
 Only fields/ports relevant to the selected mode should be shown.
 
 Optional advanced parameters such as `$fn`, `$fa`, and `$fs` should be hidden until enabled.
 
-### Code node
+**### Code node**
 
 A geometry-oriented OpenSCAD code node is planned for a later milestone as an escape hatch for constructs that are awkward to represent visually.
 
 Do not use code nodes as a shortcut for ordinary geometry features that should have clear visual nodes.
 
----
+**---**
 
-## OpenSCAD generation
+**## OpenSCAD generation**
 
 SCADlet should generate valid, reasonably readable OpenSCAD.
 
 OpenSCAD source does not need to be user-editable in the UI. A plain
+
 dev-only text panel currently shows the generated source for verification
+
 during development; this is not a code editor and is not a UI requirement
+
 in itself.
 
 Required initial behavior:
 
 - evaluate the Rete graph
+
 - produce an OpenSCAD source string
+
 - allow that source to be downloaded as `.scad`
+
 - pass the same source to OpenSCAD WASM for rendering
 
 The preview and exported OpenSCAD must derive from the same generated source.
@@ -220,25 +308,29 @@ Do not introduce a second geometry implementation such as JSCAD or replicad for 
 
 Importing existing `.scad` source is not currently a requirement.
 
----
+**---**
 
-## OpenSCAD WASM and rendering
+**## OpenSCAD WASM and rendering**
 
 Run OpenSCAD WASM in a Web Worker.
 
 The initial UX is deliberately manual:
 
-- `Render` evaluates the graph, generates OpenSCAD, sends it to the worker, generates STL, and updates the viewer.
+- `Render` is the single normal evaluation/render action: it evaluates the graph, generates the current OpenSCAD source, updates the development source display, sends that same source to the worker, generates STL, and updates the viewer.
+
+- There is no separate user-facing `Evaluate OpenSCAD` action. Do not reintroduce one unless the interaction model is deliberately changed.
+
 - `Stop` terminates the active rendering worker.
+
 - A new worker may be created for a later render.
 
 Do not add automatic live rendering, debounce logic, render queues, or complex cancellation unless requested later.
 
 Keep expensive OpenSCAD execution off the main UI thread.
 
----
+**---**
 
-## Three.js viewer
+**## Three.js viewer**
 
 Three.js is used as a mesh viewer, not as the modeling engine.
 
@@ -247,16 +339,26 @@ The viewer accepts the STL generated by OpenSCAD WASM directly from memory as an
 Current viewer behavior includes:
 
 - orbit/rotate
+
 - zoom
+
 - pan
+
 - mouse controls
+
 - basic touch controls
+
 - grid
+
 - axes
+
 - fit model to view
+
 - sensible camera defaults
+
 - camera preserved across re-renders
-- an OpenSCAD-consistent **Z-up** coordinate convention
+
+- an OpenSCAD-consistent ****Z-up**** coordinate convention
 
 OpenSCAD's coordinate system is authoritative. The viewer must keep Z as the vertical/up axis and the grid in the XY plane. Do not rotate generated OpenSCAD/STL geometry merely to compensate for Three.js defaults; coordinate-system adaptation belongs in the viewer layer.
 
@@ -264,21 +366,28 @@ When a new mesh is rendered, replace the mesh while preserving the existing scen
 
 Do not introduce Babylon.js, `<model-viewer>`, React Three Fiber, or a specialized STL viewer wrapper without a concrete reason.
 
----
+**---**
 
-## UI architecture
+**## UI architecture**
 
 Use Lit and normal Web Components for application-level UI.
 
 Current/likely component boundaries include concepts such as:
 
 ```text
+
 <scadlet-app>
+
 <node-palette>
+
 <node-editor>
+
 <geometry-viewer>
+
 <app-toolbar>
+
 <property-panel>
+
 ```
 
 These names are illustrative except where components already exist.
@@ -292,25 +401,59 @@ The main workspace uses resizable panes. Resizing must not recreate the Rete edi
 Node selection/deletion is part of the editor interaction baseline:
 
 - Rete remains the source of truth for selection and graph removal.
+
 - `Delete` / `Backspace` may remove the selected node when the editor canvas has focus.
+
 - Deleting a node must remove its attached Rete connections.
+
 - Keyboard deletion must not interfere with editing inputs, textareas, or other editable controls.
 
 Desktop/laptop interaction is the primary target. Do not deliberately make touch impossible, but do not increase complexity substantially just to optimize tablet UX at this stage.
 
-### Node catalog and creation
+**### Compact node presentation**
+
+Nodes use a compact/collapsible presentation model so parameters and controls do not permanently consume canvas space. This is presentation state only and must remain separate from Rete graph semantics and node parameter state.
+
+Current behavior:
+
+- nodes are collapsed by default where controls can be hidden
+
+- on devices with real hover (`(hover: hover) and (pointer: fine)`), hovering expands after a short delay and leaving collapses after a short delay
+
+- hover interaction brings the node to the foreground immediately using the existing Rete area DOM ordering mechanism; do not implement a parallel z-index stack
+
+- nodes can be pinned open explicitly; pinning implies expanded state
+
+- on touch/no-hover devices, existing Rete node selection is reused to control temporary expansion rather than introducing separate touch-only presentation state
+
+- presentation state is keyed by node ID only and cleaned up when nodes are removed
+
+- expanding/collapsing must not move nodes, disturb the canvas viewport, or change graph semantics; connection paths must follow socket position changes
+
+Node layout is normalized as inputs on the far left, node body/controls in the middle, and outputs on the far right. Geometry socket type is communicated visually by its existing blue socket treatment rather than by repeating a visible `Geometry` label on every port. Semantic socket typing and accessible names must remain intact. Future value/socket types may use distinct visual colors, but do not build a generalized type system prematurely.
+
+Editable controls inside nodes own their normal browser interactions. Canvas gestures such as double-click zoom or wheel handling must not override editing/selecting values in inputs, textareas, selects, buttons, or other editable controls.
+
+**### Node catalog and creation**
 
 Node creation is driven by a single, small catalog/registry rather than separate hardcoded add-node handlers.
 
 The catalog uses stable, language-independent IDs and owns the construction path for available node types. Conceptually:
 
 ```ts
+
 {
+
   type: 'cylinder',
+
   category: 'primitives',
+
   labelKey: 'node.cylinder',
+
   create: ...
+
 }
+
 ```
 
 The persistent node palette groups currently available nodes by educational categories. User-facing terminology should favor clear labels such as `Primitives`, `Transformations`, and `Boolean operations`; avoid exposing jargon such as `CSG` as the primary category label for beginners.
@@ -318,15 +461,20 @@ The persistent node palette groups currently available nodes by educational cate
 Current palette behavior:
 
 - Cube and Cylinder are under `primitives`.
+
 - Difference is under `boolean-operations`.
+
 - Nodes can be dragged from the palette onto the infinite Rete canvas.
+
 - Drop coordinates are transformed from browser/client coordinates into graph coordinates using the current area pan/zoom transform.
+
 - Adding a node must not pan, zoom, center, or otherwise disturb the current canvas viewport.
+
 - Clicking a palette item may use the same creation path to place a node near the visible canvas center.
 
 Keep all creation mechanisms routed through one shared editor-level creation path.
 
-### Localization readiness
+**### Localization readiness**
 
 SCADlet is intended to support a German UI later.
 
@@ -335,26 +483,33 @@ Do not use user-facing English strings as semantic IDs. Internal node/category i
 Use translation keys for display labels, e.g.:
 
 ```ts
+
 t('node.cylinder')
+
 t('category.primitives')
+
 ```
 
 The current localization layer is intentionally minimal and English-only. A future German translation should be addable by extending the translation dictionary rather than changing graph semantics, node IDs, or call sites.
 
 Do not add a full i18n framework or language switcher unless the project has grown enough to justify it.
 
----
+**---**
 
-## Persistence
+**## Persistence**
 
 Project persistence is planned but not yet implemented.
 
 Rete v2 does not provide the complete project serialization required by SCADlet automatically. When persistence is implemented, use a SCADlet-owned JSON project format containing at least:
 
 - node IDs and types
+
 - node parameters/state
+
 - connections
+
 - node positions
+
 - canvas viewport/pan/zoom where useful
 
 The node editor is conceptually an infinite canvas.
@@ -363,9 +518,9 @@ The node editor is conceptually an infinite canvas.
 
 Do not invent persistence infrastructure or a backend before the project format is deliberately designed.
 
----
+**---**
 
-## Hosting and privacy
+**## Hosting and privacy**
 
 The application must remain fully static and client-side.
 
@@ -374,35 +529,46 @@ There is no application backend.
 The build output should be hostable as ordinary static files on:
 
 - GitHub Pages
+
 - nginx
+
 - Apache
+
 - Caddy
+
 - object/static hosting
+
 - a user's own server
 
 GitHub Pages is the initial public hosting target, but do not make the application dependent on GitHub Pages.
 
-### No third-party runtime dependencies
+**### No third-party runtime dependencies**
 
 For privacy and self-hostability, all runtime resources must be served by the same site/application deployment.
 
 Do not add:
 
 - CDN-hosted JavaScript
+
 - externally hosted fonts
+
 - Google Fonts
+
 - externally hosted icons
+
 - analytics
+
 - trackers
+
 - third-party runtime APIs
 
 Bundle or locally ship libraries, fonts, icons, WASM, and other required assets.
 
 Network access should not be required for normal use after the application itself has loaded.
 
----
+**---**
 
-## Open source and licensing
+**## Open source and licensing**
 
 SCADlet is intended to be open source.
 
@@ -411,14 +577,16 @@ The intended project license is GPL, preferably `GPL-3.0-or-later`, unless chang
 When adding dependencies:
 
 - check that their licenses are compatible with GPL distribution
+
 - keep required copyright/license notices
+
 - avoid dependencies with unclear, proprietary, or incompatible licensing
 
 Do not copy code from sources with incompatible licenses.
 
----
+**---**
 
-## Development environment
+**## Development environment**
 
 Development is intended to work on NixOS in VS Code.
 
@@ -427,287 +595,435 @@ Use the repository's Nix flake/devShell for system-level development tools.
 System/development tools belong in `flake.nix`, for example:
 
 - Node.js
+
 - pnpm
+
 - Git
+
 - optional development CLIs
+
+Development note: `openscad-wasm-prebuilt` is imported only from the lazily created render Web Worker. Keep it in Vite's `optimizeDeps.include` unless the import structure changes; otherwise Vite may discover/optimize it only on the first Render action in development and trigger a full-page reload that destroys unsaved editor state. Production builds are not affected by that specific dev-server behavior.
 
 JavaScript application dependencies belong in `package.json`, not in Nix:
 
 - Lit
+
 - Rete
+
 - Three.js
+
 - Vite plugins
+
 - TypeScript libraries
 
 Use pnpm for package operations unless the repository explicitly changes package manager.
 
 Do not require developers to install project-specific Node packages globally.
 
----
+**---**
 
-## Code quality
+**## Code quality**
 
 Prefer:
 
 - strict TypeScript
+
 - small modules with clear responsibilities
+
 - explicit types at architectural boundaries
+
 - straightforward browser APIs
+
 - simple solutions over framework-like abstractions
+
 - comments that explain non-obvious design reasons, not obvious syntax
+
 - dependency injection or small interfaces where it materially improves testability, but not as ceremony
 
 Avoid:
 
 - `any` unless unavoidable and justified
+
 - hidden global mutable state
+
 - coupling Rete rendering, OpenSCAD generation, worker control, and Three.js rendering into one large module
+
 - premature generic abstractions
+
 - speculative extensibility
+
 - unnecessary dependencies
+
 - implementing features from later milestones merely because they might eventually be useful
 
 When changing architecture, preserve the simple one-way data flow unless there is a concrete reason not to.
 
----
+**---**
 
-## Error handling
+**## Error handling**
 
 Errors should ultimately be understandable to learners, not just developers.
 
 At minimum:
 
 - invalid graph state should not crash the application
+
 - OpenSCAD/WASM failures should be surfaced visibly
+
 - failed renders should leave the previous valid preview usable when practical
+
 - malformed or incompatible connections should be prevented or clearly reported
 
 Do not silently swallow errors.
 
 Detailed node-to-OpenSCAD diagnostic mapping is a later concern; do not over-engineer it during the MVP.
 
----
+**---**
 
-## Milestones
+**## Milestones**
 
-### Milestone 1 — Core graph/code-generation foundation (substantially complete)
+**### Milestone 1 — Core graph/code-generation foundation (substantially complete)**
 
 The core visual-programming proof of concept: an editable Rete graph whose
+
 nodes produce OpenSCAD fragments, composed through real connections.
 
 Done so far:
 
 - Rete-based node editor: add/move nodes, connect nodes, edit basic
+
   parameters
+
 - Cube, Cylinder, and Difference nodes
+
 - progressive disclosure for mutually exclusive parameter modes
+
   (Cylinder's radius/diameter/tapered sizing, optional `$fn`)
+
 - a pure, DOM-free OpenSCAD code-generation layer per node, unit-tested
+
   with Vitest
+
 - graph evaluation through Rete's dataflow engine, recursively resolving
+
   connected inputs into correctly nested OpenSCAD (e.g.
+
   `difference() { cube(...); cylinder(...); }`)
+
 - visibly rendered, continuously updating geometry connections (see
+
   "Node editor rendering" above)
 
 Remaining primitives/transforms/Boolean nodes (Sphere, Translate, Rotate,
+
 Scale, Union, Intersection) are tracked under Milestone 4, not required
+
 here.
 
 No OpenSCAD import, modules, iteration, code editor, or persistence is
+
 required for this milestone.
 
-### Milestone 2 — End-to-end browser rendering proof of concept (complete)
+**### Milestone 2 — End-to-end browser rendering proof of concept (complete)**
 
 Prove the complete pipeline end to end:
 
 ```text
+
 Rete graph → Rete dataflow evaluation → OpenSCAD source → Render button →
+
 Web Worker → OpenSCAD WASM → STL in memory → Three.js → interactive
+
 browser preview
+
 ```
 
 Done so far:
 
 - OpenSCAD WASM integrated locally via `openscad-wasm-prebuilt`, with no
+
   CDN dependency and no runtime network fetch required
+
 - OpenSCAD execution runs in a Web Worker, keeping the main thread
+
   responsive
+
 - `Render` button: evaluates the graph, generates OpenSCAD, sends it to
+
   the worker, runs OpenSCAD WASM, produces an STL in memory, and updates
+
   the viewer
+
 - `Stop` button: terminates the active render worker; a new worker is
+
   created for a later render
+
 - `.scad` download
+
 - `.stl` download
+
 - Three.js interactive viewer: orbit/rotate, zoom, pan, grid, axes,
+
   sensible camera defaults, camera preserved across re-renders
+
 - failed renders surface an error without crashing and without discarding
+
   the previously displayed valid preview
+
 - existing graph/editor functionality preserved unchanged
 
 SCADlet now functions as a minimal, end-to-end visual OpenSCAD editor.
+
 Automatic live rendering, debounce logic, render queues, and complex
+
 cancellation remain out of scope unless requested later.
 
-### Milestone 3 — Editor usability baseline (substantially complete)
+**### Milestone 3 — Editor usability baseline (complete)**
 
 Establish a practical editor UX before broadening the OpenSCAD language
+
 surface. These are UX/editor improvements, not semantic changes to the
+
 Rete graph structure or OpenSCAD generation architecture.
 
-Done so far:
+Done:
 
 - selected nodes can be deleted with `Delete` / `Backspace`; attached
+
   Rete connections are removed cleanly and editable controls are protected
+
   from accidental deletion shortcuts
+
 - node selection has a visible state and empty-canvas click deselects
+
 - the node canvas, 3D preview, and development SCAD-output area can be
+
   resized through the workspace splitters without recreating editor/viewer
+
   state
+
 - the Three.js viewer follows OpenSCAD's Z-up convention, including grid,
+
   axes, camera behavior, and fit-to-view
+
 - the old basic add-node controls were replaced with a persistent,
+
   data-driven node palette
+
 - palette categories use clear educational terminology (`primitives`,
+
   `boolean-operations`) rather than user-facing `CSG`
+
 - node creation supports drag-and-drop onto the infinite canvas, correctly
+
   accounting for current pan/zoom and without moving the viewport
+
 - a click fallback creates nodes near the visible canvas center through
+
   the same shared creation path
+
 - node labels/categories are localization-ready through stable internal IDs
+
   and translation keys; English is currently the only populated locale
 
-Remaining before this milestone is considered complete:
+- compact/collapsible nodes keep unused controls out of the way while
 
-- add a compact/collapsible node presentation so unused parameters/options
-  do not permanently consume canvas space while connected/active parameters
-  remain visible and understandable
+  supporting delayed hover expansion, delayed collapse, pinning, and
 
-Do not broaden this milestone into general UI redesign, undo/redo, auto-layout,
-minimap, persistence, or touch-first optimization.
+  touch/no-hover behavior through existing node selection state
 
-### Milestone 4 — More geometry, transformation, and Boolean nodes
+- active/hovered nodes are brought to the foreground through Rete's existing
+
+  area DOM ordering without introducing a separate z-index system
+
+- node connector layout is normalized with inputs on the far left and outputs
+
+  on the far right; redundant visible `Geometry` type labels are omitted while
+
+  semantic socket typing and accessibility labels remain
+
+- editable node controls are isolated from canvas double-click/wheel gestures
+
+  so ordinary input selection and editing behavior is preserved
+
+- `Render` is the single normal evaluate/generate/render action; the separate
+
+  `Evaluate OpenSCAD` control has been removed
+
+Do not reopen this milestone for general UI redesign, undo/redo, auto-layout,
+
+minimap, persistence, or touch-first optimization. Further UI refinement belongs
+
+to later milestones unless a regression blocks current work.
+
+**
+
+### Milestone 4 — More geometry, transformation, and Boolean nodes**
 
 After the remaining compact-node UX work, broaden the useful OpenSCAD
+
 geometry vocabulary.
 
 Add the node families described under "Node design principles" that are not
+
 yet implemented, starting with a small coherent set such as Sphere,
+
 Translate, Rotate, Scale, Union, and Intersection.
 
 Reuse the established Cube/Cylinder/Difference patterns:
 
 - pure, DOM-independent OpenSCAD code generation
+
 - Rete node/dataflow semantics
+
 - shared Geometry sockets
+
 - progressive disclosure where needed
+
 - node catalog registration and localization keys
 
 Prefer a few complete, well-designed nodes over adding many OpenSCAD
+
 constructs at once.
 
-### Milestone 5 — Parameters and simple dataflow
+**### Milestone 5 — Parameters and simple dataflow**
 
 Add value-driven parameters and a small supporting math layer.
 
 Likely initial value nodes:
 
 - Number
+
 - Add
+
 - Subtract
+
 - Multiply
+
 - Divide
+
 - Vector2
+
 - Vector3
 
 Geometry-node parameters should still support convenient inline literal values.
 
-### Milestone 6 — Modules / reusable subgraphs
+**### Milestone 6 — Modules / reusable subgraphs**
 
 Support reusable, parameterized graph structures corresponding to OpenSCAD modules.
 
 Focus on teaching:
 
 - abstraction
+
 - parameterization
+
 - reuse
+
 - composition
 
-### Milestone 7 — Iteration
+**### Milestone 7 — Iteration**
 
 Add a visual representation of repetition / OpenSCAD `for`.
 
 The precise UX is intentionally undecided. Do not assume the OpenSCAD syntax should be mapped literally to nodes.
 
-### Milestone 8 — Geometry code node
+**### Milestone 8 — Geometry code node**
 
 Add an OpenSCAD code escape hatch that:
 
 - accepts defined parameter inputs
+
 - may accept geometry inputs
+
 - produces geometry
 
 Keep it secondary to normal visual nodes.
 
-### Milestone 9 — Project persistence
+**### Milestone 9 — Project persistence**
 
 Define and implement the SCADlet JSON project format, including graph layout and viewport state.
 
-### Milestone 10 — Teaching features and UX refinement
+**### Milestone 10 — Teaching features and UX refinement**
 
 Possible later features include:
 
 - stepwise evaluation
+
 - displaying intermediate geometry
+
 - highlighting geometry associated with a node
+
 - visualizing dependencies
+
 - exercises/challenges
+
 - beginner/advanced modes
+
 - explanations of functional programming concepts
+
 - later UI refinement beyond the compact/collapsible baseline
 
 These are intentionally later milestones.
 
----
+**---**
 
-## MVP boundary
+**## MVP boundary**
 
 The first meaningful MVP is Milestones 1–2:
 
 ```text
+
 editable Rete graph
+
 + Cube/Cylinder/Difference
+
 + visible geometry connections
+
 + OpenSCAD generation
+
 + OpenSCAD-WASM execution in a Web Worker
+
 + STL generation
+
 + Three.js interactive preview
+
 + SCAD/STL download
+
 ```
 
 This end-to-end MVP now exists and is the stable baseline for subsequent work.
 
 Basic parameter dataflow/value nodes (Milestone 5) can follow after the editor
+
 usability baseline and a broader geometry vocabulary rather than being required
+
 for the proof of concept.
 
 When extending the MVP, preserve the working end-to-end path and resist
+
 implementing later milestone features unless they are necessary to avoid a bad
+
 architectural dead end.
 
----
+**---**
 
-## Decision-making guidance for agents
+**## Decision-making guidance for agents**
 
 When multiple implementation options are viable:
 
 1. Preserve the educational goal.
+
 2. Preserve the browser-only/static-hosting constraint.
+
 3. Preserve OpenSCAD as the single geometry semantics for rendering/export.
+
 4. Prefer the existing chosen stack.
+
 5. Prefer the simplest implementation that leaves the next milestone feasible.
+
 6. Avoid adding architectural layers without an immediate demonstrated need.
+
 7. If a change would alter a documented architectural decision, explain the tradeoff before implementing it.
 
 Do not reinterpret unresolved product questions as settled requirements. Implement only what the current task requires.
