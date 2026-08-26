@@ -25,16 +25,27 @@ export class NodeEditorElement extends LitElement {
     }
 
     /*
-     * Connector layout is normalized project-wide (AGENTS.md section 9):
-     * a node is a horizontal row of [inputs column | body | outputs
-     * column], so input sockets always sit at the far left edge and
-     * output sockets always sit at the far right edge, regardless of the
-     * node's collapsed/expanded state.
+     * Connector layout is normalized project-wide (AGENTS.md section 9)
+     * AND structurally isolated from the expandable controls body: a
+     * node stacks a stable .node-main header row (inputs column | body
+     * | outputs column) above an optional .node-controls block, rather
+     * than sizing inputs/outputs to the combined header+controls height.
+     * .node-main's own height depends only on port count/title, never
+     * on whether .node-controls is currently rendered, so expanding or
+     * collapsing a node's controls can never move an existing connector
+     * anchor (see render.ts's renderNode) - it only grows/shrinks the
+     * node downward from its unchanged top-left graph position.
      */
     .node {
       display: flex;
-      align-items: stretch;
-      min-width: 130px;
+      flex-direction: column;
+      gap: 4px;
+      /* Wide enough, unconditionally (not just once expanded), to fit
+         every current control row's content without growing further on
+         expand - see the connector-stability comment on .node-main
+         below for why a node's own width must not depend on whether
+         .node-controls is currently rendered. */
+      min-width: 160px;
       border-radius: 6px;
       border: 1px solid #666;
       background: #2a2a2a;
@@ -48,18 +59,17 @@ export class NodeEditorElement extends LitElement {
       box-shadow: 0 0 0 2px rgb(122 192 255 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
     }
 
+    .node-main {
+      display: flex;
+      align-items: stretch;
+    }
+
     .node-body {
       display: flex;
-      flex-direction: column;
-      gap: 8px;
+      align-items: center;
       flex: 1;
       min-width: 0;
       padding: 8px 10px;
-    }
-
-    /* Collapsed nodes (no .node--expanded) only render a header, so the body naturally shrinks. */
-    .node--expanded .node-body {
-      min-width: 140px;
     }
 
     .node-header {
@@ -98,10 +108,20 @@ export class NodeEditorElement extends LitElement {
       background: rgb(122 192 255 / 0.25);
     }
 
+    /* Rendered as a full-width block below .node-main (see .node's comment above) - its own padding replaces the spacing .node-body's padding used to provide when controls were nested inside it. */
     .node-controls {
       display: flex;
       flex-direction: column;
       gap: 4px;
+      padding: 0 10px 8px;
+      /* Flex items default to a content-based automatic minimum size,
+         which would let a control row's intrinsic content (e.g. a
+         select's widest option) grow the node wider than its collapsed
+         width - moving the far-right output socket horizontally on
+         expand even though .node--expanded sets no min-width of its
+         own. min-width: 0 here (and on .node-control below) opts back
+         into normal shrink-to-fit behavior instead. */
+      min-width: 0;
     }
 
     .node-inputs,
@@ -173,6 +193,7 @@ export class NodeEditorElement extends LitElement {
       align-items: center;
       justify-content: space-between;
       gap: 6px;
+      min-width: 0;
     }
 
     .node-control--checkbox {
@@ -186,6 +207,13 @@ export class NodeEditorElement extends LitElement {
 
     .node-control select {
       font: inherit;
+      /* An explicit width (rather than intrinsic/auto) keeps a <select>'s
+         own widest-option content from growing the node wider than its
+         collapsed baseline when controls first render on expand - the
+         same connector-stability concern as the min-width: 0 rules
+         above, but for a form control whose auto width is content-
+         driven regardless of an ancestor's min-width. */
+      width: 84px;
     }
 
     .connection {

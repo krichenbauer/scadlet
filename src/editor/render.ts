@@ -150,12 +150,21 @@ function renderNode(
 
   element.replaceChildren()
 
-  // Connector layout is normalized project-wide (AGENTS.md section 9):
-  // inputs sit in a column pinned to the node's far left edge, outputs in
-  // a column pinned to the far right edge, independent of the node's
-  // collapsed/expanded body in the middle. A side column is only rendered
-  // when the node actually has ports on that side (e.g. Cube/Cylinder have
-  // no inputs at all).
+  // Connector layout is normalized project-wide (AGENTS.md section 9) AND
+  // structurally isolated from the expandable controls body: `.node-main`
+  // (inputs column | title/pin header | outputs column) is a self-
+  // contained row whose height depends only on port count and the title,
+  // never on whether `.node-controls` below it is currently rendered.
+  // This is what keeps every existing connector anchor at a fixed screen
+  // position across expand/collapse - previously inputs/outputs and the
+  // controls-bearing body were siblings stretched to a shared height, so
+  // adding/removing controls changed that shared height and shifted
+  // ports that were vertically centered within it. A side column is only
+  // rendered when the node actually has ports on that side (e.g. Cube/
+  // Cylinder have no inputs at all).
+  const main = document.createElement('div')
+  main.className = 'node-main'
+
   if (Object.values(node.inputs).some(Boolean)) {
     const inputs = document.createElement('div')
     inputs.className = 'node-inputs'
@@ -163,23 +172,13 @@ function renderNode(
       if (!input) continue
       inputs.appendChild(renderPort(area, node.id, 'input', key, input.label, input.socket.name))
     }
-    element.appendChild(inputs)
+    main.appendChild(inputs)
   }
 
   const body = document.createElement('div')
   body.className = 'node-body'
   body.appendChild(renderHeader(node, presentation, hasControls))
-  if (expanded) {
-    const controls = document.createElement('div')
-    controls.className = 'node-controls'
-    for (const [key, control] of Object.entries(node.controls)) {
-      if (!control) continue
-      const rendered = renderControl(key, control)
-      if (rendered) controls.appendChild(rendered)
-    }
-    body.appendChild(controls)
-  }
-  element.appendChild(body)
+  main.appendChild(body)
 
   if (Object.values(node.outputs).some(Boolean)) {
     const outputs = document.createElement('div')
@@ -188,7 +187,24 @@ function renderNode(
       if (!output) continue
       outputs.appendChild(renderPort(area, node.id, 'output', key, output.label, output.socket.name))
     }
-    element.appendChild(outputs)
+    main.appendChild(outputs)
+  }
+
+  element.appendChild(main)
+
+  // Rendered as a full-width block BELOW the stable `.node-main` row
+  // (rather than stacked inside it, as before) - growing/shrinking this
+  // block only pushes the node's own bottom edge, never the header row's
+  // layout above it, so it can never move an existing connector.
+  if (expanded) {
+    const controls = document.createElement('div')
+    controls.className = 'node-controls'
+    for (const [key, control] of Object.entries(node.controls)) {
+      if (!control) continue
+      const rendered = renderControl(key, control)
+      if (rendered) controls.appendChild(rendered)
+    }
+    element.appendChild(controls)
   }
 }
 

@@ -106,8 +106,6 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     await addNodeAt(type, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
   }
 
-  await addNodeAtCenter('cube')
-
   return {
     editor,
     area,
