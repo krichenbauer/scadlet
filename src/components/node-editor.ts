@@ -227,6 +227,21 @@ export class NodeEditorElement extends LitElement {
       stroke-width: 2px;
       pointer-events: none;
     }
+
+    /*
+     * Shift-drag marquee selection rectangle (see editor/marquee.ts).
+     * Rendered as a plain viewport-space overlay directly in #canvas
+     * (a sibling of Rete's own pan/zoomed content holder, not inside
+     * it), positioned/sized from raw client coordinates - so it is
+     * intentionally NOT affected by the current pan/zoom transform.
+     */
+    .marquee {
+      position: absolute;
+      z-index: 10;
+      border: 1px solid #7ac0ff;
+      background: rgb(122 192 255 / 0.15);
+      pointer-events: none;
+    }
   `
 
   @query('#canvas')

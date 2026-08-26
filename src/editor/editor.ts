@@ -6,10 +6,12 @@ import { DataflowEngine } from 'rete-engine'
 import { clientToGraphPosition, type Position } from './coordinates'
 import { evaluateOpenSCAD } from './evaluate'
 import { isEditableTarget, removeNodeWithConnections } from './deletion'
+import { attachMarqueeSelection } from './marquee'
 import { findCatalogEntry } from './node-catalog'
 import { NodePresentationManager } from './presentation'
 import { attachRenderer } from './render'
 import type { AreaExtra, Schemes } from './schemes'
+import { attachNodeSelection } from './selection'
 
 export interface SCADletEditor {
   editor: NodeEditor<Schemes>
@@ -44,9 +46,12 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     outputs: () => Object.keys(node.outputs),
   }))
 
-  AreaExtensions.selectableNodes(area, AreaExtensions.selector(), {
-    accumulating: AreaExtensions.accumulateOnCtrl(),
-  })
+  // Rete's own node-selection extension is the single source of truth
+  // for which nodes are selected (`node.selected`, read by both the
+  // renderer and deletion below) - `attachNodeSelection` only layers a
+  // couple of small multi-selection behaviors on top of it (see
+  // `selection.ts`), it does not replace it.
+  const nodeSelection = attachNodeSelection(editor, area)
 
   connection.addPreset(ConnectionPresets.classic.setup())
 
@@ -67,6 +72,12 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   AreaExtensions.simpleNodesOrder(area)
 
   attachDeletion(editor, area, container)
+
+  // Shift+drag rectangle selection on empty canvas (AGENTS.md-adjacent
+  // task: multi-selection). Selects through the same `nodeSelection` API
+  // click-based selection uses, so marquee-selected nodes participate in
+  // group movement/deletion identically.
+  const detachMarquee = attachMarqueeSelection(editor, area, container, nodeSelection)
 
   // Rete's zoom extension listens for `wheel`/`dblclick` directly on this
   // same `container` element that node controls render inside, so without
@@ -112,7 +123,11 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     addNodeAt,
     addNodeAtCenter,
     evaluate: () => evaluateOpenSCAD(editor, engine),
-    destroy: () => area.destroy(),
+    destroy: () => {
+      detachMarquee()
+      nodeSelection.destroy()
+      area.destroy()
+    },
   }
 }
 
