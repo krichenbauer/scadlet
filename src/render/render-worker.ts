@@ -28,8 +28,29 @@ import type { RenderRequest, RenderResponse } from './protocol'
  * found to crash intermittently (OpenSCAD's `main()` does not reset all
  * of its internal/global state between invocations); creating a new
  * instance per render is simple, was verified stable across repeated
- * successes/failures, and costs roughly 100ms of extra init time, which
- * is acceptable for a manually triggered Render button.
+ * successes/failures, and costs roughly 60-180ms of extra init time,
+ * which is acceptable for a manually triggered Render button. Re-verified
+ * during the render-performance investigation (2026): reusing one
+ * instance's `callMain` across a sequence of renders throws on every call
+ * after the first, so this remains a hard requirement, not just an
+ * intermittent flake.
+ *
+ * `callMain` is invoked with `--backend=Manifold` and
+ * `--export-format=binstl`, both measured as strict improvements with no
+ * observed correctness downside for the primitives/booleans this app
+ * generates:
+ *   - `--backend=Manifold` avoids OpenSCAD's default CGAL/Nef-polyhedron
+ *     boolean backend, which was measured to scale disastrously with
+ *     `$fn` for Union/Difference/Intersection (e.g. difference() of a
+ *     cube and an $fn=50 sphere: ~3.4s with CGAL vs ~0.1s with Manifold;
+ *     $fn=100: ~11.3s with CGAL vs ~0.2s with Manifold). For plain
+ *     non-boolean geometry the two backends performed about the same.
+ *   - `--export-format=binstl` avoids OpenSCAD's default ASCII STL
+ *     export, which is markedly slower to generate and several times
+ *     larger to transfer/parse than binary STL for the same geometry
+ *     (e.g. an $fn=100 sphere: ~338ms/3.18MB ASCII vs ~129ms/0.5MB
+ *     binary). `STLLoader` already auto-detects binary vs ASCII, so the
+ *     viewer needs no changes.
  */
 
 // Minimal structural view of the dedicated worker global scope, avoiding
@@ -50,6 +71,7 @@ function toErrorMessage(error: unknown, stderrLines: string[]): string {
 
 async function render(source: string): Promise<RenderResponse> {
   const stderrLines: string[] = []
+  const tStart = performance.now()
 
   try {
     const openscad = await createOpenSCAD({
@@ -58,15 +80,24 @@ async function render(source: string): Promise<RenderResponse> {
       },
       printErr: (text) => stderrLines.push(text),
     })
+    const tWasmInit = performance.now()
     const instance = openscad.getInstance()
 
     instance.FS.writeFile('/input.scad', source)
     try {
-      instance.callMain(['/input.scad', '-o', '/output.stl'])
+      instance.callMain(['/input.scad', '--backend=Manifold', '--export-format=binstl', '-o', '/output.stl'])
+      const tGeometry = performance.now()
       const bytes = instance.FS.readFile('/output.stl') as Uint8Array
       // Copy into a standalone, transferable ArrayBuffer - the FS-backed
       // view may reference a larger underlying heap buffer.
       const stl = bytes.slice().buffer
+      const tRead = performance.now()
+      console.log(
+        `[render-worker] wasmInit=${(tWasmInit - tStart).toFixed(1)}ms ` +
+          `geometry=${(tGeometry - tWasmInit).toFixed(1)}ms ` +
+          `read=${(tRead - tGeometry).toFixed(1)}ms ` +
+          `total=${(tRead - tStart).toFixed(1)}ms bytes=${stl.byteLength}`,
+      )
       return { type: 'result', stl }
     } finally {
       try {

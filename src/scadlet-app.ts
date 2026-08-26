@@ -282,12 +282,14 @@ export class ScadletApp extends LitElement {
   private async _render() {
     if (this.rendering) return
 
+    const tStart = performance.now()
     // Render always evaluates the current graph first, so it's the one
     // action that keeps the SCAD output, the `.scad` download, and the
     // WASM render in sync with each other - there is no separate
     // "Evaluate" action/code path to fall out of sync with this one.
     const source = await this.nodeEditor.evaluate()
     this.scadSource = source
+    const tEval = performance.now()
 
     if (!source.trim()) {
       this.renderError = 'Nothing to render - add at least one node.'
@@ -298,8 +300,16 @@ export class ScadletApp extends LitElement {
     this.renderError = null
     try {
       const stl = await this.renderController.render(source)
+      const tRendered = performance.now()
       this.stl = stl
       this.viewer.showSTL(stl)
+      const tViewer = performance.now()
+      console.log(
+        `[scadlet-app] eval=${(tEval - tStart).toFixed(1)}ms ` +
+          `render=${(tRendered - tEval).toFixed(1)}ms ` +
+          `viewer=${(tViewer - tRendered).toFixed(1)}ms ` +
+          `total=${(tViewer - tStart).toFixed(1)}ms`,
+      )
     } catch (error) {
       // A user-initiated Stop rejects the in-flight render; that's an
       // expected transition back to idle, not an error worth surfacing.

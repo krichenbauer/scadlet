@@ -28,6 +28,8 @@ export class RenderController {
   private worker: WorkerLike | null = null
   private pending: { resolve: (stl: ArrayBuffer) => void; reject: (error: Error) => void } | null = null
   private readonly createWorker: WorkerFactory
+  /** `performance.now()` timestamp of the most recent `postMessage`, used only to log round-trip timing. */
+  private renderStartedAt = 0
 
   constructor(createWorker: WorkerFactory = createRenderWorker) {
     this.createWorker = createWorker
@@ -57,6 +59,7 @@ export class RenderController {
       this.attachHandlers(worker)
 
       const request: RenderRequest = { type: 'render', source }
+      this.renderStartedAt = performance.now()
       worker.postMessage(request)
     })
   }
@@ -82,8 +85,10 @@ export class RenderController {
       const pending = this.pending
       this.pending = null
       if (!pending) return
-      if (data.type === 'result') pending.resolve(data.stl)
-      else pending.reject(new Error(data.message))
+      if (data.type === 'result') {
+        console.log(`[render-controller] round-trip=${(performance.now() - this.renderStartedAt).toFixed(1)}ms`)
+        pending.resolve(data.stl)
+      } else pending.reject(new Error(data.message))
     }
 
     worker.onerror = (event) => {
