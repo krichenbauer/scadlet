@@ -1,0 +1,55 @@
+import { formatBlock, formatVector3 } from './format'
+
+/** Shared `[x, y, z]` parameter shape for OpenSCAD's translate/rotate/scale transforms. */
+export interface Vector3Params {
+  x: number
+  y: number
+  z: number
+}
+
+export const DEFAULT_TRANSLATE_PARAMS: Vector3Params = { x: 0, y: 0, z: 0 }
+export const DEFAULT_ROTATE_PARAMS: Vector3Params = { x: 0, y: 0, z: 0 }
+export const DEFAULT_SCALE_PARAMS: Vector3Params = { x: 1, y: 1, z: 1 }
+
+export interface TransformResult {
+  code: string
+  /** Set when the geometry input is missing; `code` is a comment describing why. */
+  error?: string
+}
+
+/**
+ * Shared implementation for OpenSCAD's single-child vector transforms
+ * (`translate`/`rotate`/`scale`): all three wrap exactly one already-
+ * generated OpenSCAD fragment in `name([x, y, z]) { ... }`. Extracted
+ * because `translateToOpenSCAD`/`rotateToOpenSCAD`/`scaleToOpenSCAD`
+ * would otherwise be byte-for-byte duplicates of this function, differing
+ * only in the OpenSCAD module name.
+ */
+function vectorTransformToOpenSCAD(
+  name: string,
+  label: string,
+  params: Vector3Params,
+  input: string | undefined,
+): TransformResult {
+  if (!input) {
+    const error = `${label} is missing its geometry input`
+    return { code: `// ${error}`, error }
+  }
+
+  return { code: formatBlock(name, [input], [formatVector3(params.x, params.y, params.z)]) }
+}
+
+/** Composes an input fragment into a `translate([x, y, z]) { ... }` block. */
+export function translateToOpenSCAD(params: Vector3Params, input: string | undefined): TransformResult {
+  return vectorTransformToOpenSCAD('translate', 'Translate', params, input)
+}
+
+/** Composes an input fragment into a `rotate([x, y, z]) { ... }` block (simple Euler/vector form only). */
+export function rotateToOpenSCAD(params: Vector3Params, input: string | undefined): TransformResult {
+  return vectorTransformToOpenSCAD('rotate', 'Rotate', params, input)
+}
+
+/** Composes an input fragment into a `scale([x, y, z]) { ... }` block. */
+export function scaleToOpenSCAD(params: Vector3Params, input: string | undefined): TransformResult {
+  return vectorTransformToOpenSCAD('scale', 'Scale', params, input)
+}

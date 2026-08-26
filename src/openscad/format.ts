@@ -30,14 +30,17 @@ export function formatCall(
 }
 
 /**
- * Formats an OpenSCAD block statement (e.g. `difference() { ... }`) from a
- * list of already-generated child statements. Reusable by any
- * geometry-composition node (difference/union/intersection) that wraps
- * other nodes' generated fragments instead of computing geometry itself.
+ * Formats an OpenSCAD block statement (e.g. `difference() { ... }` or
+ * `translate([1, 2, 3]) { ... }`) from a list of already-generated child
+ * statements and an optional list of already-formatted call arguments.
+ * Reusable by any geometry-composition node (difference/union/
+ * intersection) or single-child transform (translate/rotate/scale) that
+ * wraps other nodes' generated fragments instead of computing geometry
+ * itself.
  */
-export function formatBlock(name: string, children: readonly string[]): string {
+export function formatBlock(name: string, children: readonly string[], args: readonly string[] = []): string {
   const body = children.map((child) => indent(child)).join('\n')
-  return `${name}() {\n${body}\n}`
+  return `${name}(${args.join(', ')}) {\n${body}\n}`
 }
 
 function indent(code: string): string {

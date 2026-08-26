@@ -6,26 +6,53 @@ export interface DifferenceResult {
   error?: string
 }
 
+interface NamedInput {
+  label: string
+  code: string | undefined
+}
+
 /**
- * Composes two already-generated OpenSCAD fragments into a `difference()`
- * block. Unlike `cubeToOpenSCAD`/`cylinderToOpenSCAD`, this node doesn't
- * calculate any geometry itself - it takes source fragments produced by
- * its inputs rather than numeric parameters, so a fragment can be
- * missing (e.g. an unconnected input). That's reported as a validation
- * error and a descriptive comment instead of throwing or emitting
- * misleading geometry.
+ * Shared implementation for OpenSCAD boolean-operation blocks that
+ * compose two already-generated OpenSCAD fragments (difference/union/
+ * intersection) instead of calculating any geometry themselves. A
+ * fragment can be missing (e.g. an unconnected input); that's reported as
+ * a validation error and a descriptive comment instead of throwing or
+ * emitting misleading geometry.
  */
+function booleanOpToOpenSCAD(name: string, inputs: readonly [NamedInput, NamedInput]): DifferenceResult {
+  const missing = inputs.filter((input) => !input.code).map((input) => input.label)
+  if (missing.length > 0) {
+    const capitalized = name.charAt(0).toUpperCase() + name.slice(1)
+    const error = `${capitalized} is missing its ${missing.join(' and ')} geometry input`
+    return { code: `// ${error}`, error }
+  }
+
+  return { code: formatBlock(name, inputs.map((input) => input.code as string)) }
+}
+
+/** Composes `base`/`subtract` fragments into a `difference() { ... }` block. */
 export function differenceToOpenSCAD(
   base: string | undefined,
   subtract: string | undefined,
 ): DifferenceResult {
-  if (!base || !subtract) {
-    const missing = [!base && 'base', !subtract && 'subtract'].filter(
-      (part): part is string => Boolean(part),
-    )
-    const error = `Difference is missing its ${missing.join(' and ')} geometry input`
-    return { code: `// ${error}`, error }
-  }
+  return booleanOpToOpenSCAD('difference', [
+    { label: 'base', code: base },
+    { label: 'subtract', code: subtract },
+  ])
+}
 
-  return { code: formatBlock('difference', [base, subtract]) }
+/** Composes two fragments into a `union() { ... }` block. */
+export function unionToOpenSCAD(a: string | undefined, b: string | undefined): DifferenceResult {
+  return booleanOpToOpenSCAD('union', [
+    { label: 'a', code: a },
+    { label: 'b', code: b },
+  ])
+}
+
+/** Composes two fragments into an `intersection() { ... }` block. */
+export function intersectionToOpenSCAD(a: string | undefined, b: string | undefined): DifferenceResult {
+  return booleanOpToOpenSCAD('intersection', [
+    { label: 'a', code: a },
+    { label: 'b', code: b },
+  ])
 }

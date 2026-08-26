@@ -9,9 +9,21 @@ import { t } from '../i18n/translate'
 const noopContext = { onControlsChanged: () => {} }
 
 describe('NODE_CATALOG', () => {
-  it('contains Cube, Cylinder, and Difference with stable, language-independent type ids', () => {
+  it('contains all nine node types with stable, language-independent type ids', () => {
     const types = NODE_CATALOG.map((entry) => entry.type).sort()
-    expect(types).toEqual(['cube', 'cylinder', 'difference'])
+    expect(types).toEqual(
+      [
+        'cube',
+        'cylinder',
+        'sphere',
+        'translate',
+        'rotate',
+        'scale',
+        'difference',
+        'union',
+        'intersection',
+      ].sort(),
+    )
   })
 
   it('assigns every entry to a category id that exists in NODE_CATEGORIES', () => {
@@ -21,10 +33,16 @@ describe('NODE_CATALOG', () => {
     }
   })
 
-  it('groups Cube/Cylinder under primitives and Difference under boolean-operations', () => {
+  it('groups nodes under the expected category ids', () => {
     expect(findCatalogEntry('cube')?.category).toBe('primitives')
     expect(findCatalogEntry('cylinder')?.category).toBe('primitives')
+    expect(findCatalogEntry('sphere')?.category).toBe('primitives')
+    expect(findCatalogEntry('translate')?.category).toBe('transformations')
+    expect(findCatalogEntry('rotate')?.category).toBe('transformations')
+    expect(findCatalogEntry('scale')?.category).toBe('transformations')
     expect(findCatalogEntry('difference')?.category).toBe('boolean-operations')
+    expect(findCatalogEntry('union')?.category).toBe('boolean-operations')
+    expect(findCatalogEntry('intersection')?.category).toBe('boolean-operations')
   })
 
   it('never uses display strings (e.g. "CSG") as category ids', () => {
@@ -57,5 +75,15 @@ describe('NODE_CATALOG', () => {
     expect(editor.getNodes()).toHaveLength(2)
     expect(editor.getNode(existingCube.id)).toBe(existingCube)
     expect(editor.getConnections()).toEqual([])
+  })
+
+  it('create() builds a usable instance for each of the six new node types', async () => {
+    const editor = new NodeEditor<Schemes>()
+    for (const type of ['sphere', 'translate', 'rotate', 'scale', 'union', 'intersection']) {
+      const entry = findCatalogEntry(type)!
+      const node = entry.create(noopContext)
+      await editor.addNode(node)
+    }
+    expect(editor.getNodes()).toHaveLength(6)
   })
 })
