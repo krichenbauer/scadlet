@@ -314,19 +314,27 @@ Importing existing `.scad` source is not currently a requirement.
 
 Run OpenSCAD WASM in a Web Worker.
 
-The initial UX is deliberately manual:
+Current rendering behavior:
 
-- `Render` is the single normal evaluation/render action: it evaluates the graph, generates the current OpenSCAD source, updates the development source display, sends that same source to the worker, generates STL, and updates the viewer.
+- `Render` is the single normal evaluation/render action: it evaluates the graph, generates the current OpenSCAD source, updates the development source display, sends the source to the worker, generates STL, and updates the viewer.
 
 - There is no separate user-facing `Evaluate OpenSCAD` action. Do not reintroduce one unless the interaction model is deliberately changed.
 
-- `Stop` terminates the active rendering worker.
+- The worker persists across successful renders, but each render creates a fresh OpenSCAD/WASM instance. Reusing a single `createOpenSCAD()` instance across multiple `callMain()` invocations is not supported reliably by the current build and must not be assumed safe.
 
-- A new worker may be created for a later render.
+- `Stop` terminates the active worker. A later Render recreates a clean worker.
 
-Do not add automatic live rendering, debounce logic, render queues, or complex cancellation unless requested later.
+- The current OpenSCAD WASM build uses the Manifold backend (`--backend=Manifold`) and binary STL output (`--export-format=binstl`). This is an intentional performance baseline: Boolean operations involving moderately/highly tessellated geometry were dramatically slower with the previous CGAL/Nef path, while binary STL also reduces serialization and transfer overhead.
+
+- Do not silently lower explicit geometry detail such as `$fn` to improve speed. Normal Render and exported OpenSCAD must preserve user-requested semantics.
+
+- Development timing logs may measure evaluation, worker/WASM, geometry, output, and viewer phases. They are diagnostic only and must not become semantic application state or telemetry.
+
+Do not add automatic live rendering, debounce logic, render queues, multiple render workers, or complex cancellation unless requested later.
 
 Keep expensive OpenSCAD execution off the main UI thread.
+
+Do not introduce a second geometry implementation for a faster preview. Three.js remains a viewer, not an alternate evaluator/modeling engine.
 
 **---**
 
@@ -358,7 +366,7 @@ Current viewer behavior includes:
 
 - camera preserved across re-renders
 
-- an OpenSCAD-consistent ****Z-up**** coordinate convention
+- an OpenSCAD-consistent **Z-up** coordinate convention
 
 OpenSCAD's coordinate system is authoritative. The viewer must keep Z as the vertical/up axis and the grid in the XY plane. Do not rotate generated OpenSCAD/STL geometry merely to compensate for Three.js defaults; coordinate-system adaptation belongs in the viewer layer.
 
@@ -400,13 +408,19 @@ The main workspace uses resizable panes. Resizing must not recreate the Rete edi
 
 Node selection/deletion is part of the editor interaction baseline:
 
-- Rete remains the source of truth for selection and graph removal.
+- Rete remains the source of truth for selection and graph removal; do not introduce a parallel selected-node model.
 
-- `Delete` / `Backspace` may remove the selected node when the editor canvas has focus.
+- plain node click selects that node; Ctrl/Cmd-click adds/removes individual nodes from the current selection
 
-- Deleting a node must remove its attached Rete connections.
+- Shift-drag on empty canvas creates a marquee selection rectangle; plain drag on empty canvas continues to pan
 
-- Keyboard deletion must not interfere with editing inputs, textareas, or other editable controls.
+- dragging one node from an existing multi-selection moves the full selected set together through Rete's selection/translation machinery, preserving relative positions and updating connections continuously
+
+- `Delete` / `Backspace` removes all selected nodes and their attached Rete connections when the editor canvas has focus
+
+- keyboard deletion and canvas gestures must not interfere with editing inputs, textareas, selects, buttons, or other editable controls
+
+Selection/marquee behavior is editor state only. It must not change OpenSCAD semantics, node identity, or graph connections except when the user explicitly deletes nodes.
 
 Desktop/laptop interaction is the primary target. Do not deliberately make touch impossible, but do not increase complexity substantially just to optimize tablet UX at this stage.
 
@@ -428,11 +442,35 @@ Current behavior:
 
 - presentation state is keyed by node ID only and cleaned up when nodes are removed
 
-- expanding/collapsing must not move nodes, disturb the canvas viewport, or change graph semantics; connection paths must follow socket position changes
+- expanding/collapsing must not move nodes, disturb the canvas viewport, change graph semantics, or move existing connector anchors. Structural ports live in a stable main/header row; expandable controls grow separately below it
 
-Node layout is normalized as inputs on the far left, node body/controls in the middle, and outputs on the far right. Geometry socket type is communicated visually by its existing blue socket treatment rather than by repeating a visible `Geometry` label on every port. Semantic socket typing and accessible names must remain intact. Future value/socket types may use distinct visual colors, but do not build a generalized type system prematurely.
+Node layout is normalized as inputs on the far left, a stable title/port row in the middle, and outputs on the far right, with expandable controls in a separate row below. Current nodes use a stable minimum width so opening controls does not shift sockets horizontally. Geometry socket type is communicated visually by its existing blue socket treatment rather than by repeating a visible `Geometry` label on every port. Semantic socket typing and accessible names must remain intact. Future value/socket types may use distinct visual colors, but do not build a generalized type system prematurely.
 
 Editable controls inside nodes own their normal browser interactions. Canvas gestures such as double-click zoom or wheel handling must not override editing/selecting values in inputs, textareas, selects, buttons, or other editable controls.
+
+**### Inspect / temporary preview root**
+
+SCADlet supports inspecting intermediate geometry without modifying the program graph.
+
+Current behavior:
+
+- double-clicking a geometry-producing node makes it the temporary preview/render root; double-clicking the currently inspected node again clears inspect mode
+
+- at most one node is inspected at a time and it has a visual state distinct from ordinary selection
+
+- Render while inspecting evaluates that node and its upstream dependency subtree only; downstream nodes remain present and connected but are ignored for that preview
+
+- inspect state is editor/presentation state only. It must not mutate Rete connections, node parameters, graph identity, or normal project semantics
+
+- deleting the inspected node must clear the inspect state rather than leaving a stale node reference/id
+
+- node controls, sockets, connection paths, and editable fields must retain their own double-click behavior; blank-canvas double-click behavior remains separate
+
+- inspect selection is manual: choosing an inspect root does not automatically start an OpenSCAD render
+
+The development source display may show the source actually rendered for the inspected subtree. Normal `.scad` export must continue to represent the complete model rather than silently exporting only the inspected subtree. STL download may represent the currently rendered mesh.
+
+Keep inspect-root evaluation within the existing Rete/dataflow/code-generation path. Do not implement it by copying/reconnecting the graph or by introducing a second evaluator.
 
 **### Node catalog and creation**
 
@@ -460,9 +498,11 @@ The persistent node palette groups currently available nodes by educational cate
 
 Current palette behavior:
 
-- Cube and Cylinder are under `primitives`.
+- Cube, Cylinder, and Sphere are under `primitives`.
 
-- Difference is under `boolean-operations`.
+- Translate, Rotate, and Scale are under `transformations`.
+
+- Difference, Union, and Intersection are under `boolean-operations`.
 
 - Nodes can be dragged from the palette onto the infinite Rete canvas.
 
@@ -471,6 +511,8 @@ Current palette behavior:
 - Adding a node must not pan, zoom, center, or otherwise disturb the current canvas viewport.
 
 - Clicking a palette item may use the same creation path to place a node near the visible canvas center.
+
+- A fresh session starts with an empty canvas; do not recreate the old automatic starter Cube. Example/template projects may be added later as an explicit feature.
 
 Keep all creation mechanisms routed through one shared editor-level creation path.
 
@@ -498,25 +540,25 @@ Do not add a full i18n framework or language switcher unless the project has gro
 
 **## Persistence**
 
-Project persistence is planned but not yet implemented.
+Project persistence is the next planned milestone and should be implemented before broadening parameter/dataflow features further.
 
-Rete v2 does not provide the complete project serialization required by SCADlet automatically. When persistence is implemented, use a SCADlet-owned JSON project format containing at least:
+Rete v2 does not provide the complete project serialization required by SCADlet automatically. Define a SCADlet-owned, versioned JSON project format containing at least:
 
 - node IDs and types
-
 - node parameters/state
-
 - connections
-
 - node positions
-
 - canvas viewport/pan/zoom where useful
+
+Presentation/transient state such as hover timers, ordinary selection, marquee state, and temporary inspect-root state should not become semantic project data unless a later deliberate product decision says otherwise.
+
+The initial implementation may use browser storage for convenient save/load or autosave, but serialization must remain separate from the storage adapter so the same project representation can later support file download/upload (for example a `.scadlet` project file) without redesigning graph semantics.
 
 The node editor is conceptually an infinite canvas.
 
 `.scad` and `.stl` are export formats, not the SCADlet project format.
 
-Do not invent persistence infrastructure or a backend before the project format is deliberately designed.
+Do not add an application backend for persistence; SCADlet remains fully client-side/static-hostable.
 
 **---**
 
@@ -780,189 +822,119 @@ cancellation remain out of scope unless requested later.
 
 **### Milestone 3 — Editor usability baseline (complete)**
 
-Establish a practical editor UX before broadening the OpenSCAD language
-
-surface. These are UX/editor improvements, not semantic changes to the
-
-Rete graph structure or OpenSCAD generation architecture.
+Establish a practical editor UX before broadening the OpenSCAD language surface. These are UX/editor improvements, not semantic changes to the Rete graph structure or OpenSCAD generation architecture.
 
 Done:
 
-- selected nodes can be deleted with `Delete` / `Backspace`; attached
+- selection, visible selected state, Delete/Backspace cleanup, and editable-control protection
+- resizable editor/viewer/source panes without recreating editor/viewer state
+- OpenSCAD-consistent Z-up viewer behavior
+- persistent data-driven node palette with click and drag/drop creation
+- localization-ready node/category labels with stable internal IDs
+- compact/collapsible nodes with hover expansion, delayed collapse, pinning, touch/no-hover fallback, and foregrounding
+- stable connector anchors across compact/expanded presentation states
+- inputs on the far left and outputs on the far right with redundant `Geometry` labels suppressed
+- node controls isolated from canvas double-click/wheel gestures
+- multi-selection through Ctrl/Cmd-click, Shift-drag marquee selection, and group movement of selected nodes
+- `Render` as the single normal evaluate/generate/render action; the old separate `Evaluate OpenSCAD` action is gone
+- empty startup canvas; the early automatic starter Cube is gone
 
-  Rete connections are removed cleanly and editable controls are protected
+Do not reopen this milestone for general UI redesign, undo/redo, auto-layout, minimap, or touch-first optimization. Further UI refinement belongs to later work unless a regression blocks current use.
 
-  from accidental deletion shortcuts
+**### Milestone 4 — More geometry, transformation, and Boolean nodes (complete)**
 
-- node selection has a visible state and empty-canvas click deselects
+The initial broader geometry vocabulary is implemented:
 
-- the node canvas, 3D preview, and development SCAD-output area can be
+- primitives: Cube, Cylinder, Sphere
+- transformations: Translate, Rotate, Scale
+- Boolean operations: Difference, Union, Intersection
 
-  resized through the workspace splitters without recreating editor/viewer
+Current implementation follows the established architecture:
 
-  state
-
-- the Three.js viewer follows OpenSCAD's Z-up convention, including grid,
-
-  axes, camera behavior, and fit-to-view
-
-- the old basic add-node controls were replaced with a persistent,
-
-  data-driven node palette
-
-- palette categories use clear educational terminology (`primitives`,
-
-  `boolean-operations`) rather than user-facing `CSG`
-
-- node creation supports drag-and-drop onto the infinite canvas, correctly
-
-  accounting for current pan/zoom and without moving the viewport
-
-- a click fallback creates nodes near the visible canvas center through
-
-  the same shared creation path
-
-- node labels/categories are localization-ready through stable internal IDs
-
-  and translation keys; English is currently the only populated locale
-
-- compact/collapsible nodes keep unused controls out of the way while
-
-  supporting delayed hover expansion, delayed collapse, pinning, and
-
-  touch/no-hover behavior through existing node selection state
-
-- active/hovered nodes are brought to the foreground through Rete's existing
-
-  area DOM ordering without introducing a separate z-index system
-
-- node connector layout is normalized with inputs on the far left and outputs
-
-  on the far right; redundant visible `Geometry` type labels are omitted while
-
-  semantic socket typing and accessibility labels remain
-
-- editable node controls are isolated from canvas double-click/wheel gestures
-
-  so ordinary input selection and editing behavior is preserved
-
-- `Render` is the single normal evaluate/generate/render action; the separate
-
-  `Evaluate OpenSCAD` control has been removed
-
-Do not reopen this milestone for general UI redesign, undo/redo, auto-layout,
-
-minimap, persistence, or touch-first optimization. Further UI refinement belongs
-
-to later milestones unless a regression blocks current work.
-
-**
-
-### Milestone 4 — More geometry, transformation, and Boolean nodes**
-
-After the remaining compact-node UX work, broaden the useful OpenSCAD
-
-geometry vocabulary.
-
-Add the node families described under "Node design principles" that are not
-
-yet implemented, starting with a small coherent set such as Sphere,
-
-Translate, Rotate, Scale, Union, and Intersection.
-
-Reuse the established Cube/Cylinder/Difference patterns:
-
-- pure, DOM-independent OpenSCAD code generation
-
+- pure, DOM-independent OpenSCAD generation
 - Rete node/dataflow semantics
-
 - shared Geometry sockets
+- inline numeric controls and progressive disclosure where appropriate
+- Sphere supports radius/diameter and optional `$fn`
+- Translate/Rotate/Scale share their genuine vector-transform implementation pattern
+- Union/Intersection currently use two explicit geometry inputs (`A`/`B`) rather than a premature variadic-port UI
+- catalog registration and localization keys for all current nodes
 
-- progressive disclosure where needed
+Render performance was also profiled at this stage. The current OpenSCAD WASM path uses Manifold plus binary STL because Boolean operations with tessellated geometry such as Sphere `$fn=50` were orders of magnitude slower with the previous CGAL/Nef backend. Do not revert that backend/output choice without measured evidence and correctness verification.
 
-- node catalog registration and localization keys
+The editor also supports **Inspect Node** as a temporary preview root: an intermediate node and its upstream dependency subtree can be rendered without modifying normal graph semantics.
 
-Prefer a few complete, well-designed nodes over adding many OpenSCAD
+**### Milestone 5 — Project persistence / save and load (next)**
 
-constructs at once.
+Define and implement a versioned SCADlet project format and a first fully client-side save/load workflow.
 
-**### Milestone 5 — Parameters and simple dataflow**
+At minimum persist:
+
+- node IDs/types and semantic parameter state
+- connections
+- node positions
+- useful canvas viewport state
+
+Keep serialization independent from storage. Browser storage is a suitable first storage adapter, while the project representation should be suitable for later explicit project-file import/export and deterministic fixtures/benchmark graphs.
+
+Do not serialize transient hover, marquee, ordinary selection, or temporary Inspect state as semantic model data by default.
+
+**### Milestone 6 — Parameters and simple dataflow**
 
 Add value-driven parameters and a small supporting math layer.
 
 Likely initial value nodes:
 
 - Number
-
 - Add
-
 - Subtract
-
 - Multiply
-
 - Divide
-
 - Vector2
-
 - Vector3
 
-Geometry-node parameters should still support convenient inline literal values.
+Geometry-node parameters should still support convenient inline literal values. Parameter/value connectors should follow the established stable-anchor and type-color conventions rather than causing node layout to jump.
 
-**### Milestone 6 — Modules / reusable subgraphs**
+**### Milestone 7 — Modules / reusable subgraphs**
 
 Support reusable, parameterized graph structures corresponding to OpenSCAD modules.
 
 Focus on teaching:
 
 - abstraction
-
 - parameterization
-
 - reuse
-
 - composition
 
-**### Milestone 7 — Iteration**
+**### Milestone 8 — Iteration**
 
 Add a visual representation of repetition / OpenSCAD `for`.
 
 The precise UX is intentionally undecided. Do not assume the OpenSCAD syntax should be mapped literally to nodes.
 
-**### Milestone 8 — Geometry code node**
+**### Milestone 9 — Geometry code node**
 
 Add an OpenSCAD code escape hatch that:
 
 - accepts defined parameter inputs
-
 - may accept geometry inputs
-
 - produces geometry
 
 Keep it secondary to normal visual nodes.
-
-**### Milestone 9 — Project persistence**
-
-Define and implement the SCADlet JSON project format, including graph layout and viewport state.
 
 **### Milestone 10 — Teaching features and UX refinement**
 
 Possible later features include:
 
 - stepwise evaluation
-
-- displaying intermediate geometry
-
 - highlighting geometry associated with a node
-
 - visualizing dependencies
-
 - exercises/challenges
-
 - beginner/advanced modes
-
 - explanations of functional programming concepts
+- later UI refinement beyond the current editor baseline
 
-- later UI refinement beyond the compact/collapsible baseline
+The existing Inspect Node feature already provides one form of intermediate-geometry inspection; later teaching features should build on it rather than introducing conflicting graph semantics.
 
 These are intentionally later milestones.
 
@@ -994,11 +966,7 @@ editable Rete graph
 
 This end-to-end MVP now exists and is the stable baseline for subsequent work.
 
-Basic parameter dataflow/value nodes (Milestone 5) can follow after the editor
-
-usability baseline and a broader geometry vocabulary rather than being required
-
-for the proof of concept.
+Project persistence (Milestone 5) is the next practical step now that graphs are useful enough to preserve and reuse. Parameter dataflow/value nodes follow in Milestone 6 rather than being required for the proof of concept.
 
 When extending the MVP, preserve the working end-to-end path and resist
 

@@ -1,5 +1,5 @@
 import { NodeEditor } from 'rete'
-import { AreaExtensions, AreaPlugin } from 'rete-area-plugin'
+import { AreaExtensions, AreaPlugin, Zoom } from 'rete-area-plugin'
 import { ConnectionPlugin, Presets as ConnectionPresets } from 'rete-connection-plugin'
 import { DataflowEngine } from 'rete-engine'
 
@@ -97,10 +97,15 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // group movement/deletion identically.
   const detachMarquee = attachMarqueeSelection(editor, area, container, nodeSelection)
 
-  // Rete's zoom extension listens for `wheel`/`dblclick` directly on this
-  // same `container` element that node controls render inside, so without
-  // isolation, e.g. double-clicking a number input to select its value
-  // also bubbles up and zooms the whole canvas (AGENTS.md section 3).
+  // Double-click-to-zoom is not part of SCADlet's interaction model (and
+  // would fight the Inspect Node feature's own double-click gesture) -
+  // wheel/pinch zoom stays, only the dblclick source is disabled.
+  area.area.setZoomHandler(new ClicklessZoom(0.1))
+
+  // Rete's zoom extension listens for `wheel` directly on this same
+  // `container` element that node controls render inside, so without
+  // isolation, e.g. scrolling inside a select's option list also bubbles
+  // up and zooms the whole canvas (AGENTS.md section 3).
   isolateControlGestures(container)
 
   // Clears presentation timers/state whenever a node is removed, so no
@@ -188,20 +193,31 @@ function attachDeletion(
 }
 
 /**
- * Stops a `dblclick`/`wheel` event that started inside a node control
- * (input, select, button, contenteditable) from ever reaching Rete's own
- * `dblclick`/`wheel` listeners on this same container, which zoom the
- * canvas. A capture-phase listener runs before those bubble-phase
- * listeners regardless of attachment order, so this is a single,
- * centralized isolation point rather than a `stopPropagation` call added
- * to every individual control (AGENTS.md section 3). Double-clicking or
- * scrolling anywhere else on the canvas (including a node's title/body)
- * still zooms as before.
+ * Stops a `wheel` event that started inside a node control (input,
+ * select, button, contenteditable) from ever reaching Rete's own `wheel`
+ * listener on this same container, which zooms the canvas. A
+ * capture-phase listener runs before that bubble-phase listener
+ * regardless of attachment order, so this is a single, centralized
+ * isolation point rather than a `stopPropagation` call added to every
+ * individual control (AGENTS.md section 3). Scrolling anywhere else on
+ * the canvas (including a node's title/body) still zooms as before.
  */
 function isolateControlGestures(container: HTMLElement): void {
   const stopIfEditable = (event: Event): void => {
     if (isEditableTarget(event.target)) event.stopPropagation()
   }
-  container.addEventListener('dblclick', stopIfEditable, { capture: true })
   container.addEventListener('wheel', stopIfEditable, { capture: true })
+}
+
+/**
+ * `Zoom` (from `rete-area-plugin`) is explicitly designed to be extended
+ * for custom behavior; its `dblclick` handler is a `protected` instance
+ * field (not a prototype method), so overriding it here in a subclass
+ * field replaces the parent's assignment once `super()` runs, before
+ * `initialize()` ever attaches the container's `dblclick` listener.
+ * Wheel and pinch-to-zoom are untouched - only the double-click zoom
+ * gesture is disabled.
+ */
+class ClicklessZoom extends Zoom {
+  protected dblclick = (): void => {}
 }
