@@ -59,6 +59,25 @@ export class NodeEditorElement extends LitElement {
       box-shadow: 0 0 0 2px rgb(122 192 255 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
     }
 
+    /*
+     * Inspect Node's visual treatment (AGENTS.md-adjacent feature) is
+     * deliberately an outline rather than another border/box-shadow
+     * combination, so it renders as a visually distinct layer that can
+     * coexist with .node--selected above on the same node at once,
+     * instead of the two competing for the same border/shadow.
+     */
+    .node--inspected {
+      outline: 2px solid #f2b134;
+      outline-offset: 2px;
+    }
+
+    .node-inspect-badge {
+      flex: none;
+      font-size: 12px;
+      line-height: 1;
+      cursor: default;
+    }
+
     .node-main {
       display: flex;
       align-items: stretch;
@@ -289,8 +308,13 @@ export class NodeEditorElement extends LitElement {
     await this.instance?.addNodeAtCenter(type)
   }
 
-  async evaluate(): Promise<string> {
-    return (await this.instance?.evaluate()) ?? ''
+  async evaluate(rootNodeId?: string): Promise<string> {
+    return (await this.instance?.evaluate(rootNodeId)) ?? ''
+  }
+
+  /** The node id currently selected as the Inspect Node preview root, or `null` if inspection is inactive. */
+  getInspectedNodeId(): string | null {
+    return this.instance?.getInspectedNodeId() ?? null
   }
 }
 

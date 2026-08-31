@@ -10,12 +10,27 @@ import type { Schemes } from './schemes'
  * consumed by another node's input. With no transformation/CSG nodes yet,
  * every node is currently a root, so each simply becomes an independent
  * top-level object - which is already valid, meaningful OpenSCAD.
+ *
+ * `rootNodeId`, when given, switches to the Inspect Node feature's mode:
+ * instead of every unconsumed node, exactly that one node is evaluated as
+ * the sole output root, reusing the same recursive `rete-engine` dataflow
+ * fetch each of its upstream dependencies already goes through for a
+ * normal evaluation - the graph itself, and its normal (non-rooted)
+ * evaluation, are never mutated or otherwise affected by this. Returns
+ * `''` if the id no longer refers to a node (e.g. it was just deleted).
  */
 export async function evaluateOpenSCAD(
   editor: NodeEditor<Schemes>,
   engine: DataflowEngine<Schemes>,
+  rootNodeId?: string,
 ): Promise<string> {
   engine.reset()
+
+  if (rootNodeId !== undefined) {
+    if (!editor.getNode(rootNodeId)) return ''
+    const output = (await engine.fetch(rootNodeId)) as { geometry?: GeometryValue }
+    return output.geometry?.code ?? ''
+  }
 
   const consumedNodeIds = new Set(editor.getConnections().map((connection) => connection.source))
   const roots = editor.getNodes().filter((node) => !consumedNodeIds.has(node.id))

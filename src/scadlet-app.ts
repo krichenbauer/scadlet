@@ -180,6 +180,16 @@ export class ScadletApp extends LitElement {
   @state()
   private scadSource = ''
 
+  /**
+   * Always the full-model OpenSCAD source, independent of Inspect Node -
+   * this is what ".scad" export must contain, even while `scadSource`
+   * (the dev-panel display and what's actually sent to OpenSCAD WASM) is
+   * showing an inspected subtree instead. Equal to `scadSource` whenever
+   * nothing is being inspected.
+   */
+  @state()
+  private exportSource = ''
+
   @state()
   private rendering = false
 
@@ -206,7 +216,7 @@ export class ScadletApp extends LitElement {
           ${this.rendering ? 'Rendering…' : 'Render'}
         </button>
         <button type="button" @click=${this._stop} ?disabled=${!this.rendering}>Stop</button>
-        <button type="button" @click=${this._downloadScad} ?disabled=${!this.scadSource}>
+        <button type="button" @click=${this._downloadScad} ?disabled=${!this.exportSource}>
           Download .scad
         </button>
         <button type="button" @click=${this._downloadStl} ?disabled=${!this.stl}>Download .stl</button>
@@ -287,11 +297,24 @@ export class ScadletApp extends LitElement {
     // action that keeps the SCAD output, the `.scad` download, and the
     // WASM render in sync with each other - there is no separate
     // "Evaluate" action/code path to fall out of sync with this one.
-    const source = await this.nodeEditor.evaluate()
-    this.scadSource = source
+    //
+    // The full-model evaluation always happens and is what ".scad" export
+    // uses, regardless of Inspect Node state. When a node is being
+    // inspected (Inspect Node - see `editor/inspect.ts`), the preview
+    // actually rendered/displayed instead evaluates just that node's
+    // subtree, reusing the exact same evaluation path with an explicit
+    // root rather than a second evaluator (`evaluateOpenSCAD`'s optional
+    // `rootNodeId`). With nothing inspected the two are identical, so
+    // normal Render behaves exactly as it did before Inspect Node existed.
+    const fullSource = await this.nodeEditor.evaluate()
+    this.exportSource = fullSource
+
+    const inspectedNodeId = this.nodeEditor.getInspectedNodeId()
+    const previewSource = inspectedNodeId ? await this.nodeEditor.evaluate(inspectedNodeId) : fullSource
+    this.scadSource = previewSource
     const tEval = performance.now()
 
-    if (!source.trim()) {
+    if (!previewSource.trim()) {
       this.renderError = 'Nothing to render - add at least one node.'
       return
     }
@@ -299,7 +322,7 @@ export class ScadletApp extends LitElement {
     this.rendering = true
     this.renderError = null
     try {
-      const stl = await this.renderController.render(source)
+      const stl = await this.renderController.render(previewSource)
       const tRendered = performance.now()
       this.stl = stl
       this.viewer.showSTL(stl)
@@ -326,8 +349,8 @@ export class ScadletApp extends LitElement {
   }
 
   private _downloadScad() {
-    if (!this.scadSource) return
-    triggerDownload(scadBlob(this.scadSource), 'scadlet-model.scad')
+    if (!this.exportSource) return
+    triggerDownload(scadBlob(this.exportSource), 'scadlet-model.scad')
   }
 
   private _downloadStl() {

@@ -5,7 +5,9 @@ import type { ConnectionPlugin } from 'rete-connection-plugin'
 import { classicConnectionPath, getDOMSocketPosition } from 'rete-render-utils'
 
 import { CheckboxControl, LabeledNumberControl, SelectControl } from './controls'
+import { isEditableTarget } from './deletion'
 import { t } from '../i18n/translate'
+import type { InspectManager } from './inspect'
 import { bringNodeToFront } from './order'
 import { isRedundantTypeLabel } from './ports'
 import type { NodePresentationManager } from './presentation'
@@ -46,6 +48,7 @@ export function attachRenderer(
   area: AreaPlugin<Schemes, AreaExtra>,
   connection: ConnectionPlugin<Schemes, AreaExtra>,
   presentation: NodePresentationManager,
+  inspect: InspectManager,
 ): void {
   const socketPosition = getDOMSocketPosition<Schemes, AreaExtra>()
   // `attach()` only uses `connection` to walk up to its parent `area` via
@@ -55,18 +58,19 @@ export function attachRenderer(
   socketPosition.attach(connection as unknown as Scope<never, [AreaExtra]>)
 
   const connections = new Map<HTMLElement, ConnectionState>()
-  // Tracks which node root elements already have hover listeners attached.
-  // A node's root element is created once and reused across re-renders (only
-  // its children are replaced - see `renderNode`), so listeners must only be
-  // wired the first time a given element is seen, not on every re-render.
-  const hoverWired = new WeakSet<HTMLElement>()
+  // Tracks which node root elements already have hover/dblclick listeners
+  // attached. A node's root element is created once and reused across
+  // re-renders (only its children are replaced - see `renderNode`), so
+  // listeners must only be wired the first time a given element is seen,
+  // not on every re-render.
+  const nodeListenersWired = new WeakSet<HTMLElement>()
 
   area.addPipe((context) => {
     if (context.type === 'render') {
       const { data } = context
 
       if (data.type === 'node') {
-        renderNode(area, data.element, data.payload, presentation, hoverWired)
+        renderNode(area, data.element, data.payload, presentation, inspect, nodeListenersWired)
       } else if (data.type === 'connection') {
         updateConnection(
           connections,
@@ -107,10 +111,17 @@ function renderNode(
   element: HTMLElement,
   node: Schemes['Node'],
   presentation: NodePresentationManager,
-  hoverWired: WeakSet<HTMLElement>,
+  inspect: InspectManager,
+  nodeListenersWired: WeakSet<HTMLElement>,
 ): void {
   element.classList.add('node')
   element.classList.toggle('node--selected', Boolean(node.selected))
+
+  const inspected = inspect.isInspected(node.id)
+  // A separate, independent visual treatment from `.node--selected` (see
+  // `inspect.ts`): the two are unrelated pieces of state and must be able
+  // to be shown together (e.g. the inspected node is also selected).
+  element.classList.toggle('node--inspected', inspected)
 
   // Feeds Rete's own selection flag into the presentation manager so a
   // touch/no-hover device can expand-on-select and collapse-on-deselect
@@ -123,10 +134,10 @@ function renderNode(
   element.classList.toggle('node--expanded', expanded)
 
   // The node's root element persists across re-renders (only its children
-  // are replaced below), so hover listeners are wired exactly once per
+  // are replaced below), so these listeners are wired exactly once per
   // element rather than accumulating on every re-render.
-  if (!hoverWired.has(element)) {
-    hoverWired.add(element)
+  if (!nodeListenersWired.has(element)) {
+    nodeListenersWired.add(element)
     element.addEventListener('pointerenter', () => {
       // Bring the node forward immediately on hover start, not after the
       // presentation manager's expand delay elapses, so an about-to-expand
@@ -135,6 +146,21 @@ function renderNode(
       presentation.handlePointerEnter(node.id)
     })
     element.addEventListener('pointerleave', () => presentation.handlePointerLeave(node.id))
+
+    // Inspect Node (AGENTS.md-adjacent feature): double-clicking a node
+    // makes it the temporary preview/render root, mirroring OpenSCAD's `!`
+    // modifier, without mutating the graph. Excluded from editable
+    // controls (inputs/selects/buttons/the pin button - `isEditableTarget`
+    // covers all of these structurally) and from sockets, so interacting
+    // with a control or dragging a connection is never misread as an
+    // inspect toggle. Detected from `pointerdown` timing rather than a
+    // native `dblclick` listener - see `InspectManager.registerPointerDown`
+    // for why native `dblclick` never fires on a node in this app.
+    element.addEventListener('pointerdown', (event) => {
+      if (isEditableTarget(event.target)) return
+      if (event.target instanceof Element && event.target.closest('.node-socket')) return
+      inspect.registerPointerDown(node.id)
+    })
   }
 
   // Re-rendering a node (e.g. after `area.update('node', id)` for Cylinder's
@@ -177,7 +203,7 @@ function renderNode(
 
   const body = document.createElement('div')
   body.className = 'node-body'
-  body.appendChild(renderHeader(node, presentation, hasControls))
+  body.appendChild(renderHeader(node, presentation, hasControls, inspected))
   main.appendChild(body)
 
   if (Object.values(node.outputs).some(Boolean)) {
@@ -218,6 +244,7 @@ function renderHeader(
   node: Schemes['Node'],
   presentation: NodePresentationManager,
   hasControls: boolean,
+  inspected: boolean,
 ): HTMLElement {
   const header = document.createElement('div')
   header.className = 'node-header'
@@ -226,6 +253,19 @@ function renderHeader(
   title.className = 'node-title'
   title.textContent = node.label
   header.appendChild(title)
+
+  if (inspected) {
+    // A small, independent indicator (in addition to `.node--inspected`'s
+    // outline on the whole node) so inspected state is legible even where
+    // the outline itself is easy to miss, e.g. a quick glance at a busy
+    // graph - never the sole indication (AGENTS.md-adjacent requirement).
+    const badge = document.createElement('span')
+    badge.className = 'node-inspect-badge'
+    badge.textContent = '👁'
+    badge.title = t('node.inspected')
+    badge.setAttribute('aria-label', t('node.inspected'))
+    header.appendChild(badge)
+  }
 
   if (hasControls) {
     const pinned = presentation.isPinned(node.id)

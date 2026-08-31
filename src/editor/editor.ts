@@ -6,6 +6,7 @@ import { DataflowEngine } from 'rete-engine'
 import { clientToGraphPosition, type Position } from './coordinates'
 import { evaluateOpenSCAD } from './evaluate'
 import { isEditableTarget, removeNodeWithConnections } from './deletion'
+import { InspectManager } from './inspect'
 import { attachMarqueeSelection } from './marquee'
 import { findCatalogEntry } from './node-catalog'
 import { NodePresentationManager } from './presentation'
@@ -25,7 +26,16 @@ export interface SCADletEditor {
   addNodeAt(type: string, clientPosition: Position): Promise<void>
   /** Creates a node of the given catalog type near the visible center of the canvas, without changing pan/zoom. */
   addNodeAtCenter(type: string): Promise<void>
-  evaluate(): Promise<string>
+  /**
+   * Evaluates the graph into OpenSCAD source. With no argument this is
+   * the normal full-model evaluation (unchanged). Passing `rootNodeId`
+   * evaluates only that node's upstream subtree instead - the Inspect
+   * Node feature's preview source - without mutating the graph or
+   * affecting the normal (no-argument) evaluation in any way.
+   */
+  evaluate(rootNodeId?: string): Promise<string>
+  /** The node id currently selected as the Inspect Node preview root, or `null` if inspection is inactive. */
+  getInspectedNodeId(): string | null
   destroy(): void
 }
 
@@ -67,7 +77,15 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   const presentation = new NodePresentationManager({
     onChange: (id) => void area.update('node', id),
   })
-  attachRenderer(area, connection, presentation)
+
+  // Inspect Node state (which node, if any, is the temporary preview
+  // root - see `inspect.ts`) is likewise kept outside the Rete graph
+  // model and outside `NodePresentationManager`: it is an independent
+  // concept from expanded/pinned, not another boolean on the same class.
+  const inspect = new InspectManager({
+    onChange: (id) => void area.update('node', id),
+  })
+  attachRenderer(area, connection, presentation, inspect)
 
   AreaExtensions.simpleNodesOrder(area)
 
@@ -91,6 +109,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   editor.addPipe((context) => {
     if (context.type === 'noderemoved') {
       presentation.remove(context.data.id)
+      inspect.remove(context.data.id)
     }
     return context
   })
@@ -122,7 +141,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     area,
     addNodeAt,
     addNodeAtCenter,
-    evaluate: () => evaluateOpenSCAD(editor, engine),
+    evaluate: (rootNodeId?: string) => evaluateOpenSCAD(editor, engine, rootNodeId),
+    getInspectedNodeId: () => inspect.id,
     destroy: () => {
       detachMarquee()
       nodeSelection.destroy()

@@ -27,6 +27,7 @@ const dictionaries: Record<LocaleId, Record<string, string>> = {
     'node.intersection': 'Intersection',
     'node.pin': 'Pin node expanded',
     'node.unpin': 'Unpin node',
+    'node.inspected': 'Inspecting this node\u2019s output',
     'control.size': 'Size',
     'control.radius': 'R',
     'control.diameter': 'D',
