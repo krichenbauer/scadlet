@@ -1,6 +1,6 @@
-**# SCADlet — Agent Instructions**
+# SCADlet — Agent Instructions
 
-**## Project purpose**
+## Project purpose
 
 SCADlet is an open-source, browser-based visual programming environment for OpenSCAD.
 
@@ -26,9 +26,9 @@ Priorities, in order:
 
 Do not turn SCADlet into a generic CAD system or a generic visual programming framework unless explicitly requested.
 
-**---**
+---
 
-**## Current architecture**
+## Current architecture
 
 Use this stack unless a task explicitly changes an architectural decision:
 
@@ -58,11 +58,11 @@ Use this stack unless a task explicitly changes an architectural decision:
 
 Do not introduce React, Vue, Angular, Svelte, or another application framework without an explicit architectural decision.
 
-**### Node editor rendering**
+### Node editor rendering
 
 Rete is the source of truth for graph structure and dataflow, but its
 
-official Lit render plugin (`rete-lit-plugin`) is ****not**** used and should
+official Lit render plugin (`rete-lit-plugin`) is **not** used and should
 
 not be reintroduced without a documented reason: its published build is
 
@@ -112,7 +112,7 @@ Lit still owns the surrounding application UI (`<scadlet-app>`,
 
 connections.
 
-**### Data flow**
+### Data flow
 
 The intended data flow is:
 
@@ -156,9 +156,9 @@ Three.js viewer
 
 Keep this direction simple. Do not make the Three.js viewer part of the semantic graph and do not use the viewer as a source of model state.
 
-**---**
+---
 
-**## Rete responsibilities**
+## Rete responsibilities
 
 Rete is currently intended to be the source of truth for the program graph.
 
@@ -206,9 +206,9 @@ Difference node
 
 Prefer structured node implementations and reusable code-generation helpers over ad-hoc string concatenation scattered throughout UI components.
 
-**---**
+---
 
-**## Node design principles**
+## Node design principles
 
 Geometry is the primary data type and should dominate the visual language.
 
@@ -224,15 +224,9 @@ Initial node families include:
 
 - values/math exist to support geometry, not to dominate the graph
 
-Cube, Cylinder, and Difference already exist and prove the pattern (a
+The current geometry vocabulary is implemented and includes Cube, Cylinder, Sphere, Translate, Rotate, Scale, Difference, Union, and Intersection. These nodes establish the reusable patterns for primitives, parameterized primitives with progressive disclosure, unary geometry transforms, and Boolean composition.
 
-geometry-producing primitive, a parameterized primitive with progressive
-
-disclosure, and a composition node that combines connected inputs). The
-
-remaining primitives/transforms/Boolean nodes above are not yet implemented.
-
-**### Parameters**
+### Parameters
 
 Simple values should normally be editable directly inside geometry nodes.
 
@@ -252,7 +246,7 @@ Parameters may later also expose ports so their values can come from other nodes
 
 Avoid forcing users to create value nodes for every numeric literal.
 
-**### Optional OpenSCAD parameters**
+### Optional OpenSCAD parameters
 
 Use progressive disclosure.
 
@@ -272,15 +266,15 @@ Only fields/ports relevant to the selected mode should be shown.
 
 Optional advanced parameters such as `$fn`, `$fa`, and `$fs` should be hidden until enabled.
 
-**### Code node**
+### Code node
 
 A geometry-oriented OpenSCAD code node is planned for a later milestone as an escape hatch for constructs that are awkward to represent visually.
 
 Do not use code nodes as a shortcut for ordinary geometry features that should have clear visual nodes.
 
-**---**
+---
 
-**## OpenSCAD generation**
+## OpenSCAD generation
 
 SCADlet should generate valid, reasonably readable OpenSCAD.
 
@@ -308,9 +302,9 @@ Do not introduce a second geometry implementation such as JSCAD or replicad for 
 
 Importing existing `.scad` source is not currently a requirement.
 
-**---**
+---
 
-**## OpenSCAD WASM and rendering**
+## OpenSCAD WASM and rendering
 
 Run OpenSCAD WASM in a Web Worker.
 
@@ -336,9 +330,9 @@ Keep expensive OpenSCAD execution off the main UI thread.
 
 Do not introduce a second geometry implementation for a faster preview. Three.js remains a viewer, not an alternate evaluator/modeling engine.
 
-**---**
+---
 
-**## Three.js viewer**
+## Three.js viewer
 
 Three.js is used as a mesh viewer, not as the modeling engine.
 
@@ -374,9 +368,9 @@ When a new mesh is rendered, replace the mesh while preserving the existing scen
 
 Do not introduce Babylon.js, `<model-viewer>`, React Three Fiber, or a specialized STL viewer wrapper without a concrete reason.
 
-**---**
+---
 
-**## UI architecture**
+## UI architecture
 
 Use Lit and normal Web Components for application-level UI.
 
@@ -424,7 +418,7 @@ Selection/marquee behavior is editor state only. It must not change OpenSCAD sem
 
 Desktop/laptop interaction is the primary target. Do not deliberately make touch impossible, but do not increase complexity substantially just to optimize tablet UX at this stage.
 
-**### Compact node presentation**
+### Compact node presentation
 
 Nodes use a compact/collapsible presentation model so parameters and controls do not permanently consume canvas space. This is presentation state only and must remain separate from Rete graph semantics and node parameter state.
 
@@ -448,7 +442,7 @@ Node layout is normalized as inputs on the far left, a stable title/port row in 
 
 Editable controls inside nodes own their normal browser interactions. Canvas gestures such as double-click zoom or wheel handling must not override editing/selecting values in inputs, textareas, selects, buttons, or other editable controls.
 
-**### Inspect / temporary preview root**
+### Inspect / temporary preview root
 
 SCADlet supports inspecting intermediate geometry without modifying the program graph.
 
@@ -472,7 +466,7 @@ The development source display may show the source actually rendered for the ins
 
 Keep inspect-root evaluation within the existing Rete/dataflow/code-generation path. Do not implement it by copying/reconnecting the graph or by introducing a second evaluator.
 
-**### Node catalog and creation**
+### Node catalog and creation
 
 Node creation is driven by a single, small catalog/registry rather than separate hardcoded add-node handlers.
 
@@ -516,7 +510,7 @@ Current palette behavior:
 
 Keep all creation mechanisms routed through one shared editor-level creation path.
 
-**### Localization readiness**
+### Localization readiness
 
 SCADlet is intended to support a German UI later.
 
@@ -536,33 +530,137 @@ The current localization layer is intentionally minimal and English-only. A futu
 
 Do not add a full i18n framework or language switcher unless the project has grown enough to justify it.
 
-**---**
+---
 
-**## Persistence**
+## Persistence
 
-Project persistence is the next planned milestone and should be implemented before broadening parameter/dataflow features further.
+Project persistence is the next milestone and must remain fully client-side. Treat **project representation**, **file access**, and **browser-local storage** as separate concerns that share the same canonical project model.
 
-Rete v2 does not provide the complete project serialization required by SCADlet automatically. Define a SCADlet-owned, versioned JSON project format containing at least:
+### Canonical `.scadlet` project format
 
-- node IDs and types
-- node parameters/state
-- connections
-- node positions
-- canvas viewport/pan/zoom where useful
+Define a SCADlet-owned, versioned JSON format. Do not serialize Rete objects, DOM state, Three.js objects, or other library-internal structures directly. The file format is a stable SCADlet contract that adapters reconstruct into the current implementation.
 
-Presentation/transient state such as hover timers, ordinary selection, marquee state, and temporary inspect-root state should not become semantic project data unless a later deliberate product decision says otherwise.
+Use a top-level shape conceptually like:
 
-The initial implementation may use browser storage for convenient save/load or autosave, but serialization must remain separate from the storage adapter so the same project representation can later support file download/upload (for example a `.scadlet` project file) without redesigning graph semantics.
+```json
+{
+  "format": "scadlet",
+  "version": 1,
+  "metadata": {},
+  "graph": {},
+  "editor": {},
+  "viewer": {}
+}
+```
 
-The node editor is conceptually an infinite canvas.
+Keep these responsibilities distinct:
 
-`.scad` and `.stl` are export formats, not the SCADlet project format.
+- `metadata`: project name and portable project metadata. A new project may temporarily be called `Untitled Project`, but before the first explicit file Save / Save As / export the user must provide a meaningful project name. Use that name as the default `.scadlet` filename after safe filename normalization.
 
-Do not add an application backend for persistence; SCADlet remains fully client-side/static-hostable.
+- `graph`: semantic program state. Store stable node IDs, stable language-independent node type IDs, each node's semantic parameter state, and explicit connections.
 
-**---**
+- `editor`: reproducible editor representation. Store node positions and useful infinite-canvas viewport state such as pan/translation and zoom. This is project presentation state, not OpenSCAD semantics.
 
-**## Hosting and privacy**
+- `viewer`: reproducible 3D view state. Store only the minimal stable values needed to restore the view, such as camera position and controls target (and future user-adjustable view settings if they become project-relevant). Do not serialize raw Three.js objects.
+
+Connections must address **specific stable ports**, not merely pairs of nodes. Conceptually:
+
+```json
+{
+  "id": "connection-42",
+  "source": { "node": "node-17", "port": "geometry" },
+  "target": { "node": "node-23", "port": "base" }
+}
+```
+
+This is required for current multi-input geometry nodes and future parameter/value sockets. Port IDs such as `geometry`, `base`, `subtract`, `a`, `b`, `x`, etc. must be stable semantic IDs independent of localized labels and renderer details.
+
+Do not store transient interaction state as normal project data. In particular, ordinary selection, marquee rectangles, hover timers, temporary compact expansion, drag state, and temporary Inspect root should not be serialized. Pinned presentation state should also remain excluded unless a later deliberate product decision makes it project-relevant.
+
+The format must be explicitly versioned from the beginning. Prefer small migrations between known older versions over speculative future-proof schemas. A newer unsupported format version, unknown semantic node type, or incompatible port/state must produce an understandable load error rather than silently dropping data. Additive evolution should preserve old projects through explicit migration/normalization code.
+
+`.scad` and `.stl` remain export formats, not SCADlet project formats.
+
+### Project serialization architecture
+
+Keep serialization/deserialization pure and independent from storage APIs. Conceptually separate:
+
+```text
+Rete/editor/viewer state
+        ↕
+ProjectSerializer / ProjectLoader
+        ↕
+ScadletProject (versioned canonical representation)
+        ↕
+file adapter / IndexedDB adapter / future storage adapters
+```
+
+Do not let IndexedDB records, browser file handles, GitHub concepts, or UI widgets leak into the canonical project schema.
+
+Node-type serialization should use the existing stable node catalog/type IDs and explicit semantic state. Do not depend on private Rete implementation details. The format should remain usable for deterministic examples, regression fixtures, and benchmark graphs as well as end-user projects.
+
+### `.scadlet` file open/save
+
+Support explicit project-file import/export using the canonical format.
+
+Use progressive enhancement:
+
+- baseline browser fallback: open via a normal file input and save via a generated `.scadlet` download
+- where the File System Access API is available: `Open`, `Save`, and `Save As` may use real file pickers/file handles so subsequent Save can write back to the same file
+- keep file-handle association outside the canonical `.scadlet` JSON; it is browser/session/storage metadata only
+- do not require File System Access support for SCADlet to function
+
+The application-level actions should remain conceptually `Open`, `Save`, and `Save As`, rather than exposing browser-specific implementation details. This leaves room for a later installable PWA/file-handler integration without redesigning serialization.
+
+When a project has not yet been explicitly named, an automatic/local recovery copy may remain `Untitled Project`; an explicit file Save / Save As / export must request a meaningful name first so downloads do not accumulate arbitrary filenames.
+
+### Browser-local project library
+
+Use **IndexedDB** as the primary browser-local project store. Do not use `localStorage` as the main project database. `localStorage` may later be used for tiny global preferences, but structured project content belongs in IndexedDB.
+
+The local project library must support multiple projects. Keep storage metadata separate from the canonical project representation. A stored project record may conceptually contain:
+
+```text
+storage id
+project name
+canonical ScadletProject data
+revision
+createdAt
+updatedAt
+optional browser-specific file association metadata
+```
+
+A storage/database ID is not automatically part of the portable `.scadlet` file identity. Importing/copying a project must be able to create a new local record without corrupting another project merely because portable metadata happens to match.
+
+The purpose of browser persistence is that useful work survives reloads and closed browser windows. Exact autosave timing/debounce is an implementation detail to choose simply; do not build a synchronization framework or render-style queue merely for autosave.
+
+### Multiple tabs/windows
+
+Different SCADlet tabs/windows must be able to work on different local projects independently.
+
+Use tab-scoped state (for example `sessionStorage`) for the `activeProjectId` or equivalent current-project pointer. Do **not** store one global active-project ID in IndexedDB/localStorage that causes one tab to switch another tab's open project.
+
+IndexedDB remains shared across tabs of the same origin, so all tabs see the same project library.
+
+Use a `BroadcastChannel` (or an equally small browser-native mechanism) to notify other SCADlet tabs about project-library changes such as save/update, rename, or deletion where that improves correctness/UI freshness. Do not use it as a second source of project truth.
+
+Two tabs may open the same project. Silent last-writer-wins overwrites are not acceptable. Use optimistic revision checking: a tab saves against the revision it loaded, a successful save increments the revision, and a stale tab must detect the mismatch rather than silently overwrite newer work.
+
+A short per-project Web Lock (`navigator.locks`) may be used where available to serialize the actual IndexedDB write, but the revision check remains the correctness mechanism. Do not make unsupported optional browser APIs a requirement for basic persistence.
+
+Do not implement collaborative merge/CRDT behavior at this stage. A detected concurrent-edit conflict may be surfaced to the user and resolved explicitly later; the key requirement now is to prevent silent data loss.
+
+### Persistence scope and future storage
+
+The first persistence implementation remains serverless and fully client-side. Do not add an application backend.
+
+The storage boundary should make future adapters possible without changing `.scadlet`, including GitHub/GitLab-style repository storage or other remote providers. Those are future features and must not be introduced during the initial persistence milestone.
+
+The node editor remains conceptually an infinite canvas, and project loading must restore positions/view state without recreating semantic meaning from presentation state.
+
+---
+
+## Hosting and privacy
 
 The application must remain fully static and client-side.
 
@@ -584,7 +682,7 @@ The build output should be hostable as ordinary static files on:
 
 GitHub Pages is the initial public hosting target, but do not make the application dependent on GitHub Pages.
 
-**### No third-party runtime dependencies**
+### No third-party runtime dependencies
 
 For privacy and self-hostability, all runtime resources must be served by the same site/application deployment.
 
@@ -608,9 +706,9 @@ Bundle or locally ship libraries, fonts, icons, WASM, and other required assets.
 
 Network access should not be required for normal use after the application itself has loaded.
 
-**---**
+---
 
-**## Open source and licensing**
+## Open source and licensing
 
 SCADlet is intended to be open source.
 
@@ -626,9 +724,9 @@ When adding dependencies:
 
 Do not copy code from sources with incompatible licenses.
 
-**---**
+---
 
-**## Development environment**
+## Development environment
 
 Development is intended to work on NixOS in VS Code.
 
@@ -662,9 +760,9 @@ Use pnpm for package operations unless the repository explicitly changes package
 
 Do not require developers to install project-specific Node packages globally.
 
-**---**
+---
 
-**## Code quality**
+## Code quality
 
 Prefer:
 
@@ -700,9 +798,9 @@ Avoid:
 
 When changing architecture, preserve the simple one-way data flow unless there is a concrete reason not to.
 
-**---**
+---
 
-**## Error handling**
+## Error handling
 
 Errors should ultimately be understandable to learners, not just developers.
 
@@ -720,11 +818,11 @@ Do not silently swallow errors.
 
 Detailed node-to-OpenSCAD diagnostic mapping is a later concern; do not over-engineer it during the MVP.
 
-**---**
+---
 
-**## Milestones**
+## Milestones
 
-**### Milestone 1 — Core graph/code-generation foundation (substantially complete)**
+### Milestone 1 — Core graph/code-generation foundation (substantially complete)
 
 The core visual-programming proof of concept: an editable Rete graph whose
 
@@ -756,17 +854,13 @@ Done so far:
 
   "Node editor rendering" above)
 
-Remaining primitives/transforms/Boolean nodes (Sphere, Translate, Rotate,
-
-Scale, Union, Intersection) are tracked under Milestone 4, not required
-
-here.
+The broader primitive/transform/Boolean vocabulary was deliberately deferred from this milestone and is now implemented under Milestone 4.
 
 No OpenSCAD import, modules, iteration, code editor, or persistence is
 
 required for this milestone.
 
-**### Milestone 2 — End-to-end browser rendering proof of concept (complete)**
+### Milestone 2 — End-to-end browser rendering proof of concept (complete)
 
 Prove the complete pipeline end to end:
 
@@ -820,7 +914,7 @@ Automatic live rendering, debounce logic, render queues, and complex
 
 cancellation remain out of scope unless requested later.
 
-**### Milestone 3 — Editor usability baseline (complete)**
+### Milestone 3 — Editor usability baseline (complete)
 
 Establish a practical editor UX before broadening the OpenSCAD language surface. These are UX/editor improvements, not semantic changes to the Rete graph structure or OpenSCAD generation architecture.
 
@@ -841,7 +935,7 @@ Done:
 
 Do not reopen this milestone for general UI redesign, undo/redo, auto-layout, minimap, or touch-first optimization. Further UI refinement belongs to later work unless a regression blocks current use.
 
-**### Milestone 4 — More geometry, transformation, and Boolean nodes (complete)**
+### Milestone 4 — More geometry, transformation, and Boolean nodes (complete)
 
 The initial broader geometry vocabulary is implemented:
 
@@ -864,22 +958,34 @@ Render performance was also profiled at this stage. The current OpenSCAD WASM pa
 
 The editor also supports **Inspect Node** as a temporary preview root: an intermediate node and its upstream dependency subtree can be rendered without modifying normal graph semantics.
 
-**### Milestone 5 — Project persistence / save and load (next)**
+### Milestone 5 — Project persistence / save and load (next)
 
-Define and implement a versioned SCADlet project format and a first fully client-side save/load workflow.
+Implement persistence in three layers, in this order:
 
-At minimum persist:
+1. **Canonical `.scadlet` format**
+   - define version 1 of the SCADlet-owned JSON schema
+   - serialize semantic graph state through stable node/type/port IDs
+   - include editor representation (node positions, canvas viewport) and viewer camera/view state in separate sections
+   - add validation plus a migration boundary from day one; do not serialize library internals
 
-- node IDs/types and semantic parameter state
-- connections
-- node positions
-- useful canvas viewport state
+2. **Project file Open / Save / Save As**
+   - import and export the same `.scadlet` representation
+   - require a meaningful project name before the first explicit file save/export and derive the default filename from it
+   - use File System Access APIs as progressive enhancement where supported, with file-input/download fallback elsewhere
+   - keep browser file handles outside the portable project JSON
 
-Keep serialization independent from storage. Browser storage is a suitable first storage adapter, while the project representation should be suitable for later explicit project-file import/export and deterministic fixtures/benchmark graphs.
+3. **Browser-local project library**
+   - store multiple projects in IndexedDB so work survives reloads and closed windows
+   - keep each tab's current `activeProjectId` tab-scoped, e.g. in `sessionStorage`
+   - use revision-based optimistic concurrency so two tabs editing the same project cannot silently overwrite one another
+   - use `BroadcastChannel` for lightweight cross-tab project-library notifications
+   - optionally use short per-project Web Locks where supported, while keeping revision checks authoritative
 
-Do not serialize transient hover, marquee, ordinary selection, or temporary Inspect state as semantic model data by default.
+Do not serialize transient hover, marquee, ordinary selection, drag state, or temporary Inspect state. Do not add collaborative merging, accounts, cloud sync, GitHub storage, or an application backend in this milestone.
 
-**### Milestone 6 — Parameters and simple dataflow**
+The resulting serializer/project fixtures should also make deterministic examples, regression tests, and repeatable render benchmarks straightforward without constructing graphs through fragile UI automation.
+
+### Milestone 6 — Parameters and simple dataflow
 
 Add value-driven parameters and a small supporting math layer.
 
@@ -895,7 +1001,7 @@ Likely initial value nodes:
 
 Geometry-node parameters should still support convenient inline literal values. Parameter/value connectors should follow the established stable-anchor and type-color conventions rather than causing node layout to jump.
 
-**### Milestone 7 — Modules / reusable subgraphs**
+### Milestone 7 — Modules / reusable subgraphs
 
 Support reusable, parameterized graph structures corresponding to OpenSCAD modules.
 
@@ -906,13 +1012,13 @@ Focus on teaching:
 - reuse
 - composition
 
-**### Milestone 8 — Iteration**
+### Milestone 8 — Iteration
 
 Add a visual representation of repetition / OpenSCAD `for`.
 
 The precise UX is intentionally undecided. Do not assume the OpenSCAD syntax should be mapped literally to nodes.
 
-**### Milestone 9 — Geometry code node**
+### Milestone 9 — Geometry code node
 
 Add an OpenSCAD code escape hatch that:
 
@@ -922,7 +1028,7 @@ Add an OpenSCAD code escape hatch that:
 
 Keep it secondary to normal visual nodes.
 
-**### Milestone 10 — Teaching features and UX refinement**
+### Milestone 10 — Teaching features and UX refinement
 
 Possible later features include:
 
@@ -938,9 +1044,9 @@ The existing Inspect Node feature already provides one form of intermediate-geom
 
 These are intentionally later milestones.
 
-**---**
+---
 
-**## MVP boundary**
+## MVP boundary
 
 The first meaningful MVP is Milestones 1–2:
 
@@ -966,7 +1072,7 @@ editable Rete graph
 
 This end-to-end MVP now exists and is the stable baseline for subsequent work.
 
-Project persistence (Milestone 5) is the next practical step now that graphs are useful enough to preserve and reuse. Parameter dataflow/value nodes follow in Milestone 6 rather than being required for the proof of concept.
+Project persistence (Milestone 5) is the next practical step now that graphs are useful enough to preserve, exchange, reopen, and use as deterministic examples/benchmarks. Parameter dataflow/value nodes follow in Milestone 6 rather than being required for the proof of concept.
 
 When extending the MVP, preserve the working end-to-end path and resist
 
@@ -974,9 +1080,9 @@ implementing later milestone features unless they are necessary to avoid a bad
 
 architectural dead end.
 
-**---**
+---
 
-**## Decision-making guidance for agents**
+## Decision-making guidance for agents
 
 When multiple implementation options are viable:
 
