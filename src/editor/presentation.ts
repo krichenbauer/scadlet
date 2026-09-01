@@ -19,7 +19,8 @@ interface InternalState {
   pinned: boolean
   /** Last `node.selected` value observed via `syncSelection`, used to detect actual transitions rather than re-triggering on every render. */
   lastSelected: boolean
-  connected: boolean
+  /** Set of parameter input keys (non-geometry) that have active connections, recomputed from Rete connections by the editor. */
+  connectedInputKeys: Set<string>
 }
 
 /**
@@ -62,7 +63,7 @@ export class NodePresentationManager {
     let state = this.states.get(nodeId)
     if (!state) {
       // New nodes start collapsed, per AGENTS.md section 2.
-      state = { expanded: false, pinned: false, lastSelected: false, connected: false }
+      state = { expanded: false, pinned: false, lastSelected: false, connectedInputKeys: new Set() }
       this.states.set(nodeId, state)
     }
     return state
@@ -86,21 +87,35 @@ export class NodePresentationManager {
 
   isExpanded(nodeId: string): boolean {
     const state = this.stateFor(nodeId)
-    return state.pinned || state.expanded || state.connected
+    return state.pinned || state.expanded || state.connectedInputKeys.size > 0
+  }
+
+  /** True only when the node is expanded via hover or explicit pin - not due to connected parameter inputs.
+   * Used by the renderer to decide whether to show ALL rows vs only connected rows. */
+  isInteractivelyExpanded(nodeId: string): boolean {
+    const state = this.stateFor(nodeId)
+    return state.pinned || state.expanded
   }
 
   isPinned(nodeId: string): boolean {
     return this.stateFor(nodeId).pinned
   }
 
-  /** A connected parameter must remain legible even if its node would
-   * otherwise be compact; this is presentation-only and is recomputed from
-   * Rete connections by the editor. */
-  setConnected(nodeId: string, connected: boolean): void {
+  /** Updates the set of parameter input keys (non-geometry sockets) that have active connections;
+   * recomputed by the editor on every connection change. A node with any connected parameter input
+   * stays at least partially expanded so the connection endpoints remain visible. */
+  setConnectedInputs(nodeId: string, keys: ReadonlySet<string>): void {
     const state = this.stateFor(nodeId)
-    if (state.connected === connected) return
-    state.connected = connected
+    const changed = state.connectedInputKeys.size !== keys.size ||
+      [...keys].some((k) => !state.connectedInputKeys.has(k))
+    if (!changed) return
+    state.connectedInputKeys = new Set(keys)
     this.onChange(nodeId)
+  }
+
+  /** The parameter input keys that currently have active connections (used by the renderer to decide which rows stay visible when collapsed). */
+  getConnectedInputKeys(nodeId: string): ReadonlySet<string> {
+    return this.stateFor(nodeId).connectedInputKeys
   }
 
   /**

@@ -136,8 +136,19 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // connection list and never reindexes an existing slot/connection.
   editor.addPipe((context) => {
     if (context.type === 'connectioncreated' || context.type === 'connectionremoved') {
-      const nodesWithInputs = new Set(editor.getConnections().map((item) => item.target))
-      for (const node of editor.getNodes()) presentation.setConnected(node.id, nodesWithInputs.has(node.id))
+      // Recompute which parameter inputs (non-geometry) are connected for each node.
+      // Only parameter sockets (number, vector3) force a partial expansion; geometry
+      // connections never do - that was the bug that prevented Translate/Rotate/Scale
+      // from collapsing after Milestone 6 added parameter sockets.
+      for (const node of editor.getNodes()) {
+        const connectedParamInputs = new Set(
+          editor.getConnections()
+            .filter((conn) => conn.target === node.id)
+            .filter((conn) => (node.inputs[conn.targetInput]?.socket.name ?? 'geometry') !== 'geometry')
+            .map((conn) => conn.targetInput),
+        )
+        presentation.setConnectedInputs(node.id, connectedParamInputs)
+      }
       for (const node of editor.getNodes()) {
         if (!(node instanceof BooleanOpNode)) continue
         const connected = new Set(editor.getConnections().filter((item) => item.target === node.id).map((item) => item.targetInput))

@@ -245,6 +245,71 @@ export class NodeEditorElement extends LitElement {
       width: 84px;
     }
 
+    .node-control--actions {
+      justify-content: flex-start;
+      gap: 4px;
+    }
+
+    /*
+     * Parameter input rows: socket on the far left (straddling the border
+     * via margin-left: -6px, same as .node-port--input sockets), then a
+     * short label, then the inline value input. Rendered below .node-main
+     * in a separate section so adding/removing rows never moves the
+     * geometry sockets in .node-main above. Connected rows are rendered
+     * first and are always visible; unconnected rows appear only when
+     * the node is expanded. This ordering ensures a connected socket's
+     * position is identical before and after hover expand/collapse.
+     */
+    .node-param-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      padding-right: 10px;
+      padding-bottom: 4px;
+      min-width: 0;
+    }
+
+    .node-param-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 0;
+      min-width: 0;
+    }
+
+    /* Explicitly hidden author rule to beat the UA [hidden]{display:none} specificity tie. */
+    .node-param-row[hidden] {
+      display: none;
+    }
+
+    /* Straddles the left border exactly like .node-port--input .node-socket */
+    .node-param-row .node-socket {
+      margin-left: -6px;
+      flex: none;
+    }
+
+    .node-param-label {
+      flex: none;
+      font-size: 11px;
+      min-width: 14px;
+      opacity: 0.75;
+      white-space: nowrap;
+    }
+
+    /* Connected parameter rows are more prominent; their label is full-opacity */
+    .node-param-row[data-connected] .node-param-label {
+      opacity: 1;
+    }
+
+    .node-param-value {
+      flex: 1;
+      min-width: 0;
+      width: 60px;
+      box-sizing: border-box;
+      font: inherit;
+      text-align: right;
+    }
+
     .connection {
       overflow: visible;
       position: absolute;

@@ -120,44 +120,52 @@ function renderNode(
   element.classList.toggle('node--selected', Boolean(node.selected))
 
   const inspected = inspect.isInspected(node.id)
-  // A separate, independent visual treatment from `.node--selected` (see
-  // `inspect.ts`): the two are unrelated pieces of state and must be able
-  // to be shown together (e.g. the inspected node is also selected).
   element.classList.toggle('node--inspected', inspected)
-
-  // Feeds Rete's own selection flag into the presentation manager so a
-  // touch/no-hover device can expand-on-select and collapse-on-deselect
-  // (AGENTS.md section 5), reusing the existing selection mechanism
-  // instead of separate touch-only state.
   presentation.syncSelection(node.id, Boolean(node.selected))
 
-  const hasControls = Object.values(node.controls).some(Boolean)
-  const expanded = hasControls && presentation.isExpanded(node.id)
-  element.classList.toggle('node--expanded', expanded)
+  // Separate structural geometry inputs from semantic parameter inputs (number/vector3).
+  // Geometry inputs go in the stable `.node-inputs` left column (always visible).
+  // Parameter inputs get their own inline rows co-located with their associated controls,
+  // and are only shown when the node is expanded or the specific input is connected.
+  // This was the root cause of the Milestone 6 collapse regression: the old approach
+  // rendered all inputs (including geometry) in one column and the `connected` flag
+  // was set for ANY input connection, causing Translate/Rotate/Scale to permanently
+  // expand whenever their geometry input was connected.
+  const geometryInputs: [string, ClassicPreset.Input<ClassicPreset.Socket>][] = []
+  const parameterInputs: [string, ClassicPreset.Input<ClassicPreset.Socket>][] = []
+  for (const [key, input] of Object.entries(node.inputs)) {
+    if (!input) continue
+    if (input.socket.name === 'geometry') {
+      geometryInputs.push([key, input])
+    } else {
+      parameterInputs.push([key, input])
+    }
+  }
 
-  // The node's root element persists across re-renders (only its children
-  // are replaced below), so these listeners are wired exactly once per
-  // element rather than accumulating on every re-render.
+  // Keys of parameter inputs that map 1-to-1 to a control of the same key.
+  const paramInputKeys = new Set(parameterInputs.map(([key]) => key))
+  // Controls that don't have a co-located parameter input row go in `.node-controls` when expanded.
+  const standaloneControls = Object.entries(node.controls).filter(
+    ([key, ctrl]) => ctrl && !paramInputKeys.has(key),
+  )
+
+  // A node has collapsible content if it has parameter inputs (whose rows can be shown/hidden)
+  // or standalone controls (shown only when expanded). This drives pin-button visibility.
+  const hasCollapsibleContent = parameterInputs.length > 0 || standaloneControls.length > 0
+  const connectedInputKeys = presentation.getConnectedInputKeys(node.id)
+  // Hover/pin expansion: shows ALL parameter rows and standalone controls.
+  // Distinguished from connection-forced expansion (which only shows specific connected rows)
+  // so that an unconnected Translate with Z connected doesn't show X/Y/Vector rows.
+  const expanded = hasCollapsibleContent && presentation.isInteractivelyExpanded(node.id)
+  element.classList.toggle('node--expanded', expanded || connectedInputKeys.size > 0)
+
   if (!nodeListenersWired.has(element)) {
     nodeListenersWired.add(element)
     element.addEventListener('pointerenter', () => {
-      // Bring the node forward immediately on hover start, not after the
-      // presentation manager's expand delay elapses, so an about-to-expand
-      // node is never visually obscured by a neighbor once it does expand.
       bringNodeToFront(area, node.id)
       presentation.handlePointerEnter(node.id)
     })
     element.addEventListener('pointerleave', () => presentation.handlePointerLeave(node.id))
-
-    // Inspect Node (AGENTS.md-adjacent feature): double-clicking a node
-    // makes it the temporary preview/render root, mirroring OpenSCAD's `!`
-    // modifier, without mutating the graph. Excluded from editable
-    // controls (inputs/selects/buttons/the pin button - `isEditableTarget`
-    // covers all of these structurally) and from sockets, so interacting
-    // with a control or dragging a connection is never misread as an
-    // inspect toggle. Detected from `pointerdown` timing rather than a
-    // native `dblclick` listener - see `InspectManager.registerPointerDown`
-    // for why native `dblclick` never fires on a node in this app.
     element.addEventListener('pointerdown', (event) => {
       if (isEditableTarget(event.target)) return
       if (event.target instanceof Element && event.target.closest('.node-socket')) return
@@ -165,39 +173,21 @@ function renderNode(
     })
   }
 
-  // Re-rendering a node (e.g. after `area.update('node', id)` for Cylinder's
-  // progressive disclosure, or a presentation expand/collapse) replaces all
-  // child DOM, including socket elements previously registered with the
-  // position tracker via a 'render' signal in `renderPort`. Without an
-  // explicit 'unmount' for each of those old elements, the tracker keeps
-  // stale entries around (visible as a "Found more than one element for
-  // socket..." console warning) and never lets go of detached nodes.
   for (const socket of element.querySelectorAll<HTMLElement>('.node-socket')) {
     void area.emit({ type: 'unmount', data: { element: socket } })
   }
 
   element.replaceChildren()
 
-  // Connector layout is normalized project-wide (AGENTS.md section 9) AND
-  // structurally isolated from the expandable controls body: `.node-main`
-  // (inputs column | title/pin header | outputs column) is a self-
-  // contained row whose height depends only on port count and the title,
-  // never on whether `.node-controls` below it is currently rendered.
-  // This is what keeps every existing connector anchor at a fixed screen
-  // position across expand/collapse - previously inputs/outputs and the
-  // controls-bearing body were siblings stretched to a shared height, so
-  // adding/removing controls changed that shared height and shifted
-  // ports that were vertically centered within it. A side column is only
-  // rendered when the node actually has ports on that side (e.g. Cube/
-  // Cylinder have no inputs at all).
+  // `.node-main`: stable header row - geometry sockets + title/pin + geometry output.
+  // Height depends only on geometry port count and title; never on parameter rows below.
   const main = document.createElement('div')
   main.className = 'node-main'
 
-  if (Object.values(node.inputs).some(Boolean)) {
+  if (geometryInputs.length > 0) {
     const inputs = document.createElement('div')
     inputs.className = 'node-inputs'
-    for (const [key, input] of Object.entries(node.inputs)) {
-      if (!input) continue
+    for (const [key, input] of geometryInputs) {
       inputs.appendChild(renderPort(area, node.id, 'input', key, input.label, input.socket.name))
     }
     main.appendChild(inputs)
@@ -205,7 +195,7 @@ function renderNode(
 
   const body = document.createElement('div')
   body.className = 'node-body'
-  body.appendChild(renderHeader(node, presentation, hasControls, inspected, notifyDirty))
+  body.appendChild(renderHeader(node, presentation, hasCollapsibleContent, inspected, notifyDirty))
   main.appendChild(body)
 
   if (Object.values(node.outputs).some(Boolean)) {
@@ -220,14 +210,33 @@ function renderNode(
 
   element.appendChild(main)
 
-  // Rendered as a full-width block BELOW the stable `.node-main` row
-  // (rather than stacked inside it, as before) - growing/shrinking this
-  // block only pushes the node's own bottom edge, never the header row's
-  // layout above it, so it can never move an existing connector.
-  if (expanded) {
+  // Parameter input rows: socket + label + inline value control, rendered below `.node-main`.
+  // Connected rows are always visible (the connection endpoint must not disappear).
+  // Unconnected rows are only visible when the node is expanded (hover/pin).
+  // Connected rows are rendered FIRST so their socket positions are stable during hover
+  // expand/collapse transitions (unconnected rows appear below them, never above).
+  if (parameterInputs.length > 0) {
+    const connectedRows = parameterInputs.filter(([key]) => connectedInputKeys.has(key))
+    const unconnectedRows = parameterInputs.filter(([key]) => !connectedInputKeys.has(key))
+
+    const paramRows = document.createElement('div')
+    paramRows.className = 'node-param-rows'
+    for (const [key, input] of [...connectedRows, ...unconnectedRows]) {
+      const isConnected = connectedInputKeys.has(key)
+      const isVisible = expanded || isConnected
+      const control = node.controls[key] as ClassicPreset.Control | undefined
+      paramRows.appendChild(
+        renderParamRow(area, node.id, key, input.label ?? key, input.socket.name, isVisible, isConnected, control),
+      )
+    }
+    element.appendChild(paramRows)
+  }
+
+  // Standalone controls (mode selects, checkboxes, add/remove actions): only when expanded.
+  if (expanded && standaloneControls.length > 0) {
     const controls = document.createElement('div')
     controls.className = 'node-controls'
-    for (const [key, control] of Object.entries(node.controls)) {
+    for (const [key, control] of standaloneControls) {
       if (!control) continue
       const rendered = renderControl(key, control)
       if (rendered) controls.appendChild(rendered)
@@ -238,14 +247,14 @@ function renderNode(
 
 /**
  * Title plus the pin/expand header control (AGENTS.md sections 2, 6, 7).
- * A node with no controls at all (e.g. Difference) has nothing to
+ * A node with no collapsible content (e.g. Difference) has nothing to
  * collapse/expand, so the pin affordance is only rendered "where
- * relevant" - i.e. when the node actually has a body worth hiding.
+ * relevant" - i.e. when the node actually has something to expand.
  */
 function renderHeader(
   node: Schemes['Node'],
   presentation: NodePresentationManager,
-  hasControls: boolean,
+  hasCollapsibleContent: boolean,
   inspected: boolean,
   notifyDirty: () => void,
 ): HTMLElement {
@@ -270,7 +279,7 @@ function renderHeader(
     header.appendChild(badge)
   }
 
-  if (hasControls) {
+  if (hasCollapsibleContent) {
     const pinned = presentation.isPinned(node.id)
 
     const pin = document.createElement('button')
@@ -350,6 +359,78 @@ function renderPort(
   })
 
   return row
+}
+
+/**
+ * A single parameter input row: [socket] [label] [optional inline value].
+ * Placed below `.node-main` in `.node-param-rows`. When `visible=false`
+ * (unconnected and node is collapsed) the row is hidden but its socket is
+ * still registered with the position tracker so Rete never loses track of
+ * it. Connected rows are always visible and rendered first in their section,
+ * so their socket positions are stable during hover expand/collapse.
+ */
+function renderParamRow(
+  area: AreaPlugin<Schemes, AreaExtra>,
+  nodeId: string,
+  key: string,
+  label: string,
+  socketName: string,
+  visible: boolean,
+  connected: boolean,
+  control: ClassicPreset.Control | undefined,
+): HTMLElement {
+  const row = document.createElement('div')
+  row.className = 'node-param-row'
+  if (!visible) row.hidden = true
+  row.dataset.paramKey = key
+  if (connected) row.dataset.connected = 'true'
+
+  const socket = document.createElement('div')
+  socket.className = 'node-socket'
+  socket.dataset.socketType = socketName
+  socket.title = label
+  socket.setAttribute('aria-label', label)
+  row.appendChild(socket)
+
+  void area.emit({ type: 'render', data: { type: 'socket', element: socket, nodeId, side: 'input', key } })
+  void area.emit({ type: 'rendered', data: { type: 'socket', element: socket, nodeId, side: 'input', key } })
+
+  const labelEl = document.createElement('span')
+  labelEl.className = 'node-param-label'
+  labelEl.textContent = label
+  row.appendChild(labelEl)
+
+  if (control) {
+    const valueEl = renderParamControlValue(control, connected)
+    if (valueEl) row.appendChild(valueEl)
+  }
+
+  return row
+}
+
+/** Renders just the value element for a parameter row (no wrapper label, no pointerdown stop for drag-suppression - that's on the element itself). When `overridden` is true, the element is disabled: the connected value takes precedence over the inline literal. */
+function renderParamControlValue(control: ClassicPreset.Control, overridden: boolean): HTMLElement | null {
+  if (control instanceof LabeledNumberControl || (control instanceof ClassicPreset.InputControl && control.type === 'number')) {
+    const input = document.createElement('input')
+    input.type = 'number'
+    input.value = String((control as ClassicPreset.InputControl<'number'>).value ?? '')
+    input.disabled = overridden || (control as ClassicPreset.InputControl<'number'>).readonly
+    input.className = 'node-param-value'
+    input.addEventListener('pointerdown', (event) => event.stopPropagation())
+    input.addEventListener('input', () => (control as ClassicPreset.InputControl<'number'>).setValue(input.valueAsNumber))
+    return input
+  }
+  if (control instanceof CheckboxControl) {
+    const input = document.createElement('input')
+    input.type = 'checkbox'
+    input.checked = control.value
+    input.disabled = overridden
+    input.className = 'node-param-value'
+    input.addEventListener('pointerdown', (event) => event.stopPropagation())
+    input.addEventListener('change', () => control.setValue(input.checked))
+    return input
+  }
+  return null
 }
 
 function renderControl(key: string, control: ClassicPreset.Control): HTMLElement | null {

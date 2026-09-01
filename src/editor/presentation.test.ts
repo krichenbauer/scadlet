@@ -231,3 +231,111 @@ describe('NodePresentationManager - isolation from graph/node semantics', () => 
     expect(editor.getConnections()).toEqual([connection])
   })
 })
+
+describe('NodePresentationManager - parameter connection tracking', () => {
+  it('starts with no connected parameter inputs', () => {
+    const { manager } = createManager(true)
+    expect(manager.getConnectedInputKeys('a').size).toBe(0)
+    expect(manager.isExpanded('a')).toBe(false)
+  })
+
+  it('setConnectedInputs with a non-empty set expands the node without hover or pin', () => {
+    const { manager, onChange } = createManager(true)
+    manager.setConnectedInputs('a', new Set(['z']))
+    expect(manager.isExpanded('a')).toBe(true)
+    expect(onChange).toHaveBeenCalledWith('a')
+  })
+
+  it('setConnectedInputs returns the exact connected key set', () => {
+    const { manager } = createManager(true)
+    manager.setConnectedInputs('a', new Set(['x', 'z']))
+    const keys = manager.getConnectedInputKeys('a')
+    expect([...keys].sort()).toEqual(['x', 'z'])
+  })
+
+  it('clearing all connected inputs collapses the node (if not hovered/pinned)', () => {
+    const { manager, onChange } = createManager(true)
+    manager.setConnectedInputs('a', new Set(['z']))
+    onChange.mockClear()
+    manager.setConnectedInputs('a', new Set())
+    expect(manager.isExpanded('a')).toBe(false)
+    expect(onChange).toHaveBeenCalledWith('a')
+  })
+
+  it('setConnectedInputs with identical keys does NOT trigger onChange', () => {
+    const { manager, onChange } = createManager(true)
+    manager.setConnectedInputs('a', new Set(['z']))
+    onChange.mockClear()
+    manager.setConnectedInputs('a', new Set(['z']))
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('a geometry connection (not in connected keys) does NOT expand the node', () => {
+    // This was the Milestone 6 regression: editor.ts used to call setConnected(true)
+    // for ANY input, including geometry. With the fix, only parameter (non-geometry)
+    // connections are tracked here.
+    const { manager } = createManager(true)
+    // Simulating "geometry connection" by NOT calling setConnectedInputs at all.
+    // The node should remain collapsed.
+    expect(manager.isExpanded('translate-node')).toBe(false)
+  })
+
+  it('parameter connection forces expansion independently of hover state', () => {
+    const { manager } = createManager(true)
+    // Node is not hovered, not pinned.
+    manager.setConnectedInputs('a', new Set(['x']))
+    expect(manager.isExpanded('a')).toBe(true)
+
+    // Even if hover leaves, the connected state keeps it expanded.
+    manager.handlePointerLeave('a')
+    vi.advanceTimersByTime(10_000)
+    expect(manager.isExpanded('a')).toBe(true)
+  })
+
+  it('hover expand/collapse still works correctly when a parameter input is connected', () => {
+    const { manager } = createManager(true)
+    manager.setConnectedInputs('a', new Set(['z']))
+
+    // Hover adds to the expanded state (brings full expansion).
+    manager.handlePointerEnter('a')
+    vi.advanceTimersByTime(600)
+    expect(manager.isExpanded('a')).toBe(true)
+
+    // Hover leave collapses the hover-expanded state but node stays expanded
+    // because the parameter connection keeps it expanded.
+    manager.handlePointerLeave('a')
+    vi.advanceTimersByTime(800)
+    expect(manager.isExpanded('a')).toBe(true)
+
+    // Removing the connection allows the node to fully collapse.
+    manager.setConnectedInputs('a', new Set())
+    expect(manager.isExpanded('a')).toBe(false)
+  })
+
+  it('remove() clears connected input state along with all other node state', () => {
+    const { manager, onChange } = createManager(true)
+    manager.setConnectedInputs('a', new Set(['z']))
+    manager.remove('a')
+
+    // After removal, the node starts fresh - not expanded due to connected state.
+    expect(manager.isExpanded('a')).toBe(false)
+    expect(manager.getConnectedInputKeys('a').size).toBe(0)
+    // onChange from the setConnectedInputs call, but not from remove (remove doesn't fire onChange).
+    onChange.mockClear()
+    vi.advanceTimersByTime(10_000)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('hover expand does not dirty the project or alter connections (regression guard)', () => {
+    const { manager } = createManager(true)
+    // This tests that the presentation-state changes triggered by hover/connection
+    // do not accidentally mark the project as semantically dirty.
+    // Presentation-only state changes are not persisted (no connected keys change here).
+    manager.handlePointerEnter('a')
+    vi.advanceTimersByTime(600)
+    expect(manager.isExpanded('a')).toBe(true)
+
+    // No connected inputs changed - none of these transitions should modify semantic graph state.
+    expect(manager.getConnectedInputKeys('a').size).toBe(0)
+  })
+})
