@@ -72,6 +72,16 @@ describe('InspectManager', () => {
     expect(manager.id).toBeNull()
     expect(onChange).toHaveBeenCalledExactlyOnceWith('a')
   })
+
+  it('keeps an inspected value result transient and clears it when inspection changes', () => {
+    const manager = new InspectManager({ onChange: vi.fn() })
+    manager.toggle('value')
+    manager.setValueResult('value', '15')
+    expect(manager.getValueResult('value')).toBe('15')
+    manager.toggle('geometry')
+    expect(manager.getValueResult('value')).toBeNull()
+    expect(manager.getValueResult('geometry')).toBeNull()
+  })
 })
 
 describe('InspectManager.registerPointerDown', () => {

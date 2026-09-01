@@ -96,6 +96,41 @@ test('variadic Boolean nodes use compact localized child affordances', async ({ 
   await expect(intersection.locator('.node-socket[aria-label="Add geometry child"]')).toHaveCount(1)
 })
 
+test('typed value nodes remain compact and a Number drives Cube Size', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  await page.getByRole('button', { name: 'Number', exact: true }).click()
+  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  const number = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Number' }) })
+  const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
+  await expect(number.locator('.node-controls--primary input[type="number"]')).toBeVisible()
+  await number.locator('.node-controls--primary input[type="number"]').fill('20')
+  await cube.locator('.node-pin').click()
+  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
+
+  // Palette clicks deliberately place nodes at the visible center. Move the
+  // Number first so the two socket targets are distinct for this real-canvas
+  // connection gesture.
+  const numberHeader = await number.locator('.node-header').boundingBox()
+  if (!numberHeader) throw new Error('Expected Number node header')
+  await page.mouse.move(numberHeader.x + 20, numberHeader.y + numberHeader.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(numberHeader.x - 180, numberHeader.y + numberHeader.height / 2, { steps: 8 })
+  await page.mouse.up()
+
+  const source = await number.locator('.node-port--output .node-socket').boundingBox()
+  const target = await cube.locator('[data-param-key="size"] .node-socket').boundingBox()
+  if (!source || !target) throw new Error('Expected Number and Cube Size sockets')
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 8 })
+  await page.mouse.up()
+  await expect(cube.locator('[data-param-key="size"] input')).toBeDisabled()
+
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(20);', { timeout: 15_000 })
+})
+
 test('autosaves canonical graph state and restores it after reload', async ({ page }) => {
   await waitForLocalLibrary(page)
   await renameProject(page, 'Persistent Cube')

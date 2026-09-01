@@ -1091,9 +1091,19 @@ Initial value vocabulary should focus on what the existing geometry nodes actual
 - Vector3
 - Vector2 only when a current/forthcoming OpenSCAD operation gives it a clear use
 
-Use a single Number type for ordinary OpenSCAD numeric values; do not introduce int/float conversion nodes. Vector3 is a useful SCADlet semantic socket type even though OpenSCAD emits it as a three-element list. Add Boolean and String only when concrete node parameters/operations require them.
+Use a single Number type for ordinary OpenSCAD numeric values; do not introduce int/float conversion nodes. Vector3 is a useful SCADlet semantic socket type even though OpenSCAD emits it as a three-element list. Boolean is included because existing `center` parameters require it; String remains deferred until a concrete node requires it.
 
 Geometry-node parameters must continue to support convenient inline literals. Connecting a value should make dataflow explicit without forcing literal-only beginners to construct trivial Number nodes. Parameter/value connectors must follow the established type-color, stable-anchor, connection-aware disclosure, dirty-state, and `.scadlet` persistence rules.
+
+Implementation status: Milestone 7 provides Number, Boolean, Vector3, Add,
+Subtract, Multiply, and Divide through the catalog categories `values` and
+`math`. They produce OpenSCAD expressions (`[x, y, z]` and explicitly grouped
+math such as `(a + b)`), rather than JavaScript-evaluated values. Existing
+Number/Vector3/Boolean parameter sockets accept them directly and preserve
+their inline fallback literals when connected. Value inspection emits a
+temporary OpenSCAD `echo()` request and displays its returned value without
+persisting it, marking a project dirty, replacing the current mesh, or
+changing ordinary `.scad` export.
 
 ### Milestone 8 — Modules / reusable subgraphs
 

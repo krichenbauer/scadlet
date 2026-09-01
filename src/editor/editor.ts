@@ -4,7 +4,7 @@ import { ClassicFlow, ConnectionPlugin, type SocketData } from 'rete-connection-
 import { DataflowEngine } from 'rete-engine'
 
 import { clientToGraphPosition, type Position } from './coordinates'
-import { evaluateOpenSCAD } from './evaluate'
+import { evaluateInspectNode, evaluateOpenSCAD, type InspectEvaluation } from './evaluate'
 import { isEditableTarget, removeNodeWithConnections } from './deletion'
 import { isDirtyAreaSignal, isDirtyEditorSignal } from './dirty'
 import { InspectManager } from './inspect'
@@ -39,6 +39,10 @@ export interface SCADletEditor {
    * affecting the normal (no-argument) evaluation in any way.
    */
   evaluate(rootNodeId?: string): Promise<string>
+  /** Evaluates an inspect root as either geometry source or a typed OpenSCAD expression. */
+  evaluateInspect(nodeId: string): Promise<InspectEvaluation>
+  /** Stores the transient OpenSCAD result displayed for an inspected value node. */
+  setInspectedValueResult(nodeId: string, value: string): void
   /** The node id currently selected as the Inspect Node preview root, or `null` if inspection is inactive. */
   getInspectedNodeId(): string | null
   /** Whether `nodeId` is currently explicitly pinned open (editor presentation state - see `presentation.ts`). */
@@ -273,6 +277,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     addNodeAt,
     addNodeAtCenter,
     evaluate: (rootNodeId?: string) => evaluateOpenSCAD(editor, engine, rootNodeId),
+    evaluateInspect: (nodeId) => evaluateInspectNode(editor, engine, nodeId),
+    setInspectedValueResult: (nodeId, value) => inspect.setValueResult(nodeId, value),
     getInspectedNodeId: () => inspect.id,
     isPinned: (nodeId: string) => presentation.isPinned(nodeId),
     setPinned: (nodeId: string, pinned: boolean) => {

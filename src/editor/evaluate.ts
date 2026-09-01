@@ -1,7 +1,7 @@
 import type { NodeEditor } from 'rete'
 import type { DataflowEngine } from 'rete-engine'
 
-import type { GeometryValue } from './sockets'
+import type { BooleanValue, GeometryValue, NumberValue, Vector3Value } from './sockets'
 import type { Schemes } from './schemes'
 
 /**
@@ -42,4 +42,26 @@ export async function evaluateOpenSCAD(
   }
 
   return fragments.join('\n')
+}
+
+export type InspectEvaluation =
+  | { kind: 'geometry'; source: string }
+  | { kind: 'value'; expression: string }
+  | { kind: 'missing' }
+
+/** Evaluates one explicitly inspected node while retaining the ordinary
+ * geometry-only full-model evaluator above. Values are expressions that are
+ * subsequently evaluated by OpenSCAD (via `echo()` in the worker), never by
+ * TypeScript. */
+export async function evaluateInspectNode(
+  editor: NodeEditor<Schemes>,
+  engine: DataflowEngine<Schemes>,
+  nodeId: string,
+): Promise<InspectEvaluation> {
+  const node = editor.getNode(nodeId)
+  if (!node) return { kind: 'missing' }
+  engine.reset()
+  if (node.outputs.geometry) return { kind: 'geometry', source: await evaluateOpenSCAD(editor, engine, nodeId) }
+  const output = (await engine.fetch(nodeId)) as { value?: NumberValue | BooleanValue | Vector3Value }
+  return output.value ? { kind: 'value', expression: output.value.code } : { kind: 'missing' }
 }

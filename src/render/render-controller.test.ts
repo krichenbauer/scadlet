@@ -35,6 +35,15 @@ describe('RenderController', () => {
     expect(controller.isRendering).toBe(false)
   })
 
+  it('posts a separate OpenSCAD value-inspection request and resolves its transient result', async () => {
+    const worker = new FakeWorker()
+    const controller = new RenderController(() => worker)
+    const promise = controller.inspectValue('echo("__SCADLET_VALUE__:", (5 + 10));')
+    expect(worker.postMessage).toHaveBeenCalledWith({ type: 'inspect-value', source: 'echo("__SCADLET_VALUE__:", (5 + 10));' })
+    worker.onmessage?.(messageEvent({ type: 'value-result', value: '15' }))
+    await expect(promise).resolves.toBe('15')
+  })
+
   it('rejects with the error message on an error response', async () => {
     const worker = new FakeWorker()
     const controller = new RenderController(() => worker)

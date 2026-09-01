@@ -22,6 +22,7 @@ export interface InspectManagerOptions {
  */
 export class InspectManager {
   private inspectedId: string | null = null
+  private valueResult: string | null = null
   private readonly onChange: (nodeId: string) => void
   private readonly doubleClickThresholdMs: number
   private readonly now: () => number
@@ -42,6 +43,16 @@ export class InspectManager {
     return this.inspectedId === nodeId
   }
 
+  getValueResult(nodeId: string): string | null {
+    return this.inspectedId === nodeId ? this.valueResult : null
+  }
+
+  setValueResult(nodeId: string, value: string): void {
+    if (this.inspectedId !== nodeId) return
+    this.valueResult = value
+    this.onChange(nodeId)
+  }
+
   /**
    * Double-click toggle behavior: inspecting the already-inspected node
    * clears inspection (back to normal full-graph rendering); inspecting
@@ -54,11 +65,13 @@ export class InspectManager {
     const previous = this.inspectedId
     if (previous === nodeId) {
       this.inspectedId = null
+      this.valueResult = null
       this.onChange(nodeId)
       return
     }
 
     this.inspectedId = nodeId
+    this.valueResult = null
     if (previous !== null) this.onChange(previous)
     this.onChange(nodeId)
   }
@@ -72,6 +85,7 @@ export class InspectManager {
   remove(nodeId: string): void {
     if (this.inspectedId !== nodeId) return
     this.inspectedId = null
+    this.valueResult = null
     this.onChange(nodeId)
   }
 

@@ -1,6 +1,6 @@
 import { createOpenSCAD } from 'openscad-wasm-prebuilt'
 
-import type { RenderRequest, RenderResponse } from './protocol'
+import type { RenderResponse, WorkerRequest } from './protocol'
 
 /**
  * OpenSCAD execution worker (Milestone 2).
@@ -116,11 +116,33 @@ async function render(source: string): Promise<RenderResponse> {
   }
 }
 
-scope.onmessage = (event: { data: unknown }) => {
-  const message = event.data as RenderRequest
-  if (message.type !== 'render') return
+async function inspectValue(source: string): Promise<RenderResponse> {
+  const output: string[] = []
+  const errors: string[] = []
+  try {
+    const openscad = await createOpenSCAD({ print: (text) => output.push(text), printErr: (text) => errors.push(text) })
+    const instance = openscad.getInstance()
+    instance.FS.writeFile('/input.scad', source)
+    try {
+      instance.callMain(['/input.scad'])
+    } finally {
+      try { instance.FS.unlink('/input.scad') } catch { /* nothing to clean up */ }
+    }
+    const line = [...output, ...errors].find((text) => text.includes('__SCADLET_VALUE__:'))
+    if (!line) return { type: 'error', message: errors.join('\n') || 'OpenSCAD did not return an inspected value.' }
+    const marker = '__SCADLET_VALUE__:'
+    const value = line.slice(line.indexOf(marker) + marker.length).replace(/^[\s",]+/, '').trim()
+    return { type: 'value-result', value }
+  } catch (error) {
+    return { type: 'error', message: toErrorMessage(error, errors) }
+  }
+}
 
-  void render(message.source).then((response) => {
+scope.onmessage = (event: { data: unknown }) => {
+  const message = event.data as WorkerRequest
+  if (message.type !== 'render' && message.type !== 'inspect-value') return
+
+  void (message.type === 'render' ? render(message.source) : inspectValue(message.source)).then((response) => {
     if (response.type === 'result') {
       scope.postMessage(response, [response.stl])
     } else {

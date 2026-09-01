@@ -10,6 +10,7 @@ import { ScaleNode } from './nodes/scale-node'
 import { SphereNode } from './nodes/sphere-node'
 import { TranslateNode } from './nodes/translate-node'
 import { UnionNode } from './nodes/union-node'
+import { BooleanNode, MathNode, NumberNode, Vector3Node, validateBooleanParams, validateMathParams, validateNumberParams, validateVector3ValueParams } from './nodes/value-nodes'
 import { type VariadicBooleanParams } from './nodes/boolean-op-node'
 import { validateCubeParams } from '../openscad/cube'
 import { validateCylinderParams } from '../openscad/cylinder'
@@ -20,6 +21,7 @@ import type { CylinderParams } from '../openscad/cylinder'
 import type { SphereParams } from '../openscad/sphere'
 import type { Vector3Params } from '../openscad/transform'
 import type { SocketType } from './sockets'
+import { t } from '../i18n/translate'
 
 /** MIME type used to carry a node-catalog `type` id through native HTML drag-and-drop (see `node-palette.ts`/`node-editor.ts`). */
 export const NODE_DRAG_MIME_TYPE = 'application/x-scadlet-node-type'
@@ -29,7 +31,7 @@ export const NODE_DRAG_MIME_TYPE = 'application/x-scadlet-node-type'
  * `src/i18n/translate.ts`, looked up via each category's `labelKey` -
  * never derive UI copy from these ids directly.
  */
-export type NodeCategoryId = 'primitives' | 'transformations' | 'boolean-operations'
+export type NodeCategoryId = 'primitives' | 'transformations' | 'boolean-operations' | 'values' | 'math'
 
 /** Stable, language-independent node-type ids (also the drag payload and click-fallback argument). */
 export type NodeTypeId =
@@ -42,6 +44,13 @@ export type NodeTypeId =
   | 'difference'
   | 'union'
   | 'intersection'
+  | 'number'
+  | 'boolean'
+  | 'vector3'
+  | 'add'
+  | 'subtract'
+  | 'multiply'
+  | 'divide'
 
 export interface NodeCategory {
   readonly id: NodeCategoryId
@@ -181,6 +190,8 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
   { id: 'primitives', labelKey: 'category.primitives' },
   { id: 'transformations', labelKey: 'category.transformations' },
   { id: 'boolean-operations', labelKey: 'category.booleanOperations' },
+  { id: 'values', labelKey: 'category.values' },
+  { id: 'math', labelKey: 'category.math' },
 ]
 
 /**
@@ -199,6 +210,45 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
  * comment for why this is done here rather than per node class.
  */
 const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
+  {
+    type: 'number', category: 'values', labelKey: 'node.number', inputs: [], outputs: ['value'],
+    inputSocketType: () => undefined, outputSocketType: (port) => port === 'value' ? 'number' : undefined,
+    create: (_context, params) => new NumberNode(params ? validateNumberParams(params) : undefined),
+    matches: (node) => node instanceof NumberNode,
+    serializeParams: (node) => (node as NumberNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateNumberParams(value) as unknown as Record<string, unknown>,
+  },
+  {
+    type: 'boolean', category: 'values', labelKey: 'node.boolean', inputs: [], outputs: ['value'],
+    inputSocketType: () => undefined, outputSocketType: (port) => port === 'value' ? 'boolean' : undefined,
+    create: (_context, params) => new BooleanNode(params ? validateBooleanParams(params) : undefined),
+    matches: (node) => node instanceof BooleanNode,
+    serializeParams: (node) => (node as BooleanNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateBooleanParams(value) as unknown as Record<string, unknown>,
+  },
+  {
+    type: 'vector3', category: 'values', labelKey: 'node.vector3', inputs: ['x', 'y', 'z'], outputs: ['value'],
+    inputSocketType: (port) => ['x', 'y', 'z'].includes(port) ? 'number' : undefined,
+    outputSocketType: (port) => port === 'value' ? 'vector3' : undefined,
+    create: (_context, params) => new Vector3Node(params ? validateVector3ValueParams(params) : undefined),
+    matches: (node) => node instanceof Vector3Node,
+    serializeParams: (node) => (node as Vector3Node).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateVector3ValueParams(value) as unknown as Record<string, unknown>,
+  },
+  ...([
+    ['add', 'node.add', '+'],
+    ['subtract', 'node.subtract', '-'],
+    ['multiply', 'node.multiply', '*'],
+    ['divide', 'node.divide', '/'],
+  ] as const).map(([type, labelKey, operator]): NodeCatalogEntry => ({
+    type, category: 'math', labelKey, inputs: ['a', 'b'], outputs: ['value'],
+    inputSocketType: (port) => ['a', 'b'].includes(port) ? 'number' : undefined,
+    outputSocketType: (port) => port === 'value' ? 'number' : undefined,
+    create: (_context, params) => new MathNode(t(labelKey), operator, type, params ? validateMathParams(params) : undefined),
+    matches: (node) => node instanceof MathNode && node.type === type,
+    serializeParams: (node) => (node as MathNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateMathParams(value) as unknown as Record<string, unknown>,
+  })),
   {
     type: 'cube',
     category: 'primitives',

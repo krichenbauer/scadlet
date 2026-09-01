@@ -197,6 +197,13 @@ describe('parseScadletProject: connections', () => {
     expect(() => parseScadletProject(raw)).toThrow('incompatible socket types: geometry output cannot connect to number input')
   })
 
+  it('also rejects Geometry -> Add A through the Milestone 7 catalog ports', () => {
+    const raw = validProject()
+    raw.graph.nodes.push({ id: 'add-1', type: 'add', position: { x: 0, y: 0 }, parameters: { a: 1, b: 2 } })
+    raw.graph.connections = [{ id: 'bad-add', source: 'cube-1', sourceOutput: 'geometry', target: 'add-1', targetInput: 'a' }]
+    expect(() => parseScadletProject(raw)).toThrow('incompatible socket types: geometry output cannot connect to number input')
+  })
+
   it('rejects a duplicate connection id', () => {
     const raw = validProject()
     raw.graph.connections.push({ ...raw.graph.connections[0] })

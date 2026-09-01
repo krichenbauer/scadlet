@@ -67,6 +67,13 @@ describe('docs/scadlet-format.md documented node types stay in sync with the cat
     'difference',
     'union',
     'intersection',
+    'number',
+    'boolean',
+    'vector3',
+    'add',
+    'subtract',
+    'multiply',
+    'divide',
   ]
 
   it('documents exactly the node types the catalog currently implements', () => {

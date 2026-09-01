@@ -2,6 +2,7 @@ import { LitElement, css, html } from 'lit'
 import { customElement, query } from 'lit/decorators.js'
 
 import { createEditor, type SCADletEditor } from '../editor/editor'
+import type { InspectEvaluation } from '../editor/evaluate'
 import { NODE_DRAG_MIME_TYPE } from '../editor/node-catalog'
 
 /**
@@ -76,6 +77,12 @@ export class NodeEditorElement extends LitElement {
       font-size: 12px;
       line-height: 1;
       cursor: default;
+    }
+
+    .node-inspect-value {
+      padding: 0 10px 7px;
+      color: #ffe39a;
+      font: 12px ui-monospace, monospace;
     }
 
     .node-main {
@@ -369,6 +376,10 @@ export class NodeEditorElement extends LitElement {
       pointer-events: none;
     }
 
+    .connection-path[data-socket-type='number'] { stroke: #f2b84b; }
+    .connection-path[data-socket-type='vector3'] { stroke: #b07cff; }
+    .connection-path[data-socket-type='boolean'] { stroke: #63c174; }
+
     /*
      * Shift-drag marquee selection rectangle (see editor/marquee.ts).
      * Rendered as a plain viewport-space overlay directly in #canvas
@@ -437,6 +448,10 @@ export class NodeEditorElement extends LitElement {
 
   async evaluate(rootNodeId?: string): Promise<string> {
     return (await this.instance?.evaluate(rootNodeId)) ?? ''
+  }
+
+  async evaluateInspect(nodeId: string): Promise<InspectEvaluation> {
+    return (await this.instance?.evaluateInspect(nodeId)) ?? { kind: 'missing' }
   }
 
   /** The node id currently selected as the Inspect Node preview root, or `null` if inspection is inactive. */

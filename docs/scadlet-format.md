@@ -207,6 +207,13 @@ scale
 difference
 union
 intersection
+number
+boolean
+vector3
+add
+subtract
+multiply
+divide
 ```
 
 An unrecognized `type` fails with `Unknown node type: "<value>"`. See
@@ -252,6 +259,24 @@ validated by that type's `validate*Params` function) - not a UI label.
 Optional semantic parameters are omitted while inactive. A representation
 may retain literal editor state (for example Cube's Scalar and XYZ forms)
 without retaining inactive sockets or connections.
+
+### Value and math nodes
+
+`number` stores `{ "value": number }`; `boolean` stores
+`{ "value": boolean }`; and `vector3` stores finite numeric
+`{ "x": number, "y": number, "z": number }`. The four math types
+(`add`, `subtract`, `multiply`, `divide`) each store
+`{ "a": number, "b": number }`. These are fallback literals for their
+input ports, not precomputed results. Generated graph values remain OpenSCAD
+expressions: a Vector3 emits `[x, y, z]` and math emits explicit grouping
+such as `(a + b)`. Connecting a value replaces the relevant fallback during
+evaluation but does not erase it from this persisted record.
+
+All source and math value outputs use the stable port id `value`; Vector3
+uses Number inputs `x`, `y`, and `z`; math uses Number inputs `a` and `b`.
+Number/Boolean sources have no inputs. Transient inspect selection and the
+value result returned by OpenSCAD `echo()` are deliberately excluded from
+the project file.
 
 ### `cube`
 
@@ -416,6 +441,13 @@ scale:         inputs: geometry + active x,y,z | vector; outputs: geometry
 difference:    inputs: base, subtract      outputs: geometry
 union:         dynamic inputs: child:<id>   outputs: geometry
 intersection:  dynamic inputs: child:<id>   outputs: geometry
+number:        inputs: none                 outputs: value (Number)
+boolean:       inputs: none                 outputs: value (Boolean)
+vector3:       inputs: x, y, z (Number)     outputs: value (Vector3)
+add:           inputs: a, b (Number)        outputs: value (Number)
+subtract:      inputs: a, b (Number)        outputs: value (Number)
+multiply:      inputs: a, b (Number)        outputs: value (Number)
+divide:        inputs: a, b (Number)        outputs: value (Number)
 ```
 
 Port-level addressing (rather than plain node-to-node edges) exists

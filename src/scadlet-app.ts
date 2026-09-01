@@ -852,11 +852,14 @@ export class ScadletApp extends LitElement {
     this.exportSource = fullSource
 
     const inspectedNodeId = this.nodeEditor.getInspectedNodeId()
-    const previewSource = inspectedNodeId ? await this.nodeEditor.evaluate(inspectedNodeId) : fullSource
-    this.scadSource = previewSource
+    const inspected = inspectedNodeId ? await this.nodeEditor.evaluateInspect(inspectedNodeId) : null
+    const previewSource = inspected?.kind === 'geometry' ? inspected.source : fullSource
+    this.scadSource = inspected?.kind === 'value'
+      ? `echo("__SCADLET_VALUE__:", ${inspected.expression});`
+      : previewSource
     const tEval = performance.now()
 
-    if (!previewSource.trim()) {
+    if ((!inspected || inspected.kind !== 'value') && !previewSource.trim()) {
       this.renderError = 'Nothing to render - add at least one node.'
       return
     }
@@ -864,6 +867,11 @@ export class ScadletApp extends LitElement {
     this.rendering = true
     this.renderError = null
     try {
+      if (inspected?.kind === 'value' && inspectedNodeId) {
+        const value = await this.renderController.inspectValue(this.scadSource)
+        this.editorInstance?.setInspectedValueResult(inspectedNodeId, value)
+        return
+      }
       const stl = await this.renderController.render(previewSource)
       const tRendered = performance.now()
       this.stl = stl

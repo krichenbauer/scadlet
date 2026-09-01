@@ -1,4 +1,4 @@
-import { isRenderResponse, type RenderRequest } from './protocol'
+import { isRenderResponse, type RenderRequest, type WorkerRequest } from './protocol'
 
 /**
  * The minimal subset of `Worker` that `RenderController` depends on, so
@@ -26,7 +26,7 @@ function createRenderWorker(): WorkerLike {
  */
 export class RenderController {
   private worker: WorkerLike | null = null
-  private pending: { resolve: (stl: ArrayBuffer) => void; reject: (error: Error) => void } | null = null
+  private pending: { kind: 'render' | 'value'; resolve: (result: ArrayBuffer | string) => void; reject: (error: Error) => void } | null = null
   private readonly createWorker: WorkerFactory
   /** `performance.now()` timestamp of the most recent `postMessage`, used only to log round-trip timing. */
   private renderStartedAt = 0
@@ -45,7 +45,7 @@ export class RenderController {
     }
 
     return new Promise((resolve, reject) => {
-      this.pending = { resolve, reject }
+      this.pending = { kind: 'render', resolve: (result) => resolve(result as ArrayBuffer), reject }
 
       let worker: WorkerLike
       try {
@@ -59,6 +59,26 @@ export class RenderController {
       this.attachHandlers(worker)
 
       const request: RenderRequest = { type: 'render', source }
+      this.renderStartedAt = performance.now()
+      worker.postMessage(request)
+    })
+  }
+
+  /** Evaluates an inspected value through OpenSCAD itself. The source must
+   * contain an `echo()` expression; this never produces or replaces STL. */
+  inspectValue(source: string): Promise<string> {
+    if (this.pending) return Promise.reject(new Error('A render is already in progress'))
+    return new Promise((resolve, reject) => {
+      this.pending = { kind: 'value', resolve: (result) => resolve(result as string), reject }
+      let worker: WorkerLike
+      try { worker = this.worker ?? this.createWorker() } catch (error) {
+        this.pending = null
+        reject(error instanceof Error ? error : new Error(String(error)))
+        return
+      }
+      this.worker = worker
+      this.attachHandlers(worker)
+      const request: WorkerRequest = { type: 'inspect-value', source }
       this.renderStartedAt = performance.now()
       worker.postMessage(request)
     })
@@ -85,10 +105,13 @@ export class RenderController {
       const pending = this.pending
       this.pending = null
       if (!pending) return
-      if (data.type === 'result') {
+      if (data.type === 'result' && pending.kind === 'render') {
         console.log(`[render-controller] round-trip=${(performance.now() - this.renderStartedAt).toFixed(1)}ms`)
         pending.resolve(data.stl)
-      } else pending.reject(new Error(data.message))
+      } else if (data.type === 'value-result' && pending.kind === 'value') {
+        pending.resolve(data.value)
+      } else if (data.type === 'error') pending.reject(new Error(data.message))
+      else pending.reject(new Error('Received an unexpected response from the render worker'))
     }
 
     worker.onerror = (event) => {

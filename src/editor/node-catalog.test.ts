@@ -10,7 +10,7 @@ import { t } from '../i18n/translate'
 const noopContext = { onControlsChanged: () => {} }
 
 describe('NODE_CATALOG', () => {
-  it('contains all nine node types with stable, language-independent type ids', () => {
+  it('contains all Milestone 7 node types with stable, language-independent type ids', () => {
     const types = NODE_CATALOG.map((entry) => entry.type).sort()
     expect(types).toEqual(
       [
@@ -23,6 +23,13 @@ describe('NODE_CATALOG', () => {
         'difference',
         'union',
         'intersection',
+        'number',
+        'boolean',
+        'vector3',
+        'add',
+        'subtract',
+        'multiply',
+        'divide',
       ].sort(),
     )
   })
@@ -44,6 +51,10 @@ describe('NODE_CATALOG', () => {
     expect(findCatalogEntry('difference')?.category).toBe('boolean-operations')
     expect(findCatalogEntry('union')?.category).toBe('boolean-operations')
     expect(findCatalogEntry('intersection')?.category).toBe('boolean-operations')
+    expect(findCatalogEntry('number')?.category).toBe('values')
+    expect(findCatalogEntry('boolean')?.category).toBe('values')
+    expect(findCatalogEntry('vector3')?.category).toBe('values')
+    expect(findCatalogEntry('add')?.category).toBe('math')
   })
 
   it('never uses display strings (e.g. "CSG") as category ids', () => {

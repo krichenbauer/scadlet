@@ -9,6 +9,13 @@ export interface RenderRequest {
   source: string
 }
 
+export interface InspectValueRequest {
+  type: 'inspect-value'
+  source: string
+}
+
+export type WorkerRequest = RenderRequest | InspectValueRequest
+
 export interface RenderResultMessage {
   type: 'result'
   stl: ArrayBuffer
@@ -19,7 +26,12 @@ export interface RenderErrorMessage {
   message: string
 }
 
-export type RenderResponse = RenderResultMessage | RenderErrorMessage
+export interface InspectValueResultMessage {
+  type: 'value-result'
+  value: string
+}
+
+export type RenderResponse = RenderResultMessage | InspectValueResultMessage | RenderErrorMessage
 
 /**
  * Runtime guard for messages received from the worker. Worker `message`
@@ -36,5 +48,6 @@ export function isRenderResponse(value: unknown): value is RenderResponse {
   if (type === 'error') {
     return typeof (value as { message?: unknown }).message === 'string'
   }
+  if (type === 'value-result') return typeof (value as { value?: unknown }).value === 'string'
   return false
 }

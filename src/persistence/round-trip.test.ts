@@ -12,6 +12,7 @@ import { ScaleNode } from '../editor/nodes/scale-node'
 import { SphereNode } from '../editor/nodes/sphere-node'
 import { TranslateNode } from '../editor/nodes/translate-node'
 import { UnionNode } from '../editor/nodes/union-node'
+import { BooleanNode, MathNode, NumberNode, Vector3Node } from '../editor/nodes/value-nodes'
 import type { Schemes } from '../editor/schemes'
 import { serializeProject } from './serialize'
 import { restoreProject } from './restore'
@@ -78,6 +79,26 @@ async function roundTrip(
 }
 
 describe('per-node semantic round trip (serialize -> restore -> evaluate)', () => {
+  it('retains typed value fallback literals and connections without changing the v2 format', async () => {
+    const { editor: src } = createGraph()
+    const number = new NumberNode({ value: 5 })
+    const add = new MathNode('Add', '+', 'add', { a: 1, b: 10 })
+    const vector = new Vector3Node({ x: 1, y: 2, z: 3 })
+    const boolean = new BooleanNode({ value: true })
+    const cube = new CubeNode({ sizeRepresentation: 'scalar', size: 2, center: false })
+    for (const node of [number, add, vector, boolean, cube]) await src.addNode(node)
+    await src.addConnection(connect(number, 'value', add, 'a'))
+    await src.addConnection(connect(add, 'value', cube, 'size'))
+    await src.addConnection(connect(boolean, 'value', cube, 'center'))
+
+    const { editor: dst, engine } = createGraph()
+    const { project } = await roundTrip({ editor: src, positions: {} }, dst)
+    expect(project.version).toBe(2)
+    expect(project.graph.nodes.find((node) => node.id === vector.id)?.parameters).toEqual({ x: 1, y: 2, z: 3 })
+    expect(project.graph.nodes.find((node) => node.id === add.id)?.parameters).toEqual({ a: 1, b: 10 })
+    expect(await evaluateOpenSCAD(dst, engine)).toBe('cube((5 + 10), center=true);')
+  })
+
   it('Cube with non-default dimensions and center', async () => {
     const { editor: src } = createGraph()
     await src.addNode(new CubeNode({ sizeX: 3, sizeY: 4, sizeZ: 5, center: true }))

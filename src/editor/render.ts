@@ -89,6 +89,7 @@ export function attachRenderer(
         renderNode(area, data.element, data.payload, presentation, inspect, nodeListenersWired, notifyDirty)
       } else if (data.type === 'connection') {
         updateConnection(
+          area,
           connections,
           socketPosition,
           data.element,
@@ -166,10 +167,17 @@ function renderNode(
   const standaloneControls = Object.entries(node.controls).filter(
     ([key, ctrl]) => ctrl && !paramInputKeys.has(key) && !(ctrl instanceof RepresentationSelectControl),
   )
+  // Literal value sources have no inputs, so their primary control is part
+  // of the compact node rather than hidden behind hover/pinning. Other
+  // standalone controls retain the normal progressive-disclosure behavior.
+  const alwaysVisibleControls = standaloneControls.filter(
+    ([key]) => key === 'value' && parameterInputs.length === 0 && Boolean(node.outputs.value),
+  )
+  const expandableStandaloneControls = standaloneControls.filter(([key]) => !alwaysVisibleControls.some(([primary]) => primary === key))
 
   // A node has collapsible content if it has parameter inputs (whose rows can be shown/hidden)
   // or standalone controls (shown only when expanded). This drives pin-button visibility.
-  const hasCollapsibleContent = parameterInputs.length > 0 || standaloneControls.length > 0 || representationControls.length > 0
+  const hasCollapsibleContent = parameterInputs.length > 0 || expandableStandaloneControls.length > 0 || representationControls.length > 0
   const connectedInputKeys = presentation.getConnectedInputKeys(node.id)
   // Hover/pin expansion: shows ALL parameter rows and standalone controls.
   // Distinguished from connection-forced expansion (which only shows specific connected rows)
@@ -228,6 +236,15 @@ function renderNode(
 
   element.appendChild(main)
 
+  const valueResult = inspect.getValueResult(node.id)
+  if (valueResult !== null) {
+    const result = document.createElement('div')
+    result.className = 'node-inspect-value'
+    result.textContent = `= ${valueResult}`
+    result.setAttribute('aria-label', t('node.inspectedValue'))
+    element.appendChild(result)
+  }
+
   // Parameter input rows: socket + label + inline value control, rendered below `.node-main`.
   // Connected rows are always visible (the connection endpoint must not disappear).
   // Unconnected rows are only visible when the node is expanded (hover/pin).
@@ -258,10 +275,11 @@ function renderNode(
   }
 
   // Standalone controls (mode selects, checkboxes, add/remove actions): only when expanded.
-  if (expanded && standaloneControls.length > 0) {
+  if ((expanded && expandableStandaloneControls.length > 0) || alwaysVisibleControls.length > 0) {
     const controls = document.createElement('div')
     controls.className = 'node-controls'
-    for (const [key, control] of standaloneControls) {
+    if (alwaysVisibleControls.length > 0) controls.classList.add('node-controls--primary')
+    for (const [key, control] of [...alwaysVisibleControls, ...(expanded ? expandableStandaloneControls : [])]) {
       if (!control) continue
       const rendered = renderControl(key, control)
       if (rendered) controls.appendChild(rendered)
@@ -355,6 +373,8 @@ function renderPort(
   // attribute in CSS (`node-editor.ts`) rather than by permanently showing
   // type text beside every connector.
   socket.dataset.socketType = socketName
+  socket.dataset.socketSide = side
+  socket.dataset.socketKey = key
   // The accessible name is always set, even when the visible label below
   // is omitted, so screen readers/tooltips never lose the socket's meaning.
   socket.title = accessibleName
@@ -581,6 +601,7 @@ function renderRepresentationHeader(
 }
 
 function updateConnection(
+  area: AreaPlugin<Schemes, AreaExtra>,
   connections: Map<HTMLElement, ConnectionState>,
   socketPosition: ReturnType<typeof getDOMSocketPosition<Schemes, AreaExtra>>,
   element: HTMLElement,
@@ -596,6 +617,11 @@ function updateConnection(
 
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
     path.classList.add('connection-path')
+    const sourceNode = payload.source ? area.nodeViews.get(payload.source) : undefined
+    const sourceSocket = sourceNode?.element?.querySelector<HTMLElement>(
+      `.node-socket[data-socket-side="output"][data-socket-key="${String(payload.sourceOutput)}"]`,
+    )
+    if (sourceSocket?.dataset.socketType) path.dataset.socketType = sourceSocket.dataset.socketType
     svg.appendChild(path)
     element.replaceChildren(svg)
 
