@@ -4,7 +4,7 @@ import type { AreaPlugin } from 'rete-area-plugin'
 import type { ConnectionPlugin } from 'rete-connection-plugin'
 import { classicConnectionPath, getDOMSocketPosition } from 'rete-render-utils'
 
-import { CheckboxControl, LabeledNumberControl, ParameterActionsControl, SelectControl } from './controls'
+import { CheckboxControl, LabeledNumberControl, ParameterActionsControl, RepresentationSelectControl, SelectControl, type ParameterAction } from './controls'
 import { isEditableTarget } from './deletion'
 import { t } from '../i18n/translate'
 import type { InspectManager } from './inspect'
@@ -145,13 +145,16 @@ function renderNode(
   // Keys of parameter inputs that map 1-to-1 to a control of the same key.
   const paramInputKeys = new Set(parameterInputs.map(([key]) => key))
   // Controls that don't have a co-located parameter input row go in `.node-controls` when expanded.
+  const representationControls = Object.values(node.controls).filter(
+    (control): control is RepresentationSelectControl => control instanceof RepresentationSelectControl,
+  )
   const standaloneControls = Object.entries(node.controls).filter(
-    ([key, ctrl]) => ctrl && !paramInputKeys.has(key),
+    ([key, ctrl]) => ctrl && !paramInputKeys.has(key) && !(ctrl instanceof RepresentationSelectControl),
   )
 
   // A node has collapsible content if it has parameter inputs (whose rows can be shown/hidden)
   // or standalone controls (shown only when expanded). This drives pin-button visibility.
-  const hasCollapsibleContent = parameterInputs.length > 0 || standaloneControls.length > 0
+  const hasCollapsibleContent = parameterInputs.length > 0 || standaloneControls.length > 0 || representationControls.length > 0
   const connectedInputKeys = presentation.getConnectedInputKeys(node.id)
   // Hover/pin expansion: shows ALL parameter rows and standalone controls.
   // Distinguished from connection-forced expansion (which only shows specific connected rows)
@@ -221,6 +224,14 @@ function renderNode(
 
     const paramRows = document.createElement('div')
     paramRows.className = 'node-param-rows'
+    // A representation select is intentionally rendered with its semantic
+    // parameter, rather than among generic node controls. It remains visible
+    // whenever that parameter has a visible row.
+    for (const control of representationControls) {
+      const relevantInputs = parameterInputs.filter(([key]) => key === control.parameterKey || control.parameterKey === 'size')
+      const visible = expanded || relevantInputs.some(([key]) => connectedInputKeys.has(key))
+      if (visible) paramRows.appendChild(renderRepresentationHeader(control, connectedInputKeys.size > 0))
+    }
     for (const [key, input] of [...connectedRows, ...unconnectedRows]) {
       const isConnected = connectedInputKeys.has(key)
       const isVisible = expanded || isConnected
@@ -437,14 +448,7 @@ function renderControl(key: string, control: ClassicPreset.Control): HTMLElement
   if (control instanceof ParameterActionsControl) {
     const wrapper = document.createElement('div')
     wrapper.className = 'node-control node-control--actions'
-    for (const action of control.actions()) {
-      const button = document.createElement('button')
-      button.type = 'button'
-      button.textContent = action.label
-      button.addEventListener('pointerdown', (event) => event.stopPropagation())
-      button.addEventListener('click', action.run)
-      wrapper.appendChild(button)
-    }
+    for (const action of control.actions()) wrapper.appendChild(renderParameterAction(action))
     return wrapper
   }
   if (control instanceof CheckboxControl) {
@@ -510,6 +514,54 @@ function renderControl(key: string, control: ClassicPreset.Control): HTMLElement
   }
 
   return null
+}
+
+function renderParameterAction(action: ParameterAction): HTMLElement {
+  if (action.children) {
+    const details = document.createElement('details')
+    details.className = 'node-action-menu'
+    const summary = document.createElement('summary')
+    summary.textContent = action.label
+    summary.addEventListener('pointerdown', (event) => event.stopPropagation())
+    details.appendChild(summary)
+    const options = document.createElement('div')
+    options.className = 'node-action-menu-options'
+    for (const child of action.children) options.appendChild(renderParameterAction(child))
+    details.appendChild(options)
+    return details
+  }
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.textContent = action.label
+  button.addEventListener('pointerdown', (event) => event.stopPropagation())
+  if (action.run) button.addEventListener('click', action.run)
+  return button
+}
+
+function renderRepresentationHeader(
+  control: RepresentationSelectControl,
+  hasActiveConnections: boolean,
+): HTMLElement {
+  const header = document.createElement('label')
+  header.className = 'node-param-header'
+  const label = document.createElement('span')
+  label.textContent = control.label
+  header.appendChild(label)
+  const select = document.createElement('select')
+  select.setAttribute('aria-label', `${control.label} representation`)
+  if (hasActiveConnections) select.title = 'Remove the active Size connections before switching representation.'
+  for (const option of control.options) {
+    const item = document.createElement('option')
+    item.value = option.value
+    item.textContent = option.label
+    item.selected = option.value === control.value
+    item.disabled = hasActiveConnections && option.value !== control.value
+    select.appendChild(item)
+  }
+  select.addEventListener('pointerdown', (event) => event.stopPropagation())
+  select.addEventListener('change', () => control.setValue(select.value))
+  header.appendChild(select)
+  return header
 }
 
 function updateConnection(

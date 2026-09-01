@@ -54,7 +54,7 @@ describe('serializeProject', () => {
     })
 
     expect(project.graph.nodes).toEqual([
-      { id: cube.id, type: 'cube', position: { x: 42, y: -17 }, parameters: { size: { x: 1, y: 2, z: 3 }, center: true } },
+      { id: cube.id, type: 'cube', position: { x: 42, y: -17 }, parameters: { size: { x: 1, y: 2, z: 3 }, sizeRepresentation: 'xyz', sizeScalar: 10, sizeVector: { x: 1, y: 2, z: 3 }, center: true } },
     ])
   })
 

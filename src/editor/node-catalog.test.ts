@@ -160,10 +160,10 @@ describe('NODE_CATALOG dirty-notification wiring', () => {
     const { context, notifyDirty } = contextWithDirtySpy()
     const node = findCatalogEntry('cube')!.create(context, { size: { x: 10, y: 10, z: 10 }, center: false }) as CubeNode
 
-    node.controls.sizeX.setValue(99)
+    node.controls.sizeX!.setValue(99)
     expect(notifyDirty).toHaveBeenCalledTimes(1)
 
-    node.controls.center.setValue(true)
+    node.controls.center!.setValue(true)
     expect(notifyDirty).toHaveBeenCalledTimes(2)
   })
 
@@ -214,6 +214,6 @@ describe('NODE_CATALOG dirty-notification wiring', () => {
 
   it('does not throw and does nothing when no notifyDirty is supplied (e.g. plain palette creation without dirty tracking)', () => {
     const node = findCatalogEntry('cube')!.create({ onControlsChanged: () => {} }, { size: { x: 1, y: 1, z: 1 } }) as CubeNode
-    expect(() => node.controls.sizeX.setValue(5)).not.toThrow()
+    expect(() => node.controls.sizeX!.setValue(5)).not.toThrow()
   })
 })

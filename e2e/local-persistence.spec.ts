@@ -22,9 +22,9 @@ async function addAndEditCube(page: Page, size: string) {
   const node = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   await expect(node).toHaveCount(1)
   await node.locator('.node-pin').click()
-  await node.getByRole('button', { name: '+ Size' }).click()
-  await node.locator('select').selectOption('vector')
-  await node.locator('.node-control').filter({ hasText: 'X' }).locator('input').fill(size)
+  await node.getByText('+ Size', { exact: true }).click()
+  await node.getByRole('button', { name: 'XYZ', exact: true }).click()
+  await node.locator('[data-param-key="sizeX"] input').fill(size)
   await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
 }
 
@@ -37,6 +37,29 @@ test.beforeEach(async ({ context }) => {
   })
 })
 
+test('Cube Size add menu exposes one selected representation at a time', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  const node = page.locator('node-editor .node').filter({ hasText: 'Cube' })
+  await node.locator('.node-pin').click()
+
+  await node.getByText('+ Size', { exact: true }).click()
+  await expect(node.getByRole('button', { name: 'Scalar', exact: true })).toBeVisible()
+  await expect(node.getByRole('button', { name: 'XYZ', exact: true })).toBeVisible()
+  await expect(node.getByRole('button', { name: 'Vector', exact: true })).toBeVisible()
+  await node.getByRole('button', { name: 'Scalar', exact: true }).click()
+  await expect(node.locator('[data-param-key="size"]')).toHaveCount(1)
+  await expect(node.locator('[data-param-key="sizeX"], [data-param-key="sizeY"], [data-param-key="sizeZ"], [data-param-key="sizeVector"]')).toHaveCount(0)
+
+  await node.locator('.node-param-header select').selectOption('xyz')
+  await expect(node.locator('[data-param-key="sizeX"], [data-param-key="sizeY"], [data-param-key="sizeZ"]')).toHaveCount(3)
+  await expect(node.locator('[data-param-key="size"], [data-param-key="sizeVector"]')).toHaveCount(0)
+
+  await node.locator('.node-param-header select').selectOption('vector')
+  await expect(node.locator('[data-param-key="sizeVector"]')).toHaveCount(1)
+  await expect(node.locator('[data-param-key="size"], [data-param-key="sizeX"], [data-param-key="sizeY"], [data-param-key="sizeZ"]')).toHaveCount(0)
+})
+
 test('autosaves canonical graph state and restores it after reload', async ({ page }) => {
   await waitForLocalLibrary(page)
   await renameProject(page, 'Persistent Cube')
@@ -47,7 +70,7 @@ test('autosaves canonical graph state and restores it after reload', async ({ pa
   await expect(page.locator('scadlet-app .project-picker')).toHaveValue(activeBefore)
   await expect(page.locator('scadlet-app .project-name')).toHaveValue('Persistent Cube')
   const restoredCube = page.locator('node-editor .node').filter({ hasText: 'Cube' })
-  await expect(restoredCube.locator('.node-control').filter({ hasText: 'X' }).locator('input')).toHaveValue('42')
+  await expect(restoredCube.locator('[data-param-key="sizeX"] input')).toHaveValue('42')
 })
 
 test('keeps different projects active independently per tab and detects same-project conflicts', async ({ page, context }) => {

@@ -222,7 +222,7 @@ describe('NodePresentationManager - isolation from graph/node semantics', () => 
     expect(cylinder.controls.fn).toBeUndefined()
 
     // Cube's params are untouched.
-    expect(cube.controls.sizeX.value).toBe(5)
+    expect(cube.controls.sizeX!.value).toBe(5)
 
     // The graph structure is untouched.
     expect(editor.getNodes().map((node) => node.id).sort()).toEqual(

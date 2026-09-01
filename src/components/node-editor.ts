@@ -250,6 +250,48 @@ export class NodeEditorElement extends LitElement {
       gap: 4px;
     }
 
+    .node-action-menu {
+      position: relative;
+    }
+
+    .node-action-menu > summary {
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .node-action-menu > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .node-action-menu-options {
+      position: absolute;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 82px;
+      padding: 4px;
+      border: 1px solid #666;
+      border-radius: 4px;
+      background: #242424;
+      box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
+    }
+
+    .node-param-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      padding: 2px 10px 2px 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .node-param-header select {
+      width: 78px;
+      font: inherit;
+    }
+
     /*
      * Parameter input rows: socket on the far left (straddling the border
      * via margin-left: -6px, same as .node-port--input sockets), then a

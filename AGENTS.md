@@ -1047,6 +1047,14 @@ migrated on input (including old Cube and Boolean ports); all newly written
 files and local autosaves are v2. Milestone 7 still owns user-facing
 Number/Vector3/math palette nodes.
 
+Cube Size UX: `size` has exactly one active representation at a time:
+**Scalar**, **XYZ**, or **Vector**. Adding Size chooses that representation;
+only its corresponding sockets are installed/rendered. Scalar and XYZ
+literals are retained across switches, while the Vector representation is a
+connection-only whole-Vector3 input. The representation selector belongs in
+the Size header. When its active ports have connections, alternatives are
+disabled in the UI rather than silently hiding or removing graph semantics.
+
 ### Milestone 7 — Typed values and simple dataflow
 
 Add value-driven parameters and a small supporting math layer on top of the Milestone 6 input model.

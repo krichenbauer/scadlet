@@ -5,6 +5,14 @@ import { requireBoolean, requireFiniteNumber, requireParamsObject } from './para
 export interface CubeParams {
   size?: number | Vector3Params
   center?: boolean
+  /** The active v2 editor/input representation for the single semantic
+   * OpenSCAD `size` argument. Absent in early v2 files and inferred from
+   * `size` during validation. */
+  sizeRepresentation?: CubeSizeRepresentation
+  /** Stored independently so switching Scalar → XYZ → Scalar restores the
+   * prior literal instead of deriving a new one from the other editor. */
+  sizeScalar?: number
+  sizeVector?: Vector3Params
   /** @deprecated v1 compatibility; v2 stores one semantic `size`. */
   sizeX?: number
   /** @deprecated v1 compatibility; v2 stores one semantic `size`. */
@@ -12,6 +20,8 @@ export interface CubeParams {
   /** @deprecated v1 compatibility; v2 stores one semantic `size`. */
   sizeZ?: number
 }
+
+export type CubeSizeRepresentation = 'scalar' | 'xyz' | 'vector'
 
 export interface Vector3Params { x: number; y: number; z: number }
 
@@ -60,5 +70,23 @@ export function validateCubeParams(value: unknown): CubeParams {
     }
   }
   if (obj.center !== undefined) params.center = requireBoolean(obj.center, 'Cube parameter "center"')
+  if (obj.sizeRepresentation !== undefined) {
+    if (obj.sizeRepresentation !== 'scalar' && obj.sizeRepresentation !== 'xyz' && obj.sizeRepresentation !== 'vector') {
+      throw new Error('Invalid Cube parameter "sizeRepresentation"')
+    }
+    params.sizeRepresentation = obj.sizeRepresentation
+  }
+  if (obj.sizeScalar !== undefined) params.sizeScalar = requireFiniteNumber(obj.sizeScalar, 'Cube parameter "sizeScalar"')
+  if (obj.sizeVector !== undefined) {
+    const vector = requireParamsObject(obj.sizeVector, 'Cube parameter "sizeVector"')
+    params.sizeVector = {
+      x: requireFiniteNumber(vector.x, 'Cube parameter "sizeVector.x"'),
+      y: requireFiniteNumber(vector.y, 'Cube parameter "sizeVector.y"'),
+      z: requireFiniteNumber(vector.z, 'Cube parameter "sizeVector.z"'),
+    }
+  }
+  if (params.sizeRepresentation === undefined && params.size !== undefined) {
+    params.sizeRepresentation = typeof params.size === 'number' ? 'scalar' : 'xyz'
+  }
   return params
 }

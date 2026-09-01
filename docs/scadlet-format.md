@@ -9,9 +9,12 @@ source of truth until this document is updated to match it.
 ## Version 2 semantic signatures
 
 v2 records each node's OpenSCAD semantic arguments rather than renderer
-controls. A new Cube therefore has `{}` parameters and generates `cube()`;
-adding Size stores either a Number or `{ "x", "y", "z" }` Vector3 literal,
-and adding Center stores `"center": true` only when it changes the signature.
+controls. A new Cube therefore has `{}` parameters and generates `cube()`.
+When Size is active, `sizeRepresentation` is `"scalar"`, `"xyz"`, or
+`"vector"`; scalar and XYZ literals are retained independently as
+`sizeScalar`/`sizeVector`, while `size` contains the active literal form
+(and is absent for the connection-only Vector representation). Adding Center
+stores `"center": true` only when it changes the signature.
 Cylinder and Sphere similarly omit unset optional arguments. Connections are
 still stored separately and address the semantic parameter port (`size`,
 `vector`, `x`, `y`, `z`, `h`, `r`, and so on), never a DOM control.
@@ -244,11 +247,9 @@ sections below for exact shapes.
 Every parameter name below is the exact, persisted property name (as
 returned by that node class's own `getPersistedParams()` method and
 validated by that type's `validate*Params` function) - not a UI label.
-Where a node has "hidden" state that isn't currently visible in the UI
-(e.g. an inactive sizing mode's fields), **all of it is still required in
-the persisted `parameters` object**, because the node itself always keeps
-every field internally regardless of which one is currently active in
-the editor.
+Optional semantic parameters are omitted while inactive. A representation
+may retain literal editor state (for example Cube's Scalar and XYZ forms)
+without retaining inactive sockets or connections.
 
 ### `cube`
 
@@ -256,15 +257,27 @@ Source: [`src/openscad/cube.ts`](../src/openscad/cube.ts)
 (`CubeParams`/`validateCubeParams`).
 
 ```json
-{ "sizeX": 10, "sizeY": 10, "sizeZ": 10, "center": false }
+{
+  "sizeRepresentation": "xyz",
+  "size": { "x": 20, "y": 10, "z": 10 },
+  "sizeScalar": 20,
+  "sizeVector": { "x": 20, "y": 10, "z": 10 },
+  "center": true
+}
 ```
 
-| Field   | Type    | Required | Constraint       | Meaning                                  |
-| ------- | ------- | -------- | ---------------- | ----------------------------------------- |
-| `sizeX` | number  | Yes      | finite           | `cube()`'s X size.                        |
-| `sizeY` | number  | Yes      | finite           | `cube()`'s Y size.                        |
-| `sizeZ` | number  | Yes      | finite           | `cube()`'s Z size.                        |
-| `center`| boolean | Yes      | -                | OpenSCAD's `center` flag.                 |
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `sizeRepresentation` | `"scalar"` / `"xyz"` / `"vector"` | when Size is active | The sole active editor/input representation of semantic `size`. |
+| `size` | number or `{x,y,z}` | Scalar/XYZ only | The active inline OpenSCAD literal. Omitted for connection-only Vector. |
+| `sizeScalar` | number | when Size is active | Retained Scalar literal for later representation switching. |
+| `sizeVector` | `{x,y,z}` | when Size is active | Retained XYZ literals for later representation switching. |
+| `center` | boolean | no | OpenSCAD's optional `center` flag. |
+
+Only the active representation's input ports may appear in `connections`:
+`size` for Scalar, `sizeX`/`sizeY`/`sizeZ` for XYZ, or `sizeVector` for
+Vector. Older v2 Cube records without `sizeRepresentation` are normalized
+from their `size` literal (`number` → Scalar, vector → XYZ).
 
 ### `cylinder`
 

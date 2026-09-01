@@ -66,13 +66,37 @@ export class SelectControl<T extends string = string> extends ClassicPreset.Cont
   }
 }
 
+/** A select that belongs to one semantic parameter rather than the node as
+ * a whole. The renderer places it in that parameter's header, immediately
+ * above the active input representation. */
+export class RepresentationSelectControl<T extends string = string> extends SelectControl<T> {
+  readonly parameterKey: string
+
+  constructor(
+    parameterKey: string,
+    label: string,
+    options: readonly { value: T; label: string }[],
+    initial: T,
+  ) {
+    super(label, options, initial)
+    this.parameterKey = parameterKey
+  }
+}
+
 /** A deliberately small progressive-disclosure affordance. Nodes own their
  * semantic choices; this control only renders the available add/remove
  * actions and avoids a generic parameter-schema framework. */
-export class ParameterActionsControl extends ClassicPreset.Control {
-  readonly actions: () => readonly { id: string; label: string; run: () => void }[]
+export interface ParameterAction {
+  id: string
+  label: string
+  run?: () => void
+  children?: readonly ParameterAction[]
+}
 
-  constructor(actions: () => readonly { id: string; label: string; run: () => void }[]) {
+export class ParameterActionsControl extends ClassicPreset.Control {
+  readonly actions: () => readonly ParameterAction[]
+
+  constructor(actions: () => readonly ParameterAction[]) {
     super()
     this.actions = actions
   }
