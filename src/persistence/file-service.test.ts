@@ -42,7 +42,7 @@ describe('ProjectFileService - File System Access available', () => {
     })
 
     const project = createEmptyProject('My Project')
-    await service.saveAs(project, 'My Project.scadlet')
+    await expect(service.saveAs(project, 'My Project.scadlet')).resolves.toBe(true)
 
     expect(showSaveFilePicker).toHaveBeenCalledExactlyOnceWith('My Project.scadlet')
     expect(handle.writtenContent).toHaveLength(1)
@@ -62,7 +62,7 @@ describe('ProjectFileService - File System Access available', () => {
 
     const project = createEmptyProject('My Project')
     await service.saveAs(project, 'My Project.scadlet')
-    await service.save(project, 'My Project.scadlet')
+    await expect(service.save(project, 'My Project.scadlet')).resolves.toBe(true)
 
     expect(showSaveFilePicker).toHaveBeenCalledTimes(1)
     expect(handle.writtenContent).toHaveLength(2)
@@ -78,7 +78,7 @@ describe('ProjectFileService - File System Access available', () => {
     }
     const service = new ProjectFileService({ capability, pickFileFallback: vi.fn(), downloadFallback: vi.fn() })
 
-    await service.save(createEmptyProject('New'), 'New.scadlet')
+    await expect(service.save(createEmptyProject('New'), 'New.scadlet')).resolves.toBe(true)
 
     expect(showSaveFilePicker).toHaveBeenCalledExactlyOnceWith('New.scadlet')
     expect(service.getHandleName()).toBe('New.scadlet')
@@ -101,7 +101,7 @@ describe('ProjectFileService - File System Access available', () => {
     expect(service.getHandleName()).toBe('Opened Project.scadlet')
   })
 
-  it('cancelling the save picker (AbortError) does not throw and leaves no handle', async () => {
+  it('cancelling the save picker (AbortError) resolves false, does not throw, and leaves no handle', async () => {
     const showSaveFilePicker = vi.fn().mockRejectedValue(abortError())
     const capability: FileSystemCapability = {
       supported: true,
@@ -110,7 +110,7 @@ describe('ProjectFileService - File System Access available', () => {
     }
     const service = new ProjectFileService({ capability, pickFileFallback: vi.fn(), downloadFallback: vi.fn() })
 
-    await expect(service.saveAs(createEmptyProject(), 'X.scadlet')).resolves.toBeUndefined()
+    await expect(service.saveAs(createEmptyProject(), 'X.scadlet')).resolves.toBe(false)
     expect(service.getHandleName()).toBeNull()
   })
 

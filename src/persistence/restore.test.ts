@@ -158,4 +158,36 @@ describe('restoreProject', () => {
     expect(setViewport).toHaveBeenCalledExactlyOnceWith({ x: 12, y: -8, k: 1.4 })
     expect(setViewerCamera).toHaveBeenCalledExactlyOnceWith({ position: [1, 2, 3], target: [4, 5, 6] })
   })
+
+  it('never notifies dirty via the parameter-control mechanism, even for nodes with non-default parameters', async () => {
+    const { editor } = createGraph()
+    const notifyDirty = vi.fn()
+    const project = parseScadletProject({
+      format: 'scadlet',
+      version: 1,
+      metadata: { name: 'X' },
+      graph: {
+        nodes: [
+          {
+            id: 'cylinder-1',
+            type: 'cylinder',
+            position: { x: 0, y: 0 },
+            parameters: { h: 20, mode: 'tapered', r: 1, d: 2, r1: 8, r2: 2, center: true, fn: 50 },
+          },
+        ],
+        connections: [],
+      },
+      editor: { viewport: { x: 0, y: 0, zoom: 1 } },
+      viewer: { camera: { position: [0, 0, 0], target: [0, 0, 0] } },
+    })
+
+    await restoreProject(project, {
+      editor,
+      creationContext: { onControlsChanged: () => {}, notifyDirty },
+      setNodePosition: () => {},
+    })
+
+    expect(notifyDirty).not.toHaveBeenCalled()
+  })
 })
+

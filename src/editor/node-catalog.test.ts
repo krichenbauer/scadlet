@@ -1,5 +1,5 @@
 import { NodeEditor } from 'rete'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { findCatalogEntry, identifyNodeType, NODE_CATALOG, NODE_CATEGORIES } from './node-catalog'
 import { CubeNode } from './nodes/cube-node'
@@ -135,3 +135,104 @@ describe('NODE_CATALOG', () => {
     expect(() => findCatalogEntry('intersection')!.validateParams('nope')).toThrow('Invalid parameters')
   })
 })
+
+/**
+ * Protects the dirty-tracking bug this task fixes: editing a persisted
+ * node parameter must mark the project dirty, through the actual
+ * control-update mechanism (`control.setValue(...)`) rather than a test
+ * calling some `markDirty()` shortcut directly. See `wireDirtyNotifications`
+ * in `node-catalog.ts`.
+ */
+describe('NODE_CATALOG dirty-notification wiring', () => {
+  function contextWithDirtySpy() {
+    const notifyDirty = vi.fn()
+    const context = { onControlsChanged: () => {}, notifyDirty }
+    return { context, notifyDirty }
+  }
+
+  it('does NOT notify dirty merely from construction, even with non-default persisted parameters (restore safety)', () => {
+    const { context, notifyDirty } = contextWithDirtySpy()
+    findCatalogEntry('cylinder')!.create(context, { h: 5, mode: 'diameter', r: 1, d: 2, r1: 3, r2: 4, center: true, fn: 50 })
+    expect(notifyDirty).not.toHaveBeenCalled()
+  })
+
+  it('Cube: dimension change and center toggle both notify dirty', () => {
+    const { context, notifyDirty } = contextWithDirtySpy()
+    const node = findCatalogEntry('cube')!.create(context) as CubeNode
+
+    node.controls.sizeX.setValue(99)
+    expect(notifyDirty).toHaveBeenCalledTimes(1)
+
+    node.controls.center.setValue(true)
+    expect(notifyDirty).toHaveBeenCalledTimes(2)
+  })
+
+  it('Cylinder: numeric value, sizing-mode select, $fn checkbox, and $fn value all notify dirty', () => {
+    const { context, notifyDirty } = contextWithDirtySpy()
+    const node = findCatalogEntry('cylinder')!.create(context) as CylinderNode
+
+    node.controls.h.setValue(20)
+    expect(notifyDirty).toHaveBeenCalledTimes(1)
+
+    // Switching mode replaces r/d/r1/r2 controls entirely - the freshly
+    // added replacement control must also be wrapped (see the "re-wraps
+    // freshly-added controls" test below), not just the ones that existed
+    // at creation time.
+    node.controls.mode.setValue('diameter')
+    expect(notifyDirty).toHaveBeenCalledTimes(2)
+    expect(node.controls.d).toBeDefined()
+    node.controls.d!.setValue(42)
+    expect(notifyDirty).toHaveBeenCalledTimes(3)
+
+    node.controls.fnEnabled.setValue(true)
+    expect(notifyDirty).toHaveBeenCalledTimes(4)
+    expect(node.controls.fn).toBeDefined()
+    node.controls.fn!.setValue(50)
+    expect(notifyDirty).toHaveBeenCalledTimes(5)
+  })
+
+  it('Sphere: radius change, mode change, and $fn all notify dirty', () => {
+    const { context, notifyDirty } = contextWithDirtySpy()
+    const node = findCatalogEntry('sphere')!.create(context) as import('./nodes/sphere-node').SphereNode
+
+    node.controls.r!.setValue(12)
+    expect(notifyDirty).toHaveBeenCalledTimes(1)
+
+    node.controls.mode.setValue('diameter')
+    expect(notifyDirty).toHaveBeenCalledTimes(2)
+    node.controls.d!.setValue(30)
+    expect(notifyDirty).toHaveBeenCalledTimes(3)
+
+    node.controls.fnEnabled.setValue(true)
+    expect(notifyDirty).toHaveBeenCalledTimes(4)
+    node.controls.fn!.setValue(50)
+    expect(notifyDirty).toHaveBeenCalledTimes(5)
+  })
+
+  it('Translate: X change notifies dirty', () => {
+    const { context, notifyDirty } = contextWithDirtySpy()
+    const node = findCatalogEntry('translate')!.create(context) as import('./nodes/vector-transform-node').VectorTransformNode
+    node.controls.x.setValue(10)
+    expect(notifyDirty).toHaveBeenCalledTimes(1)
+  })
+
+  it('Rotate: Z change notifies dirty', () => {
+    const { context, notifyDirty } = contextWithDirtySpy()
+    const node = findCatalogEntry('rotate')!.create(context) as import('./nodes/vector-transform-node').VectorTransformNode
+    node.controls.z.setValue(45)
+    expect(notifyDirty).toHaveBeenCalledTimes(1)
+  })
+
+  it('Scale: a component change notifies dirty', () => {
+    const { context, notifyDirty } = contextWithDirtySpy()
+    const node = findCatalogEntry('scale')!.create(context) as import('./nodes/vector-transform-node').VectorTransformNode
+    node.controls.y.setValue(0.5)
+    expect(notifyDirty).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not throw and does nothing when no notifyDirty is supplied (e.g. plain palette creation without dirty tracking)', () => {
+    const node = findCatalogEntry('cube')!.create({ onControlsChanged: () => {} }) as CubeNode
+    expect(() => node.controls.sizeX.setValue(5)).not.toThrow()
+  })
+})
+

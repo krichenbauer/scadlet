@@ -135,9 +135,12 @@ export class ProjectFileService {
    * Always chooses/creates a destination where File System Access is
    * supported; otherwise downloads `project` as `suggestedName`. On
    * success (or on the fallback download path), the written/created
-   * handle becomes the handle a later `save()` reuses.
+   * handle becomes the handle a later `save()` reuses. Returns `false`
+   * (without writing anything) if the user cancels the save picker -
+   * callers must treat that exactly like a no-op, e.g. not clearing
+   * unsaved-changes state.
    */
-  async saveAs(project: ScadletProjectV1, suggestedName: string): Promise<void> {
+  async saveAs(project: ScadletProjectV1, suggestedName: string): Promise<boolean> {
     const content = JSON.stringify(project, null, 2)
 
     if (this.deps.capability.supported) {
@@ -145,35 +148,37 @@ export class ProjectFileService {
       try {
         handle = await this.deps.capability.showSaveFilePicker(suggestedName)
       } catch (error) {
-        if (isAbortError(error)) return
+        if (isAbortError(error)) return false
         throw error
       }
       const writable = await handle.createWritable()
       await writable.write(content)
       await writable.close()
       this.handle = handle
-      return
+      return true
     }
 
     this.deps.downloadFallback(content, suggestedName)
     this.handle = null
+    return true
   }
 
   /**
    * Writes to the currently held file handle if one exists; otherwise
    * behaves exactly like `saveAs` (including the fallback-browser Blob
-   * download, since there is no reusable handle there at all).
+   * download, since there is no reusable handle there at all). Returns
+   * `false` if (via the `saveAs` fallback path) the user cancels.
    */
-  async save(project: ScadletProjectV1, suggestedName: string): Promise<void> {
+  async save(project: ScadletProjectV1, suggestedName: string): Promise<boolean> {
     if (this.handle) {
       const content = JSON.stringify(project, null, 2)
       const writable = await this.handle.createWritable()
       await writable.write(content)
       await writable.close()
-      return
+      return true
     }
 
-    await this.saveAs(project, suggestedName)
+    return this.saveAs(project, suggestedName)
   }
 }
 

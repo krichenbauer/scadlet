@@ -210,6 +210,7 @@ export class ScadletApp extends LitElement {
       triggerDownload(new Blob([content], { type: 'application/json' }), filename),
   })
   private unsubscribeDirty?: () => void
+  private unsubscribeCameraDirty?: () => void
   /** Whether the user has ever explicitly set a project name (see `_ensureProjectName`) - distinct from the name merely still being the placeholder string, since a project could legitimately be named that on purpose. */
   private hasExplicitName = false
 
@@ -307,6 +308,9 @@ export class ScadletApp extends LitElement {
         this.dirty = true
       })
     })
+    this.unsubscribeCameraDirty = this.viewer.onCameraChange(() => {
+      this.dirty = true
+    })
   }
 
   connectedCallback(): void {
@@ -403,19 +407,26 @@ export class ScadletApp extends LitElement {
     }
     if (!project) return // User cancelled - existing project is untouched.
 
-    await restoreProject(project, {
-      editor: instance.editor,
-      creationContext: instance.creationContext,
-      setNodePosition: async (id, position) => {
-        await instance.area.translate(id, position)
-      },
-      setPinned: (id, pinned) => instance.setPinned(id, pinned),
-      setViewport: async ({ x, y, k }) => {
-        await instance.area.area.translate(x, y)
-        await instance.area.area.zoom(k, 0, 0)
-      },
-      setViewerCamera: (camera) => this.viewer.setCameraState(camera),
-    })
+    // Restoring necessarily performs node/connection/position/pin/
+    // viewport operations that would otherwise look exactly like user
+    // edits - suspended so the freshly loaded project starts clean
+    // regardless of how many individual dirty-triggering signals fire
+    // during restore.
+    await instance.withDirtyTrackingSuspended(() =>
+      restoreProject(project, {
+        editor: instance.editor,
+        creationContext: instance.creationContext,
+        setNodePosition: async (id, position) => {
+          await instance.area.translate(id, position)
+        },
+        setPinned: (id, pinned) => instance.setPinned(id, pinned),
+        setViewport: async ({ x, y, k }) => {
+          await instance.area.area.translate(x, y)
+          await instance.area.area.zoom(k, 0, 0)
+        },
+        setViewerCamera: (camera) => this.viewer.setCameraState(camera),
+      }),
+    )
 
     this.projectMetadata = project.metadata
     this.hasExplicitName = true
@@ -435,7 +446,8 @@ export class ScadletApp extends LitElement {
 
     try {
       const project = this._buildProject(instance)
-      await this.fileService.saveAs(project, toScadletFilename(name))
+      const saved = await this.fileService.saveAs(project, toScadletFilename(name))
+      if (!saved) return // User cancelled the save picker - dirty state and metadata are unchanged.
       this.projectMetadata = project.metadata
       this.dirty = false
     } catch (error) {
@@ -450,7 +462,8 @@ export class ScadletApp extends LitElement {
 
     try {
       const project = this._buildProject(instance)
-      await this.fileService.save(project, toScadletFilename(name))
+      const saved = await this.fileService.save(project, toScadletFilename(name))
+      if (!saved) return // User cancelled the save picker - dirty state and metadata are unchanged.
       this.projectMetadata = project.metadata
       this.dirty = false
     } catch (error) {
@@ -537,6 +550,7 @@ export class ScadletApp extends LitElement {
     super.disconnectedCallback()
     window.removeEventListener('keydown', this._onKeyDown)
     this.unsubscribeDirty?.()
+    this.unsubscribeCameraDirty?.()
     this.renderController.destroy()
     this.mainResizeObserver?.disconnect()
     this.sideResizeObserver?.disconnect()

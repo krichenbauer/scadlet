@@ -49,6 +49,7 @@ export function attachRenderer(
   connection: ConnectionPlugin<Schemes, AreaExtra>,
   presentation: NodePresentationManager,
   inspect: InspectManager,
+  notifyDirty: () => void,
 ): void {
   const socketPosition = getDOMSocketPosition<Schemes, AreaExtra>()
   // `attach()` only uses `connection` to walk up to its parent `area` via
@@ -70,7 +71,7 @@ export function attachRenderer(
       const { data } = context
 
       if (data.type === 'node') {
-        renderNode(area, data.element, data.payload, presentation, inspect, nodeListenersWired)
+        renderNode(area, data.element, data.payload, presentation, inspect, nodeListenersWired, notifyDirty)
       } else if (data.type === 'connection') {
         updateConnection(
           connections,
@@ -113,6 +114,7 @@ function renderNode(
   presentation: NodePresentationManager,
   inspect: InspectManager,
   nodeListenersWired: WeakSet<HTMLElement>,
+  notifyDirty: () => void,
 ): void {
   element.classList.add('node')
   element.classList.toggle('node--selected', Boolean(node.selected))
@@ -203,7 +205,7 @@ function renderNode(
 
   const body = document.createElement('div')
   body.className = 'node-body'
-  body.appendChild(renderHeader(node, presentation, hasControls, inspected))
+  body.appendChild(renderHeader(node, presentation, hasControls, inspected, notifyDirty))
   main.appendChild(body)
 
   if (Object.values(node.outputs).some(Boolean)) {
@@ -245,6 +247,7 @@ function renderHeader(
   presentation: NodePresentationManager,
   hasControls: boolean,
   inspected: boolean,
+  notifyDirty: () => void,
 ): HTMLElement {
   const header = document.createElement('div')
   header.className = 'node-header'
@@ -281,9 +284,16 @@ function renderHeader(
     // pin button, mirroring the same pattern used for control inputs below.
     // Clicking the pin toggles pinning (which also expands/collapses the
     // node - see `NodePresentationManager.togglePin`); it never selects the
-    // node or picks a socket.
+    // node or picks a socket. Explicit pinning is persisted state (unlike
+    // hover/selection-driven expansion), so it must also mark the project
+    // dirty - `presentation.togglePin` itself has no notion of dirty
+    // tracking (its `onChange` also fires for non-persisted hover/select
+    // expansion), so this is called alongside it rather than folded in.
     pin.addEventListener('pointerdown', (event) => event.stopPropagation())
-    pin.addEventListener('click', () => presentation.togglePin(node.id))
+    pin.addEventListener('click', () => {
+      presentation.togglePin(node.id)
+      notifyDirty()
+    })
     header.appendChild(pin)
   }
 

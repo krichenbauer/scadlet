@@ -6,6 +6,7 @@ import { DataflowEngine } from 'rete-engine'
 import { clientToGraphPosition, type Position } from './coordinates'
 import { evaluateOpenSCAD } from './evaluate'
 import { isEditableTarget, removeNodeWithConnections } from './deletion'
+import { isDirtyAreaSignal, isDirtyEditorSignal } from './dirty'
 import { InspectManager } from './inspect'
 import { attachMarqueeSelection } from './marquee'
 import { findCatalogEntry, type NodeCreationContext } from './node-catalog'
@@ -43,13 +44,22 @@ export interface SCADletEditor {
   /** Sets a node's pinned state directly (used by `.scadlet` project restore) rather than toggling. */
   setPinned(nodeId: string, pinned: boolean): void
   /**
-   * Subscribes to "the project has unsaved changes" notifications (node/
-   * connection added/removed/moved, or pin state changed - see
-   * `scadlet-app.ts` for project-name/parameter-edit dirty tracking,
-   * which this editor-level hook does not cover). Returns an unsubscribe
+   * Subscribes to "the project has unsaved changes" notifications:
+   * node/connection add/remove, node move, canvas pan/zoom, pin state,
+   * and persisted-parameter control edits (see `dirty.ts` and
+   * `node-catalog.ts`'s `wireDirtyNotifications`) - project-name edits
+   * are tracked separately in `scadlet-app.ts`. Returns an unsubscribe
    * function.
    */
   onDirty(callback: () => void): () => void
+  /**
+   * Runs `fn`, suppressing all `onDirty` notifications for its duration -
+   * used by `.scadlet` project restore, which necessarily performs
+   * operations (adding nodes, moving them, restoring pin state/viewport)
+   * that would otherwise look like user edits and incorrectly leave a
+   * freshly loaded project dirty.
+   */
+  withDirtyTrackingSuspended<T>(fn: () => Promise<T>): Promise<T>
   destroy(): void
 }
 
@@ -99,40 +109,36 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   const inspect = new InspectManager({
     onChange: (id) => void area.update('node', id),
   })
-  attachRenderer(area, connection, presentation, inspect)
 
-  AreaExtensions.simpleNodesOrder(area)
-
-  attachDeletion(editor, area, container)
-
-  // "Unsaved changes" tracking (Milestone 5 persistence) for the
-  // structural/positional changes that are cheap to observe centrally via
-  // Rete/AreaPlugin's own signals. Deliberately does NOT cover per-control
-  // parameter edits (e.g. typing a new Cube size) - those never go through
-  // any Rete pipe today, and wiring one would mean touching every control
-  // class's `setValue`/every node constructor rather than one central
-  // place; scadlet-app.ts's final summary documents this as a known gap
-  // rather than silently pretending it's covered.
+  // "Unsaved changes" tracking (Milestone 5 persistence). Signal->dirty
+  // decisions live in the pure, unit-tested predicates in `dirty.ts`
+  // rather than being inlined here, so the exact set of signals that
+  // count as a persisted change is easy to review/extend without a real
+  // `NodeEditor`/`AreaPlugin`. `dirtySuspended` lets `.scadlet` project
+  // restore (`scadlet-app.ts`) perform node/connection/position/pin/
+  // viewport operations that would otherwise look like user edits
+  // without leaving the freshly loaded project dirty.
   const dirtyListeners = new Set<() => void>()
+  let dirtySuspended = false
   function notifyDirty(): void {
+    if (dirtySuspended) return
     for (const listener of dirtyListeners) listener()
   }
 
   editor.addPipe((context) => {
-    if (
-      context.type === 'nodecreated' ||
-      context.type === 'noderemoved' ||
-      context.type === 'connectioncreated' ||
-      context.type === 'connectionremoved'
-    ) {
-      notifyDirty()
-    }
+    if (isDirtyEditorSignal(context.type)) notifyDirty()
     return context
   })
   area.addPipe((context) => {
-    if (context.type === 'nodetranslated') notifyDirty()
+    if (isDirtyAreaSignal(context.type)) notifyDirty()
     return context
   })
+
+  attachRenderer(area, connection, presentation, inspect, notifyDirty)
+
+  AreaExtensions.simpleNodesOrder(area)
+
+  attachDeletion(editor, area, container)
 
   // Shift+drag rectangle selection on empty canvas (AGENTS.md-adjacent
   // task: multi-selection). Selects through the same `nodeSelection` API
@@ -169,6 +175,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // (0, 0)). The current pan/zoom must survive node creation unchanged.
   const creationContext: NodeCreationContext = {
     onControlsChanged: (id) => void area.update('node', id),
+    notifyDirty,
   }
 
   async function addNodeAt(type: string, clientPosition: Position): Promise<void> {
@@ -205,6 +212,14 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     onDirty: (callback: () => void) => {
       dirtyListeners.add(callback)
       return () => dirtyListeners.delete(callback)
+    },
+    withDirtyTrackingSuspended: async <T>(fn: () => Promise<T>): Promise<T> => {
+      dirtySuspended = true
+      try {
+        return await fn()
+      } finally {
+        dirtySuspended = false
+      }
     },
     destroy: () => {
       detachMarquee()

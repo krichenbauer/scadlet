@@ -1,3 +1,5 @@
+import type { ClassicPreset } from 'rete'
+
 import type { Schemes } from './schemes'
 import { CubeNode } from './nodes/cube-node'
 import { CylinderNode } from './nodes/cylinder-node'
@@ -43,6 +45,14 @@ export interface NodeCategory {
 export interface NodeCreationContext {
   /** Re-renders a node after its dynamic control set changes (e.g. Cylinder's size mode) - see `editor.ts`. */
   onControlsChanged(nodeId: string): void
+  /**
+   * Called whenever any of this node's controls' values change (see
+   * `wireDirtyNotifications` below) - marks the project dirty on any
+   * persisted-parameter edit. Optional so callers that don't care about
+   * dirty tracking (e.g. tests constructing nodes directly) don't need
+   * to supply it.
+   */
+  notifyDirty?(): void
 }
 
 export interface NodeCatalogEntry {
@@ -82,6 +92,53 @@ function validateEmptyParams(value: unknown): Record<string, never> {
 }
 
 /**
+ * Wraps every one of `node`'s controls' `setValue` method so that any
+ * persisted-parameter edit - a numeric field, a checkbox, or a mode
+ * select, every current control class (`LabeledNumberControl`/
+ * `CheckboxControl`/`SelectControl`) exposes `setValue` - notifies
+ * `notifyDirty`, in addition to whatever that control's own `setValue`
+ * already does (updating its value, and any node-internal `change`/
+ * `onChange` callback such as Cylinder's mode-switching re-render). This
+ * is the one place persisted-parameter dirty tracking is wired, rather
+ * than touching every node class's constructor or every control's DOM
+ * listener in `render.ts` - it fires identically no matter how a
+ * control's value ends up changing (a DOM listener today, or any future
+ * non-DOM call path), and needs zero DOM to unit test.
+ *
+ * Deliberately does NOT fire during node construction: initial control
+ * values (including a restored node's persisted parameters) are set via
+ * each control's constructor `initial` option, never via `setValue()` -
+ * so constructing/restoring a node with non-default parameters never
+ * spuriously marks the project dirty.
+ *
+ * Idempotent per control (`wrappedControls`): Cylinder/Sphere replace
+ * some of their own controls at runtime (e.g. switching radius/diameter/
+ * tapered mode removes and re-adds `r`/`d`/`r1`/`r2`, per their own
+ * `updateSizeControls()`); the NODE_CATALOG wrapper below re-runs this
+ * function on every `onControlsChanged` call so freshly-added
+ * replacement controls get wrapped too, without double-wrapping (and
+ * double-firing `notifyDirty` for) controls that already were.
+ */
+const wrappedControls = new WeakSet<ClassicPreset.Control>()
+
+function wireDirtyNotifications(node: Schemes['Node'], notifyDirty: (() => void) | undefined): void {
+  if (!notifyDirty) return
+
+  for (const control of Object.values(node.controls)) {
+    if (!control || wrappedControls.has(control)) continue
+    if (typeof (control as { setValue?: unknown }).setValue !== 'function') continue
+
+    wrappedControls.add(control)
+    const withSetValue = control as unknown as { setValue: (value: unknown) => void }
+    const originalSetValue = withSetValue.setValue.bind(control)
+    withSetValue.setValue = (value: unknown) => {
+      originalSetValue(value)
+      notifyDirty()
+    }
+  }
+}
+
+/**
  * Node categories, in palette display order. AGENTS.md explicitly asks
  * for clearer educational names than OpenSCAD's own "CSG" terminology
  * (hence `boolean-operations` / "Boolean operations" rather than "CSG").
@@ -104,8 +161,13 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
  * project persistence (`persistence/`) reuses the same catalog for both
  * directions: `serializeParams`/`matches` to save a live node, and
  * `validateParams`/`create(context, params)` to restore one.
+ *
+ * Every entry's `create` is wrapped once, uniformly, below
+ * (`wireDirtyNotifications`) so persisted-parameter edits mark the
+ * project dirty regardless of node type - see that function's doc
+ * comment for why this is done here rather than per node class.
  */
-export const NODE_CATALOG: readonly NodeCatalogEntry[] = [
+const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   {
     type: 'cube',
     category: 'primitives',
@@ -218,6 +280,30 @@ export const NODE_CATALOG: readonly NodeCatalogEntry[] = [
     validateParams: validateEmptyParams,
   },
 ]
+
+/**
+ * The public catalog: identical to `CATALOG_ENTRIES` except `create`
+ * also wires dirty notifications (see `wireDirtyNotifications`) - both
+ * right after construction and again every time `onControlsChanged`
+ * fires, since that's exactly when Cylinder/Sphere replace some of their
+ * own controls (mode/`$fn` switches) with fresh, as-yet-unwrapped ones.
+ */
+export const NODE_CATALOG: readonly NodeCatalogEntry[] = CATALOG_ENTRIES.map((entry) => ({
+  ...entry,
+  create: (context: NodeCreationContext, params?: Record<string, unknown>) => {
+    let node!: Schemes['Node']
+    const wrappedContext: NodeCreationContext = {
+      onControlsChanged: (nodeId) => {
+        wireDirtyNotifications(node, context.notifyDirty)
+        context.onControlsChanged(nodeId)
+      },
+      notifyDirty: context.notifyDirty,
+    }
+    node = entry.create(wrappedContext, params)
+    wireDirtyNotifications(node, context.notifyDirty)
+    return node
+  },
+}))
 
 /** Looks up a catalog entry by its (possibly untrusted, e.g. drag-payload) type string. */
 export function findCatalogEntry(type: string): NodeCatalogEntry | undefined {

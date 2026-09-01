@@ -155,4 +155,27 @@ describe('serializeProject', () => {
 
     expect(project.graph.nodes.map((n) => n.id)).toEqual([a.id, b.id, c.id])
   })
+
+  it('varies only metadata.updatedAt between two serializations of an unchanged graph - never graph/editor/viewer content', async () => {
+    const editor = new NodeEditor<Schemes>()
+    await editor.addNode(new CubeNode({ sizeX: 3, sizeY: 3, sizeZ: 3, center: true }))
+
+    const options = {
+      editor,
+      metadata: { name: 'X', createdAt: '2026-01-01T00:00:00.000Z' },
+      getNodePosition: () => ({ x: 5, y: 5 }),
+      viewport: { x: 1, y: 2, k: 1.5 },
+      viewerCamera: { position: [1, 2, 3] as [number, number, number], target: [0, 0, 0] as [number, number, number] },
+    }
+
+    const first = serializeProject({ ...options, now: () => '2026-01-01T00:00:00.000Z' })
+    const second = serializeProject({ ...options, now: () => '2026-06-15T12:30:00.000Z' })
+
+    expect(first.metadata.updatedAt).not.toBe(second.metadata.updatedAt)
+    expect(first.graph).toEqual(second.graph)
+    expect(first.editor).toEqual(second.editor)
+    expect(first.viewer).toEqual(second.viewer)
+    expect(first.metadata.name).toBe(second.metadata.name)
+    expect(first.metadata.createdAt).toBe(second.metadata.createdAt)
+  })
 })

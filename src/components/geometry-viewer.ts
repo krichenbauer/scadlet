@@ -52,6 +52,7 @@ export class GeometryViewer extends LitElement {
   private resizeObserver?: ResizeObserver
   private frameHandle = 0
   private hasFittedOnce = false
+  private readonly cameraChangeListeners = new Set<() => void>()
 
   render() {
     return html`<div id="canvas-host"></div>`
@@ -86,6 +87,13 @@ export class GeometryViewer extends LitElement {
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
     this.controls.enableDamping = true
+    // 'end' fires once per completed orbit/pan/zoom gesture (a real
+    // pointerup/wheel interaction) - never from a programmatic camera
+    // change such as `setCameraState()`'s own `controls.update()` call,
+    // which only ever dispatches OrbitControls' separate 'change' event.
+    // This is what lets project-restore camera application never be
+    // mistaken for a user edit without any extra suspension bookkeeping.
+    for (const listener of this.cameraChangeListeners) this.controls.addEventListener('end', listener)
 
     this.resizeObserver = new ResizeObserver(() => this.handleResize())
     this.resizeObserver.observe(this.host)
@@ -126,6 +134,21 @@ export class GeometryViewer extends LitElement {
     this.mesh.geometry.dispose()
     ;(this.mesh.material as THREE.Material).dispose()
     this.mesh = undefined
+  }
+
+  /**
+   * Notifies `callback` once per completed user orbit/pan/zoom gesture
+   * (see the `firstUpdated` comment on why OrbitControls' 'end' event,
+   * not 'change', is used) - not on every intermediate frame, and safe to
+   * call before `firstUpdated` has run. Returns an unsubscribe function.
+   */
+  onCameraChange(callback: () => void): () => void {
+    this.cameraChangeListeners.add(callback)
+    this.controls?.addEventListener('end', callback)
+    return () => {
+      this.cameraChangeListeners.delete(callback)
+      this.controls?.removeEventListener('end', callback)
+    }
   }
 
   /** Captures the current camera position and orbit target - see `CameraState`. */
