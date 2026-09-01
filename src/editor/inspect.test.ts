@@ -82,6 +82,15 @@ describe('InspectManager', () => {
     expect(manager.getValueResult('value')).toBeNull()
     expect(manager.getValueResult('geometry')).toBeNull()
   })
+
+  it('clears a displayed result without changing the inspected root', () => {
+    const manager = new InspectManager({ onChange: vi.fn() })
+    manager.toggle('value')
+    manager.setValueResult('value', '12')
+    manager.clearValueResult()
+    expect(manager.id).toBe('value')
+    expect(manager.getValueResult('value')).toBeNull()
+  })
 })
 
 describe('InspectManager.registerPointerDown', () => {

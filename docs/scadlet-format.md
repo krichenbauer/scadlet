@@ -262,9 +262,9 @@ without retaining inactive sockets or connections.
 
 ### Value and math nodes
 
-`number` stores `{ "value": number }`; `boolean` stores
-`{ "value": boolean }`; and `vector3` stores finite numeric
-`{ "x": number, "y": number, "z": number }`. The four math types
+`number` stores `{ "value": number, "name": string }`; `boolean` stores
+`{ "value": boolean, "name": string }`; and `vector3` stores finite numeric
+`{ "x": number, "y": number, "z": number, "name": string }`. The four math types
 (`add`, `subtract`, `multiply`, `divide`) each store
 `{ "a": number, "b": number }`. These are fallback literals for their
 input ports, not precomputed results. Generated graph values remain OpenSCAD
@@ -274,7 +274,10 @@ evaluation but does not erase it from this persisted record.
 
 All source and math value outputs use the stable port id `value`; Vector3
 uses Number inputs `x`, `y`, and `z`; math uses Number inputs `a` and `b`.
-Number/Boolean sources have no inputs. Transient inspect selection and the
+`name` is a SCADlet-only human-readable source label, not an OpenSCAD
+variable or graph identity. It is optional when loading older v2 files and
+normalizes to the source type name. Number/Boolean sources have no inputs.
+Transient inspect selection and the
 value result returned by OpenSCAD `echo()` are deliberately excluded from
 the project file.
 

@@ -17,6 +17,17 @@ export class LabeledNumberControl extends ClassicPreset.InputControl<'number'> {
   }
 }
 
+/** A small named text control for descriptive project content such as a
+ * source-value label. It is deliberately not an OpenSCAD identifier. */
+export class LabeledTextControl extends ClassicPreset.InputControl<'text'> {
+  readonly label: string
+
+  constructor(label: string, options?: { initial?: string; change?: (value: string) => void }) {
+    super('text', options)
+    this.label = label
+  }
+}
+
 /**
  * A simple boolean control for OpenSCAD flags such as `center`. Rete's
  * `ClassicPreset` has no built-in checkbox control, so this is a minimal

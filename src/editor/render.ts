@@ -4,7 +4,7 @@ import type { AreaPlugin } from 'rete-area-plugin'
 import type { ConnectionPlugin } from 'rete-connection-plugin'
 import { classicConnectionPath, getDOMSocketPosition } from 'rete-render-utils'
 
-import { CheckboxControl, LabeledNumberControl, ParameterActionsControl, RepresentationSelectControl, SelectControl, type ParameterAction } from './controls'
+import { CheckboxControl, LabeledNumberControl, LabeledTextControl, ParameterActionsControl, RepresentationSelectControl, SelectControl, type ParameterAction } from './controls'
 import { isEditableTarget } from './deletion'
 import { t } from '../i18n/translate'
 import type { InspectManager } from './inspect'
@@ -49,6 +49,12 @@ interface ConnectionState {
   unlistenTarget?: () => void
 }
 
+interface ConnectionDisclosure {
+  begin(socketType: string): void
+  enter(node: Schemes['Node']): void
+  leave(nodeId: string): void
+}
+
 /**
  * Minimal hand-written replacement for `rete-lit-plugin`. That package's
  * published dist bundle is compiled with legacy Babel decorators, which
@@ -80,13 +86,37 @@ export function attachRenderer(
   // listeners must only be wired the first time a given element is seen,
   // not on every re-render.
   const nodeListenersWired = new WeakSet<HTMLElement>()
+  let draggedSocketType: string | null = null
+  const disclosedNodeIds = new Set<string>()
+  const clearDisclosure = () => {
+    draggedSocketType = null
+    for (const nodeId of disclosedNodeIds) presentation.setConnectionDisclosure(nodeId, new Set())
+    disclosedNodeIds.clear()
+  }
+  const disclosure: ConnectionDisclosure = {
+    begin: (socketType) => { draggedSocketType = socketType },
+    enter: (node) => {
+      if (!draggedSocketType) return
+      const keys = new Set(Object.entries(node.inputs)
+        .filter(([, input]) => input?.socket.name !== 'geometry' && input?.socket.name === draggedSocketType)
+        .map(([key]) => key))
+      presentation.setConnectionDisclosure(node.id, keys)
+      if (keys.size > 0) disclosedNodeIds.add(node.id)
+    },
+    leave: (nodeId) => {
+      presentation.setConnectionDisclosure(nodeId, new Set())
+      disclosedNodeIds.delete(nodeId)
+    },
+  }
+  area.container.addEventListener('pointerup', clearDisclosure, { capture: true })
+  area.container.addEventListener('pointercancel', clearDisclosure, { capture: true })
 
   area.addPipe((context) => {
     if (context.type === 'render') {
       const { data } = context
 
       if (data.type === 'node') {
-        renderNode(area, data.element, data.payload, presentation, inspect, nodeListenersWired, notifyDirty)
+        renderNode(area, data.element, data.payload, presentation, inspect, nodeListenersWired, disclosure, notifyDirty)
       } else if (data.type === 'connection') {
         updateConnection(
           area,
@@ -130,6 +160,7 @@ function renderNode(
   presentation: NodePresentationManager,
   inspect: InspectManager,
   nodeListenersWired: WeakSet<HTMLElement>,
+  disclosure: ConnectionDisclosure,
   notifyDirty: () => void,
 ): void {
   element.classList.add('node')
@@ -171,7 +202,7 @@ function renderNode(
   // of the compact node rather than hidden behind hover/pinning. Other
   // standalone controls retain the normal progressive-disclosure behavior.
   const alwaysVisibleControls = standaloneControls.filter(
-    ([key]) => key === 'value' && parameterInputs.length === 0 && Boolean(node.outputs.value),
+    ([key]) => Boolean(node.outputs.value) && (key === 'name' || (key === 'value' && parameterInputs.length === 0)),
   )
   const expandableStandaloneControls = standaloneControls.filter(([key]) => !alwaysVisibleControls.some(([primary]) => primary === key))
 
@@ -179,6 +210,7 @@ function renderNode(
   // or standalone controls (shown only when expanded). This drives pin-button visibility.
   const hasCollapsibleContent = parameterInputs.length > 0 || expandableStandaloneControls.length > 0 || representationControls.length > 0
   const connectedInputKeys = presentation.getConnectedInputKeys(node.id)
+  const disclosedInputKeys = presentation.getDisclosedInputKeys(node.id)
   // Hover/pin expansion: shows ALL parameter rows and standalone controls.
   // Distinguished from connection-forced expansion (which only shows specific connected rows)
   // so that an unconnected Translate with Z connected doesn't show X/Y/Vector rows.
@@ -190,11 +222,25 @@ function renderNode(
     element.addEventListener('pointerenter', () => {
       bringNodeToFront(area, node.id)
       presentation.handlePointerEnter(node.id)
+      disclosure.enter(node)
     })
-    element.addEventListener('pointerleave', () => presentation.handlePointerLeave(node.id))
+    element.addEventListener('pointerleave', () => {
+      presentation.handlePointerLeave(node.id)
+      disclosure.leave(node.id)
+    })
+    element.addEventListener('focusin', () => presentation.handleFocusEnter(node.id))
+    element.addEventListener('focusout', () => {
+      queueMicrotask(() => {
+        if (!element.contains(document.activeElement)) presentation.handleFocusLeave(node.id)
+      })
+    })
     element.addEventListener('pointerdown', (event) => {
       if (isEditableTarget(event.target)) return
-      if (event.target instanceof Element && event.target.closest('.node-socket')) return
+      if (event.target instanceof Element && event.target.closest<HTMLElement>('.node-socket')) {
+        const socket = event.target.closest<HTMLElement>('.node-socket')!
+        if (socket.dataset.socketSide === 'output' && socket.dataset.socketType) disclosure.begin(socket.dataset.socketType)
+        return
+      }
       inspect.registerPointerDown(node.id)
     })
   }
@@ -229,7 +275,7 @@ function renderNode(
     outputs.className = 'node-outputs'
     for (const [key, output] of Object.entries(node.outputs)) {
       if (!output) continue
-      outputs.appendChild(renderPort(area, node.id, 'output', key, output.label, output.socket.name))
+      outputs.appendChild(renderPort(area, node.id, 'output', key, output.label, output.socket.name, key === 'value' ? { visibleLabel: '', accessibleLabel: output.label } : undefined))
     }
     main.appendChild(outputs)
   }
@@ -265,7 +311,7 @@ function renderNode(
     }
     for (const [key, input] of [...connectedRows, ...unconnectedRows]) {
       const isConnected = connectedInputKeys.has(key)
-      const isVisible = expanded || isConnected
+      const isVisible = expanded || isConnected || disclosedInputKeys.has(key)
       const control = node.controls[key] as ClassicPreset.Control | undefined
       paramRows.appendChild(
         renderParamRow(area, node.id, key, input.label ?? key, input.socket.name, isVisible, isConnected, control),
@@ -460,8 +506,9 @@ function renderParamControlValue(control: ClassicPreset.Control, overridden: boo
   if (control instanceof LabeledNumberControl || (control instanceof ClassicPreset.InputControl && control.type === 'number')) {
     const input = document.createElement('input')
     input.type = 'number'
-    input.value = String((control as ClassicPreset.InputControl<'number'>).value ?? '')
+    input.value = overridden ? '' : String((control as ClassicPreset.InputControl<'number'>).value ?? '')
     input.disabled = overridden || (control as ClassicPreset.InputControl<'number'>).readonly
+    if (overridden) input.title = t('control.overridden')
     input.className = 'node-param-value'
     input.addEventListener('pointerdown', (event) => event.stopPropagation())
     input.addEventListener('input', () => (control as ClassicPreset.InputControl<'number'>).setValue(input.valueAsNumber))
@@ -470,8 +517,10 @@ function renderParamControlValue(control: ClassicPreset.Control, overridden: boo
   if (control instanceof CheckboxControl) {
     const input = document.createElement('input')
     input.type = 'checkbox'
-    input.checked = control.value
+    input.checked = overridden ? false : control.value
+    input.indeterminate = overridden
     input.disabled = overridden
+    if (overridden) input.title = t('control.overridden')
     input.className = 'node-param-value'
     input.addEventListener('pointerdown', (event) => event.stopPropagation())
     input.addEventListener('change', () => control.setValue(input.checked))
@@ -546,6 +595,21 @@ function renderControl(key: string, control: ClassicPreset.Control): HTMLElement
     input.addEventListener('input', () => control.setValue(input.valueAsNumber))
     wrapper.appendChild(input)
 
+    return wrapper
+  }
+
+  if (control instanceof LabeledTextControl || (control instanceof ClassicPreset.InputControl && control.type === 'text')) {
+    const wrapper = document.createElement('label')
+    wrapper.className = 'node-control'
+    const text = document.createElement('span')
+    text.className = 'node-control-label'
+    text.textContent = control instanceof LabeledTextControl ? control.label : key
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.value = String((control as ClassicPreset.InputControl<'text'>).value ?? '')
+    input.addEventListener('pointerdown', (event) => event.stopPropagation())
+    input.addEventListener('input', () => (control as ClassicPreset.InputControl<'text'>).setValue(input.value))
+    wrapper.append(text, input)
     return wrapper
   }
 

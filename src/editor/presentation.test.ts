@@ -84,6 +84,29 @@ describe('NodePresentationManager - desktop hover', () => {
     expect(manager.isExpanded('a')).toBe(true)
   })
 
+  it('does not collapse while focus remains inside an edited control', () => {
+    const { manager } = createManager(true)
+    manager.handlePointerEnter('a')
+    vi.advanceTimersByTime(600)
+    manager.handleFocusEnter('a')
+    manager.handlePointerLeave('a')
+    vi.advanceTimersByTime(800)
+    expect(manager.isExpanded('a')).toBe(true)
+    manager.handleFocusLeave('a')
+    vi.advanceTimersByTime(800)
+    expect(manager.isExpanded('a')).toBe(false)
+  })
+
+  it('tracks connection disclosure independently from pinning and persisted connections', () => {
+    const { manager } = createManager(true)
+    manager.setConnectionDisclosure('a', new Set(['x', 'z']))
+    expect([...manager.getDisclosedInputKeys('a')].sort()).toEqual(['x', 'z'])
+    expect(manager.isPinned('a')).toBe(false)
+    expect(manager.getConnectedInputKeys('a')).toEqual(new Set())
+    manager.setConnectionDisclosure('a', new Set())
+    expect(manager.getDisclosedInputKeys('a').size).toBe(0)
+  })
+
   it('never expands on a device without real hover capability', () => {
     const { manager } = createManager(false)
     manager.handlePointerEnter('a')

@@ -2,12 +2,12 @@ import { ClassicPreset } from 'rete'
 import type { DataflowNode } from 'rete-engine'
 
 import { t } from '../../i18n/translate'
-import { CheckboxControl, LabeledNumberControl } from '../controls'
+import { CheckboxControl, LabeledNumberControl, LabeledTextControl } from '../controls'
 import { booleanSocket, numberSocket, vector3Socket, type BooleanValue, type NumberValue, type Vector3Value } from '../sockets'
 
-export interface NumberParams { value: number }
-export interface BooleanParams { value: boolean }
-export interface Vector3ValueParams { x: number; y: number; z: number }
+export interface NumberParams { value: number; name?: string }
+export interface BooleanParams { value: boolean; name?: string }
+export interface Vector3ValueParams { x: number; y: number; z: number; name?: string }
 export interface MathParams { a: number; b: number }
 
 function finiteNumber(value: unknown, name: string): number {
@@ -22,18 +22,18 @@ function object(value: unknown): Record<string, unknown> {
 
 export function validateNumberParams(value: unknown): NumberParams {
   const params = object(value)
-  return { value: finiteNumber(params.value, 'value') }
+  return { value: finiteNumber(params.value, 'value'), name: typeof params.name === 'string' ? params.name : 'Number' }
 }
 
 export function validateBooleanParams(value: unknown): BooleanParams {
   const params = object(value)
   if (typeof params.value !== 'boolean') throw new Error('Invalid parameters: "value" must be a boolean')
-  return { value: params.value }
+  return { value: params.value, name: typeof params.name === 'string' ? params.name : 'Boolean' }
 }
 
 export function validateVector3ValueParams(value: unknown): Vector3ValueParams {
   const params = object(value)
-  return { x: finiteNumber(params.x, 'x'), y: finiteNumber(params.y, 'y'), z: finiteNumber(params.z, 'z') }
+  return { x: finiteNumber(params.x, 'x'), y: finiteNumber(params.y, 'y'), z: finiteNumber(params.z, 'z'), name: typeof params.name === 'string' ? params.name : 'Vector3' }
 }
 
 export function validateMathParams(value: unknown): MathParams {
@@ -42,40 +42,43 @@ export function validateMathParams(value: unknown): MathParams {
 }
 
 /** A literal Number is an OpenSCAD expression source, never a JavaScript calculation. */
-export class NumberNode extends ClassicPreset.Node<{}, { value: ClassicPreset.Socket }, { value: LabeledNumberControl }> implements DataflowNode {
-  constructor(params: NumberParams = { value: 10 }) {
+export class NumberNode extends ClassicPreset.Node<{}, { value: ClassicPreset.Socket }, { name: LabeledTextControl; value: LabeledNumberControl }> implements DataflowNode {
+  constructor(params: NumberParams = { value: 10, name: 'Number' }) {
     super(t('node.number'))
+    this.addControl('name', new LabeledTextControl(t('control.name'), { initial: params.name ?? 'Number' }))
     this.addControl('value', new LabeledNumberControl(t('control.value'), { initial: params.value }))
-    this.addOutput('value', new ClassicPreset.Output(numberSocket, t('control.value')))
+    this.addOutput('value', new ClassicPreset.Output(numberSocket, t('output.number')))
   }
 
-  getPersistedParams(): NumberParams { return { value: this.controls.value.value ?? 0 } }
+  getPersistedParams(): NumberParams { return { value: this.controls.value.value ?? 0, name: this.controls.name.value ?? '' } }
   data(): { value: NumberValue } { return { value: { code: String(this.controls.value.value ?? 0) } } }
 }
 
-export class BooleanNode extends ClassicPreset.Node<{}, { value: ClassicPreset.Socket }, { value: CheckboxControl }> implements DataflowNode {
-  constructor(params: BooleanParams = { value: false }) {
+export class BooleanNode extends ClassicPreset.Node<{}, { value: ClassicPreset.Socket }, { name: LabeledTextControl; value: CheckboxControl }> implements DataflowNode {
+  constructor(params: BooleanParams = { value: false, name: 'Boolean' }) {
     super(t('node.boolean'))
+    this.addControl('name', new LabeledTextControl(t('control.name'), { initial: params.name ?? 'Boolean' }))
     this.addControl('value', new CheckboxControl(t('control.value'), params.value))
-    this.addOutput('value', new ClassicPreset.Output(booleanSocket, t('control.value')))
+    this.addOutput('value', new ClassicPreset.Output(booleanSocket, t('output.boolean')))
   }
 
-  getPersistedParams(): BooleanParams { return { value: this.controls.value.value } }
+  getPersistedParams(): BooleanParams { return { value: this.controls.value.value, name: this.controls.name.value ?? '' } }
   data(): { value: BooleanValue } { return { value: { code: this.controls.value.value ? 'true' : 'false' } } }
 }
 
-export class Vector3Node extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { value: ClassicPreset.Socket }, Record<string, LabeledNumberControl>> implements DataflowNode {
-  constructor(params: Vector3ValueParams = { x: 0, y: 0, z: 0 }) {
+export class Vector3Node extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { value: ClassicPreset.Socket }, Record<string, LabeledNumberControl | LabeledTextControl>> implements DataflowNode {
+  constructor(params: Vector3ValueParams = { x: 0, y: 0, z: 0, name: 'Vector3' }) {
     super(t('node.vector3'))
+    this.addControl('name', new LabeledTextControl(t('control.name'), { initial: params.name ?? 'Vector3' }))
     for (const [key, label] of [['x', t('control.x')], ['y', t('control.y')], ['z', t('control.z')]] as const) {
       this.addInput(key, new ClassicPreset.Input(numberSocket, label))
       this.addControl(key, new LabeledNumberControl(label, { initial: params[key] }))
     }
-    this.addOutput('value', new ClassicPreset.Output(vector3Socket, t('control.value')))
+    this.addOutput('value', new ClassicPreset.Output(vector3Socket, t('output.vector3')))
   }
 
   getPersistedParams(): Vector3ValueParams {
-    return { x: this.controls.x.value ?? 0, y: this.controls.y.value ?? 0, z: this.controls.z.value ?? 0 }
+    return { x: (this.controls.x as LabeledNumberControl).value ?? 0, y: (this.controls.y as LabeledNumberControl).value ?? 0, z: (this.controls.z as LabeledNumberControl).value ?? 0, name: (this.controls.name as LabeledTextControl).value ?? '' }
   }
 
   data(inputs: Record<string, NumberValue[] | undefined>): { value: Vector3Value } {
@@ -103,7 +106,7 @@ export class MathNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
       this.addInput(key, new ClassicPreset.Input(numberSocket, labelText))
       this.addControl(key, new LabeledNumberControl(labelText, { initial: value }))
     }
-    this.addOutput('value', new ClassicPreset.Output(numberSocket, t('control.value')))
+    this.addOutput('value', new ClassicPreset.Output(numberSocket, t('output.number')))
   }
 
   getPersistedParams(): MathParams { return { a: this.controls.a.value ?? 0, b: this.controls.b.value ?? 0 } }

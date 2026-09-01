@@ -17,10 +17,14 @@ const DEFAULT_COLLAPSE_DELAY_MS = 800
 interface InternalState {
   expanded: boolean
   pinned: boolean
+  hovered: boolean
+  focused: boolean
   /** Last `node.selected` value observed via `syncSelection`, used to detect actual transitions rather than re-triggering on every render. */
   lastSelected: boolean
   /** Set of parameter input keys (non-geometry) that have active connections, recomputed from Rete connections by the editor. */
   connectedInputKeys: Set<string>
+  /** Temporary compatible parameter rows revealed while a wire is over this node. */
+  disclosedInputKeys: Set<string>
 }
 
 /**
@@ -63,7 +67,7 @@ export class NodePresentationManager {
     let state = this.states.get(nodeId)
     if (!state) {
       // New nodes start collapsed, per AGENTS.md section 2.
-      state = { expanded: false, pinned: false, lastSelected: false, connectedInputKeys: new Set() }
+      state = { expanded: false, pinned: false, hovered: false, focused: false, lastSelected: false, connectedInputKeys: new Set(), disclosedInputKeys: new Set() }
       this.states.set(nodeId, state)
     }
     return state
@@ -118,6 +122,21 @@ export class NodePresentationManager {
     return this.stateFor(nodeId).connectedInputKeys
   }
 
+  getDisclosedInputKeys(nodeId: string): ReadonlySet<string> {
+    return this.stateFor(nodeId).disclosedInputKeys
+  }
+
+  /** Shows only compatible existing parameter rows while a connection wire
+   * hovers the node. This is ephemeral UI state: it never adds parameters
+   * or changes the graph. */
+  setConnectionDisclosure(nodeId: string, keys: ReadonlySet<string>): void {
+    const state = this.stateFor(nodeId)
+    const changed = state.disclosedInputKeys.size !== keys.size || [...keys].some((key) => !state.disclosedInputKeys.has(key))
+    if (!changed) return
+    state.disclosedInputKeys = new Set(keys)
+    this.onChange(nodeId)
+  }
+
   /**
    * Desktop/hover trigger: schedules an auto-expand after `expandDelayMs`
    * of continuous hover. A no-op without real hover capability (touch uses
@@ -125,6 +144,7 @@ export class NodePresentationManager {
    */
   handlePointerEnter(nodeId: string): void {
     if (!this.hoverCapable()) return
+    this.stateFor(nodeId).hovered = true
     // Re-entering cancels any pending auto-collapse from a previous leave.
     this.clearCollapseTimer(nodeId)
 
@@ -150,6 +170,7 @@ export class NodePresentationManager {
    */
   handlePointerLeave(nodeId: string): void {
     if (!this.hoverCapable()) return
+    this.stateFor(nodeId).hovered = false
     this.clearExpandTimer(nodeId)
 
     const state = this.stateFor(nodeId)
@@ -159,11 +180,26 @@ export class NodePresentationManager {
     const timer = setTimeout(() => {
       this.collapseTimers.delete(nodeId)
       const current = this.stateFor(nodeId)
-      if (current.pinned || !current.expanded) return
+      if (current.pinned || current.focused || !current.expanded) return
       current.expanded = false
       this.onChange(nodeId)
     }, this.collapseDelayMs)
     this.collapseTimers.set(nodeId, timer)
+  }
+
+  /** Focus is a temporary expansion trigger so controls cannot disappear
+   * while being edited. Node-level focus containment is handled by the
+   * renderer, keeping this manager DOM-free. */
+  handleFocusEnter(nodeId: string): void {
+    const state = this.stateFor(nodeId)
+    state.focused = true
+    this.clearCollapseTimer(nodeId)
+  }
+
+  handleFocusLeave(nodeId: string): void {
+    const state = this.stateFor(nodeId)
+    state.focused = false
+    if (!state.hovered) this.handlePointerLeave(nodeId)
   }
 
   /**

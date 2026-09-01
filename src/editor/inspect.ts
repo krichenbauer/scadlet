@@ -53,6 +53,12 @@ export class InspectManager {
     this.onChange(nodeId)
   }
 
+  clearValueResult(): void {
+    if (this.inspectedId === null || this.valueResult === null) return
+    this.valueResult = null
+    this.onChange(this.inspectedId)
+  }
+
   /**
    * Double-click toggle behavior: inspecting the already-inspected node
    * clears inspection (back to normal full-graph rendering); inspecting

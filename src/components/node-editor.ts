@@ -246,6 +246,12 @@ export class NodeEditorElement extends LitElement {
       box-sizing: border-box;
     }
 
+    .node-control input[type='text'] {
+      width: 92px;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+
     .node-control select {
       font: inherit;
       /* An explicit width (rather than intrinsic/auto) keeps a <select>'s

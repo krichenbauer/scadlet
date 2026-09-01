@@ -81,7 +81,7 @@ async function roundTrip(
 describe('per-node semantic round trip (serialize -> restore -> evaluate)', () => {
   it('retains typed value fallback literals and connections without changing the v2 format', async () => {
     const { editor: src } = createGraph()
-    const number = new NumberNode({ value: 5 })
+    const number = new NumberNode({ value: 5, name: 'Width' })
     const add = new MathNode('Add', '+', 'add', { a: 1, b: 10 })
     const vector = new Vector3Node({ x: 1, y: 2, z: 3 })
     const boolean = new BooleanNode({ value: true })
@@ -94,7 +94,8 @@ describe('per-node semantic round trip (serialize -> restore -> evaluate)', () =
     const { editor: dst, engine } = createGraph()
     const { project } = await roundTrip({ editor: src, positions: {} }, dst)
     expect(project.version).toBe(2)
-    expect(project.graph.nodes.find((node) => node.id === vector.id)?.parameters).toEqual({ x: 1, y: 2, z: 3 })
+    expect(project.graph.nodes.find((node) => node.id === number.id)?.parameters).toEqual({ value: 5, name: 'Width' })
+    expect(project.graph.nodes.find((node) => node.id === vector.id)?.parameters).toEqual({ x: 1, y: 2, z: 3, name: 'Vector3' })
     expect(project.graph.nodes.find((node) => node.id === add.id)?.parameters).toEqual({ a: 1, b: 10 })
     expect(await evaluateOpenSCAD(dst, engine)).toBe('cube((5 + 10), center=true);')
   })

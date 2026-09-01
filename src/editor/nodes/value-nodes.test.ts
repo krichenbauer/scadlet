@@ -24,6 +24,18 @@ describe('Milestone 7 value nodes', () => {
     expect(new MathNode('Divide', '/', 'divide', { a: 1, b: 0 }).data({}).value.code).toBe('(1 / 0)')
   })
 
+  it('keeps source names as descriptive persisted metadata, not OpenSCAD identifiers', () => {
+    const number = new NumberNode({ name: 'Wall thickness', value: 2.5 })
+    const boolean = new BooleanNode({ name: 'Centered', value: true })
+    const vector = new Vector3Node({ name: 'Translation', x: 10, y: 20, z: 30 })
+    expect(number.getPersistedParams()).toEqual({ name: 'Wall thickness', value: 2.5 })
+    expect(boolean.getPersistedParams()).toEqual({ name: 'Centered', value: true })
+    expect(vector.getPersistedParams()).toEqual({ name: 'Translation', x: 10, y: 20, z: 30 })
+    expect(number.data().value.code).toBe('2.5')
+    expect(boolean.data().value.code).toBe('true')
+    expect(vector.data({}).value.code).toBe('[10, 20, 30]')
+  })
+
   it('feeds Number, Vector3, and Boolean expressions into existing Cube inputs', async () => {
     const editor = new NodeEditor<Schemes>()
     const dataflow = engine()

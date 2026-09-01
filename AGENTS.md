@@ -1105,6 +1105,16 @@ temporary OpenSCAD `echo()` request and displays its returned value without
 persisting it, marking a project dirty, replacing the current mesh, or
 changing ordinary `.scad` export.
 
+Milestone 7 stabilization: connected parameter controls remain present for
+stable layout but visually blank (or indeterminate for Boolean) while their
+stored fallback literals are overridden. Number, Boolean, and Vector3 source
+nodes persist a user-editable descriptive `name`; it is neither graph
+identity nor an OpenSCAD variable. Value inspection invokes OpenSCAD in
+headless CLI mode with a temporary CSG output target, captures its marked
+`echo()` result, and displays it transiently on the inspected node. Compact
+nodes retain focus while controls are edited and temporarily reveal only
+compatible existing parameter rows while a connection wire hovers them.
+
 ### Milestone 8 — Modules / reusable subgraphs
 
 Support reusable, parameterized graph structures corresponding to OpenSCAD modules.

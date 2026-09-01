@@ -43,6 +43,8 @@ export interface SCADletEditor {
   evaluateInspect(nodeId: string): Promise<InspectEvaluation>
   /** Stores the transient OpenSCAD result displayed for an inspected value node. */
   setInspectedValueResult(nodeId: string, value: string): void
+  /** Clears the transient value result without affecting graph/project state. */
+  clearInspectedValueResult(): void
   /** The node id currently selected as the Inspect Node preview root, or `null` if inspection is inactive. */
   getInspectedNodeId(): string | null
   /** Whether `nodeId` is currently explicitly pinned open (editor presentation state - see `presentation.ts`). */
@@ -167,6 +169,10 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   let dirtySuspended = false
   function notifyDirty(): void {
     if (dirtySuspended) return
+    // A displayed inspected value is only valid for the exact graph state
+    // OpenSCAD evaluated. Any semantic edit clears it rather than presenting
+    // a stale result as current.
+    inspect.clearValueResult()
     for (const listener of dirtyListeners) listener()
   }
 
@@ -279,6 +285,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     evaluate: (rootNodeId?: string) => evaluateOpenSCAD(editor, engine, rootNodeId),
     evaluateInspect: (nodeId) => evaluateInspectNode(editor, engine, nodeId),
     setInspectedValueResult: (nodeId, value) => inspect.setValueResult(nodeId, value),
+    clearInspectedValueResult: () => inspect.clearValueResult(),
     getInspectedNodeId: () => inspect.id,
     isPinned: (nodeId: string) => presentation.isPinned(nodeId),
     setPinned: (nodeId: string, pinned: boolean) => {

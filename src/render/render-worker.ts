@@ -124,9 +124,13 @@ async function inspectValue(source: string): Promise<RenderResponse> {
     const instance = openscad.getInstance()
     instance.FS.writeFile('/input.scad', source)
     try {
-      instance.callMain(['/input.scad'])
+      // Supplying a CSG output target keeps OpenSCAD in command-line mode.
+      // Calling it with only an input file requests its GUI mode in this WASM
+      // build, which fails in a worker because no display exists.
+      instance.callMain(['/input.scad', '-o', '/inspect.csg'])
     } finally {
       try { instance.FS.unlink('/input.scad') } catch { /* nothing to clean up */ }
+      try { instance.FS.unlink('/inspect.csg') } catch { /* nothing to clean up */ }
     }
     const line = [...output, ...errors].find((text) => text.includes('__SCADLET_VALUE__:'))
     if (!line) return { type: 'error', message: errors.join('\n') || 'OpenSCAD did not return an inspected value.' }

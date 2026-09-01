@@ -853,6 +853,7 @@ export class ScadletApp extends LitElement {
 
     const inspectedNodeId = this.nodeEditor.getInspectedNodeId()
     const inspected = inspectedNodeId ? await this.nodeEditor.evaluateInspect(inspectedNodeId) : null
+    if (inspected?.kind === 'value') this.editorInstance?.clearInspectedValueResult()
     const previewSource = inspected?.kind === 'geometry' ? inspected.source : fullSource
     this.scadSource = inspected?.kind === 'value'
       ? `echo("__SCADLET_VALUE__:", ${inspected.expression});`
@@ -887,6 +888,7 @@ export class ScadletApp extends LitElement {
       // A user-initiated Stop rejects the in-flight render; that's an
       // expected transition back to idle, not an error worth surfacing.
       const message = error instanceof Error ? error.message : String(error)
+      if (inspected?.kind === 'value') this.editorInstance?.clearInspectedValueResult()
       if (message !== 'Render stopped') this.renderError = message
     } finally {
       this.rendering = false
