@@ -22,6 +22,8 @@ async function addAndEditCube(page: Page, size: string) {
   const node = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   await expect(node).toHaveCount(1)
   await node.locator('.node-pin').click()
+  await node.getByRole('button', { name: '+ Size' }).click()
+  await node.locator('select').selectOption('vector')
   await node.locator('.node-control').filter({ hasText: 'X' }).locator('input').fill(size)
   await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
 }
@@ -119,4 +121,3 @@ test('imports an external file under a new local identity and preserves fallback
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe('Sphere Benchmark.scadlet')
 })
-

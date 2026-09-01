@@ -10,6 +10,7 @@ import { ScaleNode } from './nodes/scale-node'
 import { SphereNode } from './nodes/sphere-node'
 import { TranslateNode } from './nodes/translate-node'
 import { UnionNode } from './nodes/union-node'
+import { type VariadicBooleanParams } from './nodes/boolean-op-node'
 import { validateCubeParams } from '../openscad/cube'
 import { validateCylinderParams } from '../openscad/cylinder'
 import { validateSphereParams } from '../openscad/sphere'
@@ -62,6 +63,9 @@ export interface NodeCatalogEntry {
   /** Stable input/output port ids, in the order Rete's own port map would report them - used to validate persisted connections without constructing a node. */
   readonly inputs: readonly string[]
   readonly outputs: readonly string[]
+  /** Dynamic semantic input identities (currently variadic Boolean child
+   * slots) validate against the node's persisted parameter state. */
+  isInputPort?(port: string, parameters: Record<string, unknown>): boolean
   /**
    * Creates a node of this type. With no `params`, uses the same
    * defaults palette creation always has. `params`, when given, must
@@ -89,6 +93,19 @@ function validateEmptyParams(value: unknown): Record<string, never> {
     throw new Error('Invalid parameters: expected an object (or none) for this node type')
   }
   return {}
+}
+
+function validateVariadicBooleanParams(value: unknown): VariadicBooleanParams {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Invalid parameters: expected an object')
+  const children = (value as Record<string, unknown>).children
+  if (!Array.isArray(children) || children.length === 0) throw new Error('Invalid parameters: "children" must contain at least one slot')
+  const seen = new Set<string>()
+  return { children: children.map((child, index) => {
+    if (typeof child !== 'object' || child === null || Array.isArray(child) || typeof (child as Record<string, unknown>).id !== 'string' || !(child as Record<string, unknown>).id) throw new Error(`Invalid child slot at index ${index}`)
+    const id = (child as Record<string, unknown>).id as string
+    if (seen.has(id)) throw new Error(`Duplicate child slot id "${id}"`)
+    seen.add(id); return { id }
+  }) }
 }
 
 /**
@@ -174,7 +191,11 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     labelKey: 'node.cube',
     inputs: [],
     outputs: ['geometry'],
-    create: (_context, params) => new CubeNode(params ? validateCubeParams(params) : undefined),
+    create: (context, params) => {
+      let node!: CubeNode
+      node = new CubeNode(params ? validateCubeParams(params) : undefined, () => context.onControlsChanged(node.id))
+      return node
+    },
     matches: (node) => node instanceof CubeNode,
     serializeParams: (node) => (node as CubeNode).getPersistedParams() as unknown as Record<string, unknown>,
     validateParams: (value) => validateCubeParams(value) as unknown as Record<string, unknown>,
@@ -217,7 +238,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'translate',
     category: 'transformations',
     labelKey: 'node.translate',
-    inputs: ['geometry'],
+    inputs: ['geometry', 'vector', 'x', 'y', 'z'],
     outputs: ['geometry'],
     create: (_context, params) => new TranslateNode(params ? validateVector3Params(params, 'Translate') : undefined),
     matches: (node) => node instanceof TranslateNode,
@@ -228,7 +249,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'rotate',
     category: 'transformations',
     labelKey: 'node.rotate',
-    inputs: ['geometry'],
+    inputs: ['geometry', 'vector', 'x', 'y', 'z'],
     outputs: ['geometry'],
     create: (_context, params) => new RotateNode(params ? validateVector3Params(params, 'Rotate') : undefined),
     matches: (node) => node instanceof RotateNode,
@@ -239,7 +260,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'scale',
     category: 'transformations',
     labelKey: 'node.scale',
-    inputs: ['geometry'],
+    inputs: ['geometry', 'vector', 'x', 'y', 'z'],
     outputs: ['geometry'],
     create: (_context, params) => new ScaleNode(params ? validateVector3Params(params, 'Scale') : undefined),
     matches: (node) => node instanceof ScaleNode,
@@ -261,23 +282,25 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'union',
     category: 'boolean-operations',
     labelKey: 'node.union',
-    inputs: ['a', 'b'],
+    inputs: [],
     outputs: ['geometry'],
-    create: () => new UnionNode(),
+    create: (_context, params) => new UnionNode(params ? validateVariadicBooleanParams(params) : {}, false),
     matches: (node) => node instanceof UnionNode,
-    serializeParams: validateEmptyParams,
-    validateParams: validateEmptyParams,
+    serializeParams: (node) => (node as UnionNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateVariadicBooleanParams(value) as unknown as Record<string, unknown>,
+    isInputPort: (port, params) => (params as unknown as VariadicBooleanParams).children.some((child) => port === `child:${child.id}` || port === child.id),
   },
   {
     type: 'intersection',
     category: 'boolean-operations',
     labelKey: 'node.intersection',
-    inputs: ['a', 'b'],
+    inputs: [],
     outputs: ['geometry'],
-    create: () => new IntersectionNode(),
+    create: (_context, params) => new IntersectionNode(params ? validateVariadicBooleanParams(params) : {}, false),
     matches: (node) => node instanceof IntersectionNode,
-    serializeParams: validateEmptyParams,
-    validateParams: validateEmptyParams,
+    serializeParams: (node) => (node as IntersectionNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateVariadicBooleanParams(value) as unknown as Record<string, unknown>,
+    isInputPort: (port, params) => (params as unknown as VariadicBooleanParams).children.some((child) => port === `child:${child.id}` || port === child.id),
   },
 ]
 

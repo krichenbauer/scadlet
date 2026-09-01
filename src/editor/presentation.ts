@@ -19,6 +19,7 @@ interface InternalState {
   pinned: boolean
   /** Last `node.selected` value observed via `syncSelection`, used to detect actual transitions rather than re-triggering on every render. */
   lastSelected: boolean
+  connected: boolean
 }
 
 /**
@@ -61,7 +62,7 @@ export class NodePresentationManager {
     let state = this.states.get(nodeId)
     if (!state) {
       // New nodes start collapsed, per AGENTS.md section 2.
-      state = { expanded: false, pinned: false, lastSelected: false }
+      state = { expanded: false, pinned: false, lastSelected: false, connected: false }
       this.states.set(nodeId, state)
     }
     return state
@@ -85,11 +86,21 @@ export class NodePresentationManager {
 
   isExpanded(nodeId: string): boolean {
     const state = this.stateFor(nodeId)
-    return state.pinned || state.expanded
+    return state.pinned || state.expanded || state.connected
   }
 
   isPinned(nodeId: string): boolean {
     return this.stateFor(nodeId).pinned
+  }
+
+  /** A connected parameter must remain legible even if its node would
+   * otherwise be compact; this is presentation-only and is recomputed from
+   * Rete connections by the editor. */
+  setConnected(nodeId: string, connected: boolean): void {
+    const state = this.stateFor(nodeId)
+    if (state.connected === connected) return
+    state.connected = connected
+    this.onChange(nodeId)
   }
 
   /**

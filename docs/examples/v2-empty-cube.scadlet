@@ -1,0 +1,13 @@
+{
+  "format": "scadlet",
+  "version": 2,
+  "metadata": { "name": "Empty Cube" },
+  "graph": {
+    "nodes": [
+      { "id": "cube-1", "type": "cube", "position": { "x": 0, "y": 0 }, "parameters": {} }
+    ],
+    "connections": []
+  },
+  "editor": { "viewport": { "x": 0, "y": 0, "zoom": 1 } },
+  "viewer": { "camera": { "position": [80, 80, 60], "target": [0, 0, 0] } }
+}

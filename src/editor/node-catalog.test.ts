@@ -90,9 +90,9 @@ describe('NODE_CATALOG', () => {
 
   it('every entry declares its stable input/output port ids', () => {
     expect(findCatalogEntry('cube')).toMatchObject({ inputs: [], outputs: ['geometry'] })
-    expect(findCatalogEntry('translate')).toMatchObject({ inputs: ['geometry'], outputs: ['geometry'] })
+    expect(findCatalogEntry('translate')).toMatchObject({ inputs: ['geometry', 'vector', 'x', 'y', 'z'], outputs: ['geometry'] })
     expect(findCatalogEntry('difference')).toMatchObject({ inputs: ['base', 'subtract'], outputs: ['geometry'] })
-    expect(findCatalogEntry('union')).toMatchObject({ inputs: ['a', 'b'], outputs: ['geometry'] })
+    expect(findCatalogEntry('union')).toMatchObject({ inputs: [], outputs: ['geometry'] })
   })
 
   it('identifyNodeType recognizes a live node instance created by create()', () => {
@@ -129,9 +129,9 @@ describe('NODE_CATALOG', () => {
     expect(() => findCatalogEntry('cube')!.validateParams({ sizeX: 'oops' })).toThrow('Invalid Cube parameter "sizeX"')
   })
 
-  it('validateParams for parameterless nodes (Difference/Union/Intersection) accepts an empty or absent object', () => {
+  it('validates the asymmetric Difference and persistent variadic Boolean slots', () => {
     expect(findCatalogEntry('difference')!.validateParams(undefined)).toEqual({})
-    expect(findCatalogEntry('union')!.validateParams({})).toEqual({})
+    expect(findCatalogEntry('union')!.validateParams({ children: [{ id: 'child-1' }] })).toEqual({ children: [{ id: 'child-1' }] })
     expect(() => findCatalogEntry('intersection')!.validateParams('nope')).toThrow('Invalid parameters')
   })
 })
@@ -156,9 +156,9 @@ describe('NODE_CATALOG dirty-notification wiring', () => {
     expect(notifyDirty).not.toHaveBeenCalled()
   })
 
-  it('Cube: dimension change and center toggle both notify dirty', () => {
+  it('Cube active semantic parameter edits notify dirty', () => {
     const { context, notifyDirty } = contextWithDirtySpy()
-    const node = findCatalogEntry('cube')!.create(context) as CubeNode
+    const node = findCatalogEntry('cube')!.create(context, { size: { x: 10, y: 10, z: 10 }, center: false }) as CubeNode
 
     node.controls.sizeX.setValue(99)
     expect(notifyDirty).toHaveBeenCalledTimes(1)
@@ -167,46 +167,28 @@ describe('NODE_CATALOG dirty-notification wiring', () => {
     expect(notifyDirty).toHaveBeenCalledTimes(2)
   })
 
-  it('Cylinder: numeric value, sizing-mode select, $fn checkbox, and $fn value all notify dirty', () => {
+  it('Cylinder active numeric parameter edits notify dirty', () => {
     const { context, notifyDirty } = contextWithDirtySpy()
-    const node = findCatalogEntry('cylinder')!.create(context) as CylinderNode
+    const node = findCatalogEntry('cylinder')!.create(context, { h: 10, mode: 'radius', r: 5, fn: 30 }) as CylinderNode
 
     node.controls.h.setValue(20)
     expect(notifyDirty).toHaveBeenCalledTimes(1)
 
-    // Switching mode replaces r/d/r1/r2 controls entirely - the freshly
-    // added replacement control must also be wrapped (see the "re-wraps
-    // freshly-added controls" test below), not just the ones that existed
-    // at creation time.
-    node.controls.mode.setValue('diameter')
+    node.controls.r.setValue(42)
     expect(notifyDirty).toHaveBeenCalledTimes(2)
-    expect(node.controls.d).toBeDefined()
-    node.controls.d!.setValue(42)
+    node.controls.fn.setValue(50)
     expect(notifyDirty).toHaveBeenCalledTimes(3)
-
-    node.controls.fnEnabled.setValue(true)
-    expect(notifyDirty).toHaveBeenCalledTimes(4)
-    expect(node.controls.fn).toBeDefined()
-    node.controls.fn!.setValue(50)
-    expect(notifyDirty).toHaveBeenCalledTimes(5)
   })
 
-  it('Sphere: radius change, mode change, and $fn all notify dirty', () => {
+  it('Sphere active parameter edits notify dirty', () => {
     const { context, notifyDirty } = contextWithDirtySpy()
-    const node = findCatalogEntry('sphere')!.create(context) as import('./nodes/sphere-node').SphereNode
+    const node = findCatalogEntry('sphere')!.create(context, { mode: 'radius', r: 5, fn: 30 }) as import('./nodes/sphere-node').SphereNode
 
     node.controls.r!.setValue(12)
     expect(notifyDirty).toHaveBeenCalledTimes(1)
 
-    node.controls.mode.setValue('diameter')
+    node.controls.fn.setValue(50)
     expect(notifyDirty).toHaveBeenCalledTimes(2)
-    node.controls.d!.setValue(30)
-    expect(notifyDirty).toHaveBeenCalledTimes(3)
-
-    node.controls.fnEnabled.setValue(true)
-    expect(notifyDirty).toHaveBeenCalledTimes(4)
-    node.controls.fn!.setValue(50)
-    expect(notifyDirty).toHaveBeenCalledTimes(5)
   })
 
   it('Translate: X change notifies dirty', () => {
@@ -231,8 +213,7 @@ describe('NODE_CATALOG dirty-notification wiring', () => {
   })
 
   it('does not throw and does nothing when no notifyDirty is supplied (e.g. plain palette creation without dirty tracking)', () => {
-    const node = findCatalogEntry('cube')!.create({ onControlsChanged: () => {} }) as CubeNode
+    const node = findCatalogEntry('cube')!.create({ onControlsChanged: () => {} }, { size: { x: 1, y: 1, z: 1 } }) as CubeNode
     expect(() => node.controls.sizeX.setValue(5)).not.toThrow()
   })
 })
-

@@ -198,6 +198,16 @@ export class NodeEditorElement extends LitElement {
       background: #7ac0ff;
     }
 
+    .node-socket[data-socket-type='number'] {
+      background: #f2b84b;
+      border-color: #9d6a12;
+    }
+
+    .node-socket[data-socket-type='vector3'] {
+      background: #b07cff;
+      border-color: #6f42b5;
+    }
+
     /* Pulls just the socket circle to straddle the node's outer border, keeping the label anchored beside it. */
     .node-port--input .node-socket {
       margin-left: -6px;

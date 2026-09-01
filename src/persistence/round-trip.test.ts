@@ -95,7 +95,7 @@ describe('per-node semantic round trip (serialize -> restore -> evaluate)', () =
     const { editor: dst, engine } = createGraph()
     await roundTrip({ editor: src, positions: {} }, dst)
 
-    expect(await evaluateOpenSCAD(dst, engine)).toBe('cylinder(h=10, r=8, $fn=24);')
+    expect(await evaluateOpenSCAD(dst, engine)).toBe('cylinder(r=8, $fn=24);')
   })
 
   it('Cylinder in diameter mode', async () => {
@@ -105,7 +105,7 @@ describe('per-node semantic round trip (serialize -> restore -> evaluate)', () =
     const { editor: dst, engine } = createGraph()
     await roundTrip({ editor: src, positions: {} }, dst)
 
-    expect(await evaluateOpenSCAD(dst, engine)).toBe('cylinder(h=10, d=16);')
+    expect(await evaluateOpenSCAD(dst, engine)).toBe('cylinder(d=16);')
   })
 
   it('Cylinder in tapered mode, center enabled, $fn disabled', async () => {
@@ -115,7 +115,7 @@ describe('per-node semantic round trip (serialize -> restore -> evaluate)', () =
     const { editor: dst, engine } = createGraph()
     await roundTrip({ editor: src, positions: {} }, dst)
 
-    expect(await evaluateOpenSCAD(dst, engine)).toBe('cylinder(h=10, r1=9, r2=1, center=true);')
+    expect(await evaluateOpenSCAD(dst, engine)).toBe('cylinder(r1=9, r2=1, center=true);')
   })
 
   it('Sphere in diameter mode with $fn=50', async () => {

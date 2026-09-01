@@ -215,9 +215,10 @@ describe('NodePresentationManager - isolation from graph/node semantics', () => 
     manager.togglePin(cylinder.id)
     manager.handleSelected(difference.id) // no-op: hover-capable
 
-    // Cylinder's mode/optional-parameter progressive disclosure is untouched.
-    expect(cylinder.controls.mode.value).toBe('radius')
-    expect(cylinder.controls.r).toBeDefined()
+    // A fresh v2 Cylinder has no optional signature fields, and presentation
+    // state must not materialize any of them.
+    expect(cylinder.controls.mode).toBeUndefined()
+    expect(cylinder.controls.r).toBeUndefined()
     expect(cylinder.controls.fn).toBeUndefined()
 
     // Cube's params are untouched.

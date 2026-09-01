@@ -3,18 +3,21 @@ import { requireBoolean, requireFiniteNumber, requireParamsObject } from './para
 
 /** Parameters for OpenSCAD's `cube(size, center)`. */
 export interface CubeParams {
-  sizeX: number
-  sizeY: number
-  sizeZ: number
-  center: boolean
+  size?: number | Vector3Params
+  center?: boolean
+  /** @deprecated v1 compatibility; v2 stores one semantic `size`. */
+  sizeX?: number
+  /** @deprecated v1 compatibility; v2 stores one semantic `size`. */
+  sizeY?: number
+  /** @deprecated v1 compatibility; v2 stores one semantic `size`. */
+  sizeZ?: number
 }
+
+export interface Vector3Params { x: number; y: number; z: number }
 
 /** Matches OpenSCAD's own `center` default; `10` is a more visible starting size than OpenSCAD's `1`. */
 export const DEFAULT_CUBE_PARAMS: CubeParams = {
-  sizeX: 10,
-  sizeY: 10,
-  sizeZ: 10,
-  center: false,
+  size: 10,
 }
 
 /**
@@ -23,20 +26,39 @@ export const DEFAULT_CUBE_PARAMS: CubeParams = {
  * form otherwise.
  */
 export function cubeToOpenSCAD(params: CubeParams): string {
-  const { sizeX, sizeY, sizeZ, center } = params
-  const isUniform = sizeX === sizeY && sizeY === sizeZ
-  const size = isUniform ? formatNumber(sizeX) : formatVector3(sizeX, sizeY, sizeZ)
-
-  return formatCall('cube', [size], center ? { center: 'true' } : {})
+  const legacy = params.sizeX === undefined ? undefined : params.sizeX === params.sizeY && params.sizeY === params.sizeZ ? params.sizeX : { x: params.sizeX, y: params.sizeY ?? params.sizeX, z: params.sizeZ ?? params.sizeX }
+  const effectiveSize = params.size ?? legacy
+  const size = effectiveSize === undefined
+    ? undefined
+    : typeof effectiveSize === 'number'
+      ? formatNumber(effectiveSize)
+      : formatVector3(effectiveSize.x, effectiveSize.y, effectiveSize.z)
+  return formatCall('cube', size === undefined ? [] : [size], params.center ? { center: 'true' } : {})
 }
 
 /** Validates persisted `.scadlet` parameters for a Cube node, throwing a descriptive `Error` on invalid input. */
 export function validateCubeParams(value: unknown): CubeParams {
   const obj = requireParamsObject(value, 'Cube parameters')
-  return {
-    sizeX: requireFiniteNumber(obj.sizeX, 'Cube parameter "sizeX"'),
-    sizeY: requireFiniteNumber(obj.sizeY, 'Cube parameter "sizeY"'),
-    sizeZ: requireFiniteNumber(obj.sizeZ, 'Cube parameter "sizeZ"'),
-    center: requireBoolean(obj.center, 'Cube parameter "center"'),
+  if (obj.sizeX !== undefined || obj.sizeY !== undefined || obj.sizeZ !== undefined) {
+    return {
+      sizeX: requireFiniteNumber(obj.sizeX, 'Cube parameter "sizeX"'),
+      sizeY: requireFiniteNumber(obj.sizeY, 'Cube parameter "sizeY"'),
+      sizeZ: requireFiniteNumber(obj.sizeZ, 'Cube parameter "sizeZ"'),
+      center: requireBoolean(obj.center, 'Cube parameter "center"'),
+    }
   }
+  const params: CubeParams = {}
+  if (obj.size !== undefined) {
+    if (typeof obj.size === 'number') params.size = requireFiniteNumber(obj.size, 'Cube parameter "size"')
+    else {
+      const size = requireParamsObject(obj.size, 'Cube parameter "size"')
+      params.size = {
+        x: requireFiniteNumber(size.x, 'Cube parameter "size.x"'),
+        y: requireFiniteNumber(size.y, 'Cube parameter "size.y"'),
+        z: requireFiniteNumber(size.z, 'Cube parameter "size.z"'),
+      }
+    }
+  }
+  if (obj.center !== undefined) params.center = requireBoolean(obj.center, 'Cube parameter "center"')
+  return params
 }

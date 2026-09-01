@@ -76,7 +76,38 @@ export function parseScadletProject(raw: unknown): ScadletProjectV1 {
  */
 function migrateScadletProject(version: number, raw: Record<string, unknown>): ScadletProjectV1 {
   if (version === SCADLET_VERSION) return validateV1(raw)
+  if (version === 1) return validateV1(migrateV1ToV2(raw))
   throw new ScadletProjectError(`Unsupported SCADlet project version: ${version}`)
+}
+
+/** Converts the former fixed-parameter/fixed-two-child representation into
+ * v2's semantic signatures before the normal v2 validator runs. */
+function migrateV1ToV2(raw: Record<string, unknown>): Record<string, unknown> {
+  const graph = isPlainObject(raw.graph) ? raw.graph : {}
+  const rawNodes = Array.isArray(graph.nodes) ? graph.nodes : graph.nodes
+  const portMaps = new Map<string, Record<string, string>>()
+  const nodes = Array.isArray(rawNodes) ? rawNodes.map((rawNode) => {
+    if (!isPlainObject(rawNode)) return rawNode
+    const node = { ...rawNode }
+    if (node.type === 'cube' && isPlainObject(node.parameters)) {
+      const p = node.parameters
+      if (typeof p.sizeX === 'number' && typeof p.sizeY === 'number' && typeof p.sizeZ === 'number') node.parameters = { size: p.sizeX === p.sizeY && p.sizeY === p.sizeZ ? p.sizeX : { x: p.sizeX, y: p.sizeY, z: p.sizeZ }, ...(p.center === true ? { center: true } : {}) }
+    }
+    if ((node.type === 'union' || node.type === 'intersection') && typeof node.id === 'string') {
+      const a = 'v1-a'; const b = 'v1-b'; node.parameters = { children: [{ id: a }, { id: b }, { id: 'v1-next' }] }
+      portMaps.set(node.id, { a: `child:${a}`, b: `child:${b}` })
+    }
+    return node
+  }) : rawNodes
+  const rawConnections = Array.isArray(graph.connections) ? graph.connections : graph.connections
+  const connections = Array.isArray(rawConnections) ? rawConnections.map((rawConnection) => {
+    if (!isPlainObject(rawConnection)) return rawConnection
+    const mapped = typeof rawConnection.target === 'string' ? portMaps.get(rawConnection.target) : undefined
+    return mapped && typeof rawConnection.targetInput === 'string' && mapped[rawConnection.targetInput]
+      ? { ...rawConnection, targetInput: mapped[rawConnection.targetInput] }
+      : rawConnection
+  }) : rawConnections
+  return { ...raw, version: SCADLET_VERSION, graph: { ...graph, nodes, connections } }
 }
 
 function validateV1(raw: Record<string, unknown>): ScadletProjectV1 {
@@ -175,7 +206,7 @@ function validateConnection(
     throw new ScadletProjectError(`Connection "${raw.id}" references unknown source port "${sourceOutput}" on node "${source}"`)
   }
   const targetEntry = findCatalogEntry(targetNode.type)!
-  if (!targetEntry.inputs.includes(targetInput)) {
+  if (!targetEntry.inputs.includes(targetInput) && !targetEntry.isInputPort?.(targetInput, targetNode.parameters)) {
     throw new ScadletProjectError(`Connection "${raw.id}" references unknown target port "${targetInput}" on node "${target}"`)
   }
 

@@ -35,7 +35,7 @@ describe('serializeProject', () => {
     })
 
     expect(project.format).toBe('scadlet')
-    expect(project.version).toBe(1)
+    expect(project.version).toBe(2)
     expect(project.metadata).toEqual({ name: 'Empty', updatedAt: '2026-01-01T00:00:00.000Z' })
     expect(project.graph).toEqual({ nodes: [], connections: [] })
   })
@@ -54,7 +54,7 @@ describe('serializeProject', () => {
     })
 
     expect(project.graph.nodes).toEqual([
-      { id: cube.id, type: 'cube', position: { x: 42, y: -17 }, parameters: { sizeX: 1, sizeY: 2, sizeZ: 3, center: true } },
+      { id: cube.id, type: 'cube', position: { x: 42, y: -17 }, parameters: { size: { x: 1, y: 2, z: 3 }, center: true } },
     ])
   })
 

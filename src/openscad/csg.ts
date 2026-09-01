@@ -19,7 +19,7 @@ interface NamedInput {
  * a validation error and a descriptive comment instead of throwing or
  * emitting misleading geometry.
  */
-function booleanOpToOpenSCAD(name: string, inputs: readonly [NamedInput, NamedInput]): DifferenceResult {
+function booleanOpToOpenSCAD(name: string, inputs: readonly NamedInput[]): DifferenceResult {
   const missing = inputs.filter((input) => !input.code).map((input) => input.label)
   if (missing.length > 0) {
     const capitalized = name.charAt(0).toUpperCase() + name.slice(1)
@@ -47,6 +47,16 @@ export function unionToOpenSCAD(a: string | undefined, b: string | undefined): D
     { label: 'a', code: a },
     { label: 'b', code: b },
   ])
+}
+
+/** Variadic OpenSCAD child list used by the Union/Intersection nodes. */
+export function variadicBooleanToOpenSCAD(name: 'union' | 'intersection', children: readonly string[]): DifferenceResult {
+  if (children.length === 0) {
+    const label = name.charAt(0).toUpperCase() + name.slice(1)
+    const error = `${label} needs at least one geometry child`
+    return { code: `// ${error}`, error }
+  }
+  return { code: formatBlock(name, children) }
 }
 
 /** Composes two fragments into an `intersection() { ... }` block. */

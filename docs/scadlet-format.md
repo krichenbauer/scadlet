@@ -1,10 +1,31 @@
-# The `.scadlet` project file format (v1)
+# The `.scadlet` project file format (v2)
 
 This document specifies the `.scadlet` project file format as it is
 **actually implemented** in this repository, not as originally sketched in
 `AGENTS.md`. If you find a discrepancy between this document and the code,
 the code under `src/persistence/` and `src/editor/node-catalog.ts` is the
 source of truth until this document is updated to match it.
+
+## Version 2 semantic signatures
+
+v2 records each node's OpenSCAD semantic arguments rather than renderer
+controls. A new Cube therefore has `{}` parameters and generates `cube()`;
+adding Size stores either a Number or `{ "x", "y", "z" }` Vector3 literal,
+and adding Center stores `"center": true` only when it changes the signature.
+Cylinder and Sphere similarly omit unset optional arguments. Connections are
+still stored separately and address the semantic parameter port (`size`,
+`vector`, `x`, `y`, `z`, `h`, `r`, and so on), never a DOM control.
+
+Union and Intersection use `parameters.children`, an ordered non-empty list
+of `{ "id": "..." }` stable child-slot identities. Their target input ports
+are `child:<id>`; a trailing empty slot is retained so adding a connection
+never renumbers earlier children. Difference remains asymmetric with `base`
+and `subtract`.
+
+The loader migrates v1 Cubes from `sizeX`/`sizeY`/`sizeZ` into v2 `size`, and
+migrates v1 Union/Intersection `a`/`b` connection endpoints into deterministic
+v2 child slots. It validates the migrated result before opening it. Unsupported
+newer versions are rejected instead of being guessed at.
 
 ## Status and compatibility
 
@@ -16,7 +37,8 @@ source of truth until this document is updated to match it.
   `"version"`. The format version is **independent of the SCADlet
   application/package version** - bumping the app's `package.json`
   version never implies a format change, and vice versa.
-- The current, and only currently supported, format version is **`1`**.
+- The current format version is **`2`**. Version 1 is accepted on input
+  and explicitly migrated to v2; writers and browser autosave always emit v2.
 - Unknown/future format versions are rejected outright with a clear error
   (`Unsupported SCADlet project version: N`) - there is no attempt to
   guess-parse a newer format. See "Versioning and migrations" below.
@@ -38,7 +60,7 @@ exact, test-verified fixture this is based on):
 ```json
 {
   "format": "scadlet",
-  "version": 1,
+  "version": 2,
   "metadata": {
     "name": "Gearbox Experiment",
     "createdAt": "2026-09-01T00:00:00.000Z",

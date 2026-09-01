@@ -4,7 +4,7 @@ import type { AreaPlugin } from 'rete-area-plugin'
 import type { ConnectionPlugin } from 'rete-connection-plugin'
 import { classicConnectionPath, getDOMSocketPosition } from 'rete-render-utils'
 
-import { CheckboxControl, LabeledNumberControl, SelectControl } from './controls'
+import { CheckboxControl, LabeledNumberControl, ParameterActionsControl, SelectControl } from './controls'
 import { isEditableTarget } from './deletion'
 import { t } from '../i18n/translate'
 import type { InspectManager } from './inspect'
@@ -353,6 +353,19 @@ function renderPort(
 }
 
 function renderControl(key: string, control: ClassicPreset.Control): HTMLElement | null {
+  if (control instanceof ParameterActionsControl) {
+    const wrapper = document.createElement('div')
+    wrapper.className = 'node-control node-control--actions'
+    for (const action of control.actions()) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = action.label
+      button.addEventListener('pointerdown', (event) => event.stopPropagation())
+      button.addEventListener('click', action.run)
+      wrapper.appendChild(button)
+    }
+    return wrapper
+  }
   if (control instanceof CheckboxControl) {
     const wrapper = document.createElement('label')
     wrapper.className = 'node-control node-control--checkbox'

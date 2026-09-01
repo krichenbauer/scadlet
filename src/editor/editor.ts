@@ -14,6 +14,7 @@ import { NodePresentationManager } from './presentation'
 import { attachRenderer } from './render'
 import type { AreaExtra, Schemes } from './schemes'
 import { attachNodeSelection } from './selection'
+import { BooleanOpNode } from './nodes/boolean-op-node'
 
 export interface SCADletEditor {
   editor: NodeEditor<Schemes>
@@ -129,6 +130,22 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     if (isDirtyEditorSignal(context.type)) notifyDirty()
     return context
   })
+
+  // Variadic Boolean child slots grow only when their trailing extension
+  // port becomes connected. This runs against Rete's authoritative
+  // connection list and never reindexes an existing slot/connection.
+  editor.addPipe((context) => {
+    if (context.type === 'connectioncreated' || context.type === 'connectionremoved') {
+      const nodesWithInputs = new Set(editor.getConnections().map((item) => item.target))
+      for (const node of editor.getNodes()) presentation.setConnected(node.id, nodesWithInputs.has(node.id))
+      for (const node of editor.getNodes()) {
+        if (!(node instanceof BooleanOpNode)) continue
+        const connected = new Set(editor.getConnections().filter((item) => item.target === node.id).map((item) => item.targetInput))
+        if (node.synchronizeChildren(connected)) void area.update('node', node.id)
+      }
+    }
+    return context
+  })
   area.addPipe((context) => {
     if (isDirtyAreaSignal(context.type)) notifyDirty()
     return context
@@ -174,7 +191,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // pointless once nodes get real positions instead of all stacking at
   // (0, 0)). The current pan/zoom must survive node creation unchanged.
   const creationContext: NodeCreationContext = {
-    onControlsChanged: (id) => void area.update('node', id),
+    onControlsChanged: (id) => { void area.update('node', id); notifyDirty() },
     notifyDirty,
   }
 

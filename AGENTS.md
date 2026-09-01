@@ -1039,6 +1039,14 @@ Persistence is part of this milestone. Existing `.scadlet` v1 projects must not 
 
 This milestone is about the **node/signature model and extensible inputs**, not yet about a large catalog of Number/math nodes. It should leave Milestone 7 straightforward rather than forcing value dataflow onto the current MVP parameter forms.
 
+Implementation status: the v2 signature baseline is in place. Primitives use
+additive semantic parameters, Number and Vector3 sockets are distinct from
+Geometry, transforms accept whole-vector or component overrides, and
+Union/Intersection persist ordered child-slot identities. `.scadlet` v1 is
+migrated on input (including old Cube and Boolean ports); all newly written
+files and local autosaves are v2. Milestone 7 still owns user-facing
+Number/Vector3/math palette nodes.
+
 ### Milestone 7 — Typed values and simple dataflow
 
 Add value-driven parameters and a small supporting math layer on top of the Milestone 6 input model.
@@ -1128,7 +1136,7 @@ editable Rete graph
 
 This end-to-end MVP now exists and is the stable baseline for subsequent work.
 
-Project persistence (Milestone 5) now preserves and exchanges useful graphs and supplies deterministic examples/regression fixtures. The next planned language milestone is Milestone 6's OpenSCAD-semantic signature/input refactor; typed value/dataflow nodes follow in Milestone 7 rather than being bolted directly onto the earlier MVP parameter forms.
+Project persistence (Milestone 5) now preserves and exchanges useful graphs and supplies deterministic examples/regression fixtures. Milestone 6 establishes its semantic signature/input baseline; typed value/dataflow nodes follow in Milestone 7 rather than being bolted onto the earlier MVP parameter forms.
 
 When extending the MVP, preserve the working end-to-end path and resist
 

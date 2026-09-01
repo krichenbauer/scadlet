@@ -65,3 +65,15 @@ export class SelectControl<T extends string = string> extends ClassicPreset.Cont
     this.onChange?.(value)
   }
 }
+
+/** A deliberately small progressive-disclosure affordance. Nodes own their
+ * semantic choices; this control only renders the available add/remove
+ * actions and avoids a generic parameter-schema framework. */
+export class ParameterActionsControl extends ClassicPreset.Control {
+  readonly actions: () => readonly { id: string; label: string; run: () => void }[]
+
+  constructor(actions: () => readonly { id: string; label: string; run: () => void }[]) {
+    super()
+    this.actions = actions
+  }
+}

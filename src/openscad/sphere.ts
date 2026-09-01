@@ -8,9 +8,9 @@ const SPHERE_SIZE_MODES: readonly SphereSizeMode[] = ['radius', 'diameter']
 
 /** Parameters for OpenSCAD's `sphere(r|d, $fn)`. */
 export interface SphereParams {
-  mode: SphereSizeMode
-  r: number
-  d: number
+  mode?: SphereSizeMode
+  r?: number
+  d?: number
   /** `$fn` facet count; `undefined` means "not set" (OpenSCAD's own default applies). */
   fn?: number
 }
@@ -19,7 +19,6 @@ export const DEFAULT_SPHERE_PARAMS: SphereParams = {
   mode: 'radius',
   r: 5,
   d: 10,
-  fn: undefined,
 }
 
 /**
@@ -30,7 +29,9 @@ export const DEFAULT_SPHERE_PARAMS: SphereParams = {
  */
 export function sphereToOpenSCAD(params: SphereParams): string {
   const { mode, r, d, fn } = params
-  const named: Record<string, string> = mode === 'radius' ? { r: formatNumber(r) } : { d: formatNumber(d) }
+  const named: Record<string, string> = {}
+  if (mode === 'radius' && r !== undefined) named.r = formatNumber(r)
+  if (mode === 'diameter' && d !== undefined) named.d = formatNumber(d)
 
   if (fn !== undefined) named.$fn = formatNumber(fn)
 
@@ -40,10 +41,10 @@ export function sphereToOpenSCAD(params: SphereParams): string {
 /** Validates persisted `.scadlet` parameters for a Sphere node, throwing a descriptive `Error` on invalid input. */
 export function validateSphereParams(value: unknown): SphereParams {
   const obj = requireParamsObject(value, 'Sphere parameters')
-  return {
-    mode: requireOneOf(obj.mode, SPHERE_SIZE_MODES, 'Sphere parameter "mode"'),
-    r: requireFiniteNumber(obj.r, 'Sphere parameter "r"'),
-    d: requireFiniteNumber(obj.d, 'Sphere parameter "d"'),
-    fn: requireOptionalFiniteNumber(obj.fn, 'Sphere parameter "fn"'),
-  }
+  const result: SphereParams = {}
+  if (obj.mode !== undefined) result.mode = requireOneOf(obj.mode, SPHERE_SIZE_MODES, 'Sphere parameter "mode"')
+  if (obj.r !== undefined) result.r = requireFiniteNumber(obj.r, 'Sphere parameter "r"')
+  if (obj.d !== undefined) result.d = requireFiniteNumber(obj.d, 'Sphere parameter "d"')
+  if (obj.fn !== undefined) result.fn = requireOptionalFiniteNumber(obj.fn, 'Sphere parameter "fn"')
+  return result
 }

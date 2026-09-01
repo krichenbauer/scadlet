@@ -1,113 +1,31 @@
 import { ClassicPreset } from 'rete'
 import type { DataflowNode } from 'rete-engine'
+import { sphereToOpenSCAD, type SphereParams, type SphereSizeMode } from '../../openscad/sphere'
+import { CheckboxControl, LabeledNumberControl, ParameterActionsControl, SelectControl } from '../controls'
+import { geometrySocket, numberSocket, type GeometryValue, type NumberValue } from '../sockets'
 
-import { t } from '../../i18n/translate'
-import {
-  DEFAULT_SPHERE_PARAMS,
-  sphereToOpenSCAD,
-  type SphereParams,
-  type SphereSizeMode,
-} from '../../openscad/sphere'
-import { CheckboxControl, LabeledNumberControl, SelectControl } from '../controls'
-import { geometrySocket, type GeometryValue } from '../sockets'
+type SphereControls = Record<string, ClassicPreset.Control> & { mode: SelectControl<SphereSizeMode>; r: LabeledNumberControl; d: LabeledNumberControl; fn: LabeledNumberControl; fnEnabled: CheckboxControl }
 
-type SphereControls = {
-  mode: SelectControl<SphereSizeMode>
-  r?: LabeledNumberControl
-  d?: LabeledNumberControl
-  fnEnabled: CheckboxControl
-  fn?: LabeledNumberControl
-}
-
-function modeOptions(): { value: SphereSizeMode; label: string }[] {
-  return [
-    { value: 'radius', label: t('mode.radius') },
-    { value: 'diameter', label: t('mode.diameter') },
-  ]
-}
-
-/**
- * The `sphere()` primitive. Reuses Cylinder's radius/diameter
- * progressive-disclosure pattern (a `SelectControl` mode switch that
- * adds/removes the relevant control, plus an "enable" checkbox gating an
- * optional `$fn`) - `sphere()` has no `center` parameter (it's always
- * centered at the origin in OpenSCAD) and no tapered form, so this is
- * simpler than `CylinderNode` rather than sharing code with it.
- */
-export class SphereNode
-  extends ClassicPreset.Node<Record<string, never>, { geometry: ClassicPreset.Socket }, SphereControls>
-  implements DataflowNode
-{
-  private r: number
-  private d: number
-  private fnValue: number
-
+export class SphereNode extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { geometry: ClassicPreset.Socket }, SphereControls> implements DataflowNode {
+  private readonly notify?: () => void
+  private values: SphereParams
   constructor(params: Partial<SphereParams> = {}, notify?: () => void) {
-    super('Sphere')
-
-    const merged = { ...DEFAULT_SPHERE_PARAMS, ...params }
-    this.r = merged.r
-    this.d = merged.d
-    this.fnValue = merged.fn ?? 30
-
-    const mode = new SelectControl<SphereSizeMode>(t('control.size'), modeOptions(), merged.mode)
-    mode.onChange = () => {
-      this.updateSizeControls()
-      notify?.()
-    }
-    this.addControl('mode', mode)
-    this.updateSizeControls()
-
-    const fnEnabled = new CheckboxControl(t('control.enableFn'), merged.fn !== undefined)
-    fnEnabled.onChange = () => {
-      this.updateFnControl()
-      notify?.()
-    }
-    this.addControl('fnEnabled', fnEnabled)
-    this.updateFnControl()
-
+    super('Sphere'); this.notify = notify; this.values = Object.keys(params).length === 0 && notify === undefined ? { mode: 'radius', r: 5, d: 10 } : { ...params }
+    if (params.mode) this.addSize(params.mode)
+    if (params.fn !== undefined) this.addNumber('fn', '$fn', params.fn)
+    this.addControl('actions', new ParameterActionsControl(() => this.actions()))
     this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, 'Geometry'))
   }
-
-  private updateSizeControls(): void {
-    for (const key of ['r', 'd'] as const) {
-      if (this.controls[key]) this.removeControl(key)
-    }
-
-    if (this.controls.mode.value === 'radius') {
-      this.addControl(
-        'r',
-        new LabeledNumberControl(t('control.radius'), { initial: this.r, change: (v) => (this.r = v) }),
-      )
-    } else {
-      this.addControl(
-        'd',
-        new LabeledNumberControl(t('control.diameter'), { initial: this.d, change: (v) => (this.d = v) }),
-      )
-    }
+  private addNumber(key: 'r' | 'd' | 'fn', label: string, value: number): void { this.values[key] = value; this.addInput(key, new ClassicPreset.Input(numberSocket, label)); this.addControl(key, new LabeledNumberControl(label, { initial: value, change: (v) => { this.values[key] = v } })) }
+  private addSize(mode: SphereSizeMode): void {
+    const previous = { ...this.values }
+    for (const key of ['mode', 'r', 'd']) { if (this.controls[key]) this.removeControl(key); if (this.inputs[key]) this.removeInput(key) }
+    delete this.values.r; delete this.values.d; this.values = { ...this.values, ...previous, mode }
+    const control = new SelectControl<SphereSizeMode>('Size', [{ value: 'radius', label: 'Radius' }, { value: 'diameter', label: 'Diameter' }], mode)
+    control.onChange = (next) => { this.addSize(next); this.notify?.() }
+    this.addControl('mode', control); this.addNumber(mode === 'radius' ? 'r' : 'd', mode === 'radius' ? 'R' : 'D', mode === 'radius' ? this.values.r ?? 5 : this.values.d ?? 10)
   }
-
-  private updateFnControl(): void {
-    if (this.controls.fn) this.removeControl('fn')
-    if (this.controls.fnEnabled.value) {
-      this.addControl(
-        'fn',
-        new LabeledNumberControl(t('control.fn'), { initial: this.fnValue, change: (v) => (this.fnValue = v) }),
-      )
-    }
-  }
-
-  /** Extracts this node's semantic parameters, e.g. for `.scadlet` persistence (see `editor/node-catalog.ts`) - the same values `data()` generates OpenSCAD from. */
-  getPersistedParams(): SphereParams {
-    return {
-      mode: this.controls.mode.value,
-      r: this.r,
-      d: this.d,
-      fn: this.controls.fnEnabled.value ? this.fnValue : undefined,
-    }
-  }
-
-  data(): { geometry: GeometryValue } {
-    return { geometry: { code: sphereToOpenSCAD(this.getPersistedParams()) } }
-  }
+  private actions(): readonly { id: string; label: string; run: () => void }[] { const result: { id: string; label: string; run: () => void }[] = []; if (!this.controls.mode) result.push({ id: 'size', label: '+ Size', run: () => { this.addSize('radius'); this.notify?.() } }); if (this.values.fn === undefined) result.push({ id: 'fn', label: '+ $fn', run: () => { this.addNumber('fn', '$fn', 30); this.notify?.() } }); return result }
+  getPersistedParams(): SphereParams { const result = { ...this.values }; for (const key of ['r', 'd', 'fn'] as const) { const control = this.controls[key]; if (control instanceof LabeledNumberControl) result[key] = control.value ?? result[key] } return result }
+  data(inputs: Record<string, NumberValue[] | undefined>): { geometry: GeometryValue } { const params = this.getPersistedParams(); if (!inputs.r?.[0] && !inputs.d?.[0] && !inputs.fn?.[0]) return { geometry: { code: sphereToOpenSCAD(params) } }; const named: string[] = []; if (params.mode === 'radius' && params.r !== undefined) named.push(`r=${inputs.r?.[0]?.code ?? params.r}`); if (params.mode === 'diameter' && params.d !== undefined) named.push(`d=${inputs.d?.[0]?.code ?? params.d}`); if (params.fn !== undefined) named.push(`$fn=${inputs.fn?.[0]?.code ?? params.fn}`); return { geometry: { code: `sphere(${named.join(', ')});` } } }
 }

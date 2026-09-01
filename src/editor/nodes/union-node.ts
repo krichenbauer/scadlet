@@ -1,10 +1,2 @@
-import { t } from '../../i18n/translate'
-import { unionToOpenSCAD } from '../../openscad/csg'
-import { BooleanOpNode } from './boolean-op-node'
-
-/** Composes two connected geometry inputs into a `union() { ... }` block. */
-export class UnionNode extends BooleanOpNode {
-  constructor() {
-    super('Union', { a: t('input.a'), b: t('input.b') }, unionToOpenSCAD)
-  }
-}
+import { BooleanOpNode, type VariadicBooleanParams } from './boolean-op-node'
+export class UnionNode extends BooleanOpNode { constructor(params: Partial<VariadicBooleanParams> = {}, legacy = true) { super('Union', 'union', params, legacy) } }

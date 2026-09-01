@@ -4,7 +4,7 @@ import type { Position } from '../editor/coordinates'
 export const SCADLET_FORMAT = 'scadlet' as const
 
 /** Current `.scadlet` schema version this build writes and fully supports reading. */
-export const SCADLET_VERSION = 1 as const
+export const SCADLET_VERSION = 2 as const
 
 export interface ScadletProjectMetadata {
   /** Required before the first explicit Save/Save As/export - see `filename.ts`. */
@@ -83,7 +83,7 @@ export interface ScadletViewerState {
  * transient editor state (selection, marquee, hover timers, drag state,
  * node foreground order) are intentionally never part of this shape.
  */
-export interface ScadletProjectV1 {
+export interface ScadletProjectV2 {
   format: typeof SCADLET_FORMAT
   version: typeof SCADLET_VERSION
   metadata: ScadletProjectMetadata
@@ -91,6 +91,10 @@ export interface ScadletProjectV1 {
   editor: ScadletEditorState
   viewer: ScadletViewerState
 }
+
+/** Current canonical project type. The old exported name remains an alias
+ * for application adapters while v1 remains an input-only migration shape. */
+export type ScadletProjectV1 = ScadletProjectV2
 
 /** The viewer's own default camera state (matches `GeometryViewer`'s initial, pre-fit camera position/target). */
 export const DEFAULT_VIEWER_CAMERA: ScadletViewerCamera = {
@@ -102,7 +106,7 @@ export const DEFAULT_VIEWER_CAMERA: ScadletViewerCamera = {
 export const UNTITLED_PROJECT_NAME = 'Untitled Project'
 
 /** Builds a fresh, empty project: no nodes/connections, a centered/unzoomed viewport, and the viewer's default camera. */
-export function createEmptyProject(name: string = UNTITLED_PROJECT_NAME, now: () => string = () => new Date().toISOString()): ScadletProjectV1 {
+export function createEmptyProject(name: string = UNTITLED_PROJECT_NAME, now: () => string = () => new Date().toISOString()): ScadletProjectV2 {
   const timestamp = now()
   return {
     format: SCADLET_FORMAT,

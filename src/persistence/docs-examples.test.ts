@@ -8,7 +8,7 @@ import { parseScadletProject } from './validate'
 
 const EXAMPLES_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../docs/examples')
 
-const EXAMPLE_FIXTURES = ['empty-project.scadlet', 'sphere-fn50.scadlet', 'cube-sphere-union-translate.scadlet']
+const EXAMPLE_FIXTURES = ['empty-project.scadlet', 'sphere-fn50.scadlet', 'cube-sphere-union-translate.scadlet', 'v2-empty-cube.scadlet']
 
 function readExample(filename: string): unknown {
   return JSON.parse(readFileSync(join(EXAMPLES_DIR, filename), 'utf-8'))
@@ -31,6 +31,12 @@ describe('docs/scadlet-format.md examples stay valid', () => {
     const project = parseScadletProject(readExample('empty-project.scadlet'))
     expect(project.graph.nodes).toEqual([])
     expect(project.graph.connections).toEqual([])
+  })
+
+  it('v2-empty-cube.scadlet keeps an omitted Cube signature', () => {
+    const project = parseScadletProject(readExample('v2-empty-cube.scadlet'))
+    expect(project.version).toBe(2)
+    expect(project.graph.nodes[0]?.parameters).toEqual({})
   })
 
   it('sphere-fn50.scadlet round-trips a Sphere with $fn=50', () => {

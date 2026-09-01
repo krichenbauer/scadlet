@@ -83,7 +83,7 @@ describe('restoreProject', () => {
     const [node] = editor.getNodes()
     expect(node.id).toBe('my-cube-id')
     expect(positions['my-cube-id']).toEqual({ x: 12, y: 34 })
-    expect((node as CubeNode).getPersistedParams()).toEqual({ sizeX: 5, sizeY: 6, sizeZ: 7, center: true })
+    expect((node as CubeNode).getPersistedParams()).toEqual({ size: { x: 5, y: 6, z: 7 }, center: true })
   })
 
   it('restores connections addressing the exact persisted node/port ids, evaluating to the same OpenSCAD', async () => {
@@ -190,4 +190,3 @@ describe('restoreProject', () => {
     expect(notifyDirty).not.toHaveBeenCalled()
   })
 })
-
