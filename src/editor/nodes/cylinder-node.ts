@@ -3,7 +3,7 @@ import type { DataflowNode } from 'rete-engine'
 
 import { cylinderToOpenSCAD, type CylinderParams, type CylinderSizeMode } from '../../openscad/cylinder'
 import { CheckboxControl, LabeledNumberControl, ParameterActionsControl, SelectControl } from '../controls'
-import { geometrySocket, numberSocket, type GeometryValue, type NumberValue } from '../sockets'
+import { booleanSocket, geometrySocket, numberSocket, type BooleanValue, type GeometryValue, type NumberValue } from '../sockets'
 
 type CylinderControls = Record<string, ClassicPreset.Control> & {
   h: LabeledNumberControl; mode: SelectControl<CylinderSizeMode>; r: LabeledNumberControl; d: LabeledNumberControl
@@ -56,7 +56,11 @@ export class CylinderNode extends ClassicPreset.Node<Record<string, ClassicPrese
     }
     delete this.values.mode; delete this.values.r; delete this.values.d; delete this.values.r1; delete this.values.r2
   }
-  private addCenter(value: boolean): void { this.values.center = value; this.addControl('center', new CheckboxControl('Center', value)) }
+  private addCenter(value: boolean): void {
+    this.values.center = value
+    this.addInput('center', new ClassicPreset.Input(booleanSocket, 'Center'))
+    this.addControl('center', new CheckboxControl('Center', value))
+  }
   private actions(): readonly { id: string; label: string; run: () => void }[] {
     const actions: { id: string; label: string; run: () => void }[] = []
     if (this.values.h === undefined) actions.push({ id: 'h', label: '+ Height', run: () => { this.addNumber('h', 'H', 10); this.changed() } })
@@ -75,7 +79,7 @@ export class CylinderNode extends ClassicPreset.Node<Record<string, ClassicPrese
     if (center instanceof CheckboxControl) result.center = center.value
     return result
   }
-  data(inputs: Record<string, NumberValue[] | undefined>): { geometry: GeometryValue } {
+  data(inputs: Record<string, (NumberValue | BooleanValue)[] | undefined>): { geometry: GeometryValue } {
     const params = this.getPersistedParams()
     if (!Object.values(inputs).some((values) => values?.[0])) return { geometry: { code: cylinderToOpenSCAD(params) } }
     const named: string[] = []
@@ -83,7 +87,9 @@ export class CylinderNode extends ClassicPreset.Node<Record<string, ClassicPrese
     if (params.mode === 'radius' && params.r !== undefined) named.push(`r=${inputs.r?.[0]?.code ?? params.r}`)
     if (params.mode === 'diameter' && params.d !== undefined) named.push(`d=${inputs.d?.[0]?.code ?? params.d}`)
     if (params.mode === 'tapered') { if (params.r1 !== undefined) named.push(`r1=${inputs.r1?.[0]?.code ?? params.r1}`); if (params.r2 !== undefined) named.push(`r2=${inputs.r2?.[0]?.code ?? params.r2}`) }
-    if (params.center) named.push('center=true')
+    const center = inputs.center?.[0]?.code
+    if (center) named.push(`center=${center}`)
+    else if (params.center) named.push('center=true')
     if (params.fn !== undefined) named.push(`$fn=${inputs.fn?.[0]?.code ?? params.fn}`)
     return { geometry: { code: `cylinder(${named.join(', ')});` } }
   }

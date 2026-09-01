@@ -1,6 +1,6 @@
 import { NodeEditor } from 'rete'
 import { AreaExtensions, AreaPlugin, Zoom } from 'rete-area-plugin'
-import { ConnectionPlugin, Presets as ConnectionPresets } from 'rete-connection-plugin'
+import { ClassicFlow, ConnectionPlugin, type SocketData } from 'rete-connection-plugin'
 import { DataflowEngine } from 'rete-engine'
 
 import { clientToGraphPosition, type Position } from './coordinates'
@@ -15,6 +15,7 @@ import { attachRenderer } from './render'
 import type { AreaExtra, Schemes } from './schemes'
 import { attachNodeSelection } from './selection'
 import { BooleanOpNode } from './nodes/boolean-op-node'
+import { areSocketTypesCompatible } from './sockets'
 
 export interface SCADletEditor {
   editor: NodeEditor<Schemes>
@@ -64,6 +65,33 @@ export interface SCADletEditor {
   destroy(): void
 }
 
+function canConnectSocketData(
+  editor: NodeEditor<Schemes>,
+  first: SocketData,
+  second: SocketData,
+): boolean {
+  const sourceData = first.side === 'output' ? first : second.side === 'output' ? second : undefined
+  const targetData = first.side === 'input' ? first : second.side === 'input' ? second : undefined
+  if (!sourceData || !targetData) return false
+  const sourceSocket = editor.getNode(sourceData.nodeId)?.outputs[sourceData.key]?.socket
+  const targetSocket = editor.getNode(targetData.nodeId)?.inputs[targetData.key]?.socket
+  return areSocketTypesCompatible(sourceSocket, targetSocket)
+}
+
+/** Installs the same semantic connection gate used by the browser editor.
+ * Exported for DOM-free regression tests and for any future editor host that
+ * intentionally reuses SCADlet's graph semantics. */
+export function attachSocketCompatibilityGuard(editor: NodeEditor<Schemes>): void {
+  editor.addPipe((context) => {
+    if (context.type !== 'connectioncreate') return context
+    const source = editor.getNode(context.data.source)
+    const target = editor.getNode(context.data.target)
+    const sourceSocket = source?.outputs[context.data.sourceOutput]?.socket
+    const targetSocket = target?.inputs[context.data.targetInput]?.socket
+    return areSocketTypesCompatible(sourceSocket, targetSocket) ? context : undefined
+  })
+}
+
 /**
  * Wires up the minimum set of Rete plugins needed to add and connect
  * nodes on screen: the graph itself, the pan/zoom area, drag-to-connect
@@ -88,11 +116,23 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // `selection.ts`), it does not replace it.
   const nodeSelection = attachNodeSelection(editor, area)
 
-  connection.addPreset(ConnectionPresets.classic.setup())
+  // Rete's classic preset intentionally treats socket names as display
+  // metadata. SCADlet has a closed semantic socket vocabulary, so enforce
+  // its diagonal-only compatibility here for drag/click creation as well as
+  // the editor `connectioncreate` guard below for programmatic creation.
+  connection.addPreset(() => new ClassicFlow({
+    canMakeConnection: (from, to) => canConnectSocketData(editor, from, to),
+  }))
 
   editor.use(area)
   editor.use(engine)
   area.use(connection)
+
+  // This is the authoritative live-graph gate. It runs before Rete mutates
+  // its connection list, so even callers that construct a
+  // `ClassicPreset.Connection` directly cannot insert Geometry→Number,
+  // Geometry→Vector3, Geometry→Boolean, or any other implicit conversion.
+  attachSocketCompatibilityGuard(editor)
 
   // Presentation state (collapsed / temporarily expanded / pinned - see
   // `presentation.ts`) is intentionally kept outside the Rete graph model,
@@ -204,6 +244,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   const creationContext: NodeCreationContext = {
     onControlsChanged: (id) => { void area.update('node', id); notifyDirty() },
     notifyDirty,
+    canSwitchRepresentation: (nodeId) => !editor.getConnections().some((connection) =>
+      connection.target === nodeId && editor.getNode(nodeId)?.inputs[connection.targetInput]?.socket.name !== 'geometry',
+    ),
   }
 
   async function addNodeAt(type: string, clientPosition: Position): Promise<void> {

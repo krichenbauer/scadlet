@@ -185,6 +185,18 @@ describe('parseScadletProject: connections', () => {
     expect(() => parseScadletProject(raw)).toThrow('unknown target port "nope"')
   })
 
+  it('rejects an incompatible typed connection before a project can be restored', () => {
+    const raw = validProject()
+    raw.graph.nodes.push({
+      id: 'translate-1', type: 'translate', position: { x: 0, y: 0 },
+      parameters: { x: 0, y: 0, z: 0, representation: 'xyz' },
+    })
+    raw.graph.connections = [{
+      id: 'bad-type', source: 'cube-1', sourceOutput: 'geometry', target: 'translate-1', targetInput: 'x',
+    }]
+    expect(() => parseScadletProject(raw)).toThrow('incompatible socket types: geometry output cannot connect to number input')
+  })
+
   it('rejects a duplicate connection id', () => {
     const raw = validProject()
     raw.graph.connections.push({ ...raw.graph.connections[0] })

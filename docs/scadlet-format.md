@@ -17,7 +17,9 @@ When Size is active, `sizeRepresentation` is `"scalar"`, `"xyz"`, or
 stores `"center": true` only when it changes the signature.
 Cylinder and Sphere similarly omit unset optional arguments. Connections are
 still stored separately and address the semantic parameter port (`size`,
-`vector`, `x`, `y`, `z`, `h`, `r`, and so on), never a DOM control.
+`vector`, `x`, `y`, `z`, `h`, `r`, `center`, and so on), never a DOM
+control. The current socket vocabulary is Geometry, Number, Vector3, and
+Boolean; a connection is valid only when both ports have the same type.
 
 Union and Intersection use `parameters.children`, an ordered non-empty list
 of `{ "id": "..." }` stable child-slot identities. Their target input ports
@@ -92,7 +94,7 @@ exact, test-verified fixture this is based on):
 | Field      | Type                | Required | Meaning                                                          |
 | ---------- | ------------------- | -------- | ----------------------------------------------------------------- |
 | `format`   | `"scadlet"` literal | Yes      | Discriminates this file as a SCADlet project, not arbitrary JSON.  |
-| `version`  | integer             | Yes      | Format version. Only `1` is currently accepted.                   |
+| `version`  | integer             | Yes      | Format version. Versions `1` (migrated) and `2` are accepted.     |
 | `metadata` | object              | Yes      | Project-level descriptive information. See below.                 |
 | `graph`    | object               | Yes      | Semantic program graph: nodes + connections. See below.           |
 | `editor`   | object               | Yes      | Editor/canvas presentation state (currently just the viewport).   |
@@ -285,26 +287,22 @@ Source: [`src/openscad/cylinder.ts`](../src/openscad/cylinder.ts)
 (`CylinderParams`/`validateCylinderParams`).
 
 ```json
-{ "h": 10, "mode": "radius", "r": 5, "d": 10, "r1": 5, "r2": 5, "center": false, "fn": 50 }
+{ "h": 10, "mode": "radius", "r": 5, "center": true, "fn": 50 }
 ```
 
 | Field    | Type              | Required | Constraint                                  | Meaning |
 | -------- | ----------------- | -------- | -------------------------------------------- | ------- |
-| `h`      | number             | Yes      | finite                                        | Cylinder height. |
-| `mode`   | string             | Yes      | one of `"radius"`, `"diameter"`, `"tapered"`  | Which of OpenSCAD's mutually exclusive sizing forms is active. |
-| `r`      | number             | Yes      | finite                                        | Radius, used when `mode === "radius"`. **Still required even when a different mode is active.** |
-| `d`      | number             | Yes      | finite                                        | Diameter, used when `mode === "diameter"`. Still required otherwise. |
-| `r1`     | number             | Yes      | finite                                        | Bottom radius, used when `mode === "tapered"`. Still required otherwise. |
-| `r2`     | number             | Yes      | finite                                        | Top radius, used when `mode === "tapered"`. Still required otherwise. |
-| `center` | boolean            | Yes      | -                                              | OpenSCAD's `center` flag. |
+| `h`      | number             | No       | finite                                        | Cylinder height. |
+| `mode`   | string             | No       | one of `"radius"`, `"diameter"`, `"tapered"`  | Which of OpenSCAD's mutually exclusive sizing forms is active. |
+| `r`      | number             | No       | finite                                        | Radius, only valid/active in `"radius"` mode. |
+| `d`      | number             | No       | finite                                        | Diameter, only valid/active in `"diameter"` mode. |
+| `r1`     | number             | No       | finite                                        | Bottom radius, only valid/active in `"tapered"` mode. |
+| `r2`     | number             | No       | finite                                        | Top radius, only valid/active in `"tapered"` mode. |
+| `center` | boolean            | No       | -                                              | OpenSCAD's `center` flag; its port is Boolean. |
 | `fn`     | number (optional)  | No       | finite when present                           | `$fn` facet count. Omission means "not set" (OpenSCAD's own default applies). |
 
-Only the field(s) matching the active `mode` actually influence generated
-OpenSCAD, but `r`/`d`/`r1`/`r2` must **all** be present and finite
-regardless of `mode` - `validateCylinderParams` validates every field
-unconditionally, since `CylinderNode` itself always keeps all four values
-internally so switching modes in the editor doesn't lose previously
-entered numbers.
+Only the active sizing form's Number ports exist: `r`, `d`, or `r1`/`r2`.
+Inactive sizing ports cannot be referenced by a persisted connection.
 
 ### `sphere`
 
@@ -312,14 +310,14 @@ Source: [`src/openscad/sphere.ts`](../src/openscad/sphere.ts)
 (`SphereParams`/`validateSphereParams`).
 
 ```json
-{ "mode": "radius", "r": 25, "d": 50, "fn": 50 }
+{ "mode": "radius", "r": 25, "fn": 50 }
 ```
 
 | Field  | Type              | Required | Constraint                        | Meaning |
 | ------ | ----------------- | -------- | ---------------------------------- | ------- |
-| `mode` | string             | Yes      | one of `"radius"`, `"diameter"`    | Which sizing form is active. |
-| `r`    | number             | Yes      | finite                              | Radius, used when `mode === "radius"`. Still required otherwise. |
-| `d`    | number             | Yes      | finite                              | Diameter, used when `mode === "diameter"`. Still required otherwise. |
+| `mode` | string             | No       | one of `"radius"`, `"diameter"`    | Which sizing form is active. |
+| `r`    | number             | No       | finite                              | Radius, only active in `"radius"` mode. |
+| `d`    | number             | No       | finite                              | Diameter, only active in `"diameter"` mode. |
 | `fn`   | number (optional)  | No       | finite when present                | `$fn` facet count; omission means "not set". |
 
 Sphere has no `center` field - OpenSCAD's `sphere()` is always centered
@@ -332,7 +330,7 @@ All three share one shape. Source:
 (`Vector3Params`/`validateVector3Params`).
 
 ```json
-{ "x": 10, "y": -5, "z": 2.5 }
+{ "x": 10, "y": -5, "z": 2.5, "representation": "xyz" }
 ```
 
 | Field | Type   | Required | Constraint | Meaning |
@@ -340,6 +338,7 @@ All three share one shape. Source:
 | `x`   | number | Yes      | finite     | X component. |
 | `y`   | number | Yes      | finite     | Y component. |
 | `z`   | number | Yes      | finite     | Z component. |
+| `representation` | `"xyz"` / `"vector"` | No | defaults to `"xyz"` for older v2 files | The one active editor/input representation of the semantic vector. |
 
 Meaning of the vector depends on `type`: a translation offset, an Euler
 rotation in degrees (simple `rotate([x, y, z])` vector form only - not
@@ -347,7 +346,9 @@ OpenSCAD's alternate `rotate(a=, v=)` axis-angle form), or a per-axis
 scale factor. `rotate`'s defaults are `{x:0,y:0,z:0}`, `scale`'s are
 `{x:1,y:1,z:1}`, `translate`'s are `{x:0,y:0,z:0}` - but a persisted file
 must always include all three regardless of whether they equal those
-defaults.
+defaults. In `"xyz"` representation, only Number ports `x`, `y`, and `z`
+are active; in `"vector"` representation, only the Vector3 port `vector`
+is active. The retained XYZ literals are preserved while Vector is selected.
 
 ### `difference`, `union`, `intersection`
 
@@ -396,23 +397,25 @@ rejected - see "Forward compatibility" under Validation).
   translated UI labels (e.g. Difference's inputs are `base`/`subtract`
   even though the UI shows "Base"/"Subtract"). They are validated against
   each node type's fixed, catalog-declared port list - not against a
-  constructed node instance, since no current node type's ports depend
-  on its parameter values (only its *controls* change with mode, e.g.
-  Cylinder's radius/diameter/tapered switch never adds or removes ports).
+  constructed node instance. Dynamic parameter ports are checked against the
+  node's validated semantic parameters, so inactive alternatives cannot carry
+  hidden persisted connections. The loader also rejects cross-type edges with
+  a user-facing incompatible-socket-types error; no implicit conversions are
+  defined.
 
 Currently valid ports per node type
 (`NodeCatalogEntry.inputs`/`.outputs` in `node-catalog.ts`):
 
 ```text
-cube:          outputs: geometry
-cylinder:      outputs: geometry
-sphere:        outputs: geometry
-translate:     inputs: geometry            outputs: geometry
-rotate:        inputs: geometry            outputs: geometry
-scale:         inputs: geometry            outputs: geometry
+cube:          dynamic inputs: size | sizeX,sizeY,sizeZ | sizeVector; optional center (Boolean); outputs: geometry
+cylinder:      dynamic inputs: h, active r|d|r1,r2, optional center (Boolean), fn; outputs: geometry
+sphere:        dynamic inputs: active r|d, optional fn; outputs: geometry
+translate:     inputs: geometry + active x,y,z | vector; outputs: geometry
+rotate:        inputs: geometry + active x,y,z | vector; outputs: geometry
+scale:         inputs: geometry + active x,y,z | vector; outputs: geometry
 difference:    inputs: base, subtract      outputs: geometry
-union:         inputs: a, b                outputs: geometry
-intersection:  inputs: a, b                outputs: geometry
+union:         dynamic inputs: child:<id>   outputs: geometry
+intersection:  dynamic inputs: child:<id>   outputs: geometry
 ```
 
 Port-level addressing (rather than plain node-to-node edges) exists

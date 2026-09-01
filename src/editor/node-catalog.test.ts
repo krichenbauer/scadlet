@@ -90,7 +90,9 @@ describe('NODE_CATALOG', () => {
 
   it('every entry declares its stable input/output port ids', () => {
     expect(findCatalogEntry('cube')).toMatchObject({ inputs: [], outputs: ['geometry'] })
-    expect(findCatalogEntry('translate')).toMatchObject({ inputs: ['geometry', 'vector', 'x', 'y', 'z'], outputs: ['geometry'] })
+    expect(findCatalogEntry('translate')).toMatchObject({ inputs: ['geometry'], outputs: ['geometry'] })
+    expect(findCatalogEntry('translate')!.isInputPort!('x', { x: 0, y: 0, z: 0, representation: 'xyz' })).toBe(true)
+    expect(findCatalogEntry('translate')!.isInputPort!('vector', { x: 0, y: 0, z: 0, representation: 'vector' })).toBe(true)
     expect(findCatalogEntry('difference')).toMatchObject({ inputs: ['base', 'subtract'], outputs: ['geometry'] })
     expect(findCatalogEntry('union')).toMatchObject({ inputs: [], outputs: ['geometry'] })
   })

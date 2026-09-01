@@ -228,8 +228,7 @@ function renderNode(
     // parameter, rather than among generic node controls. It remains visible
     // whenever that parameter has a visible row.
     for (const control of representationControls) {
-      const relevantInputs = parameterInputs.filter(([key]) => key === control.parameterKey || control.parameterKey === 'size')
-      const visible = expanded || relevantInputs.some(([key]) => connectedInputKeys.has(key))
+      const visible = expanded || parameterInputs.some(([key]) => connectedInputKeys.has(key))
       if (visible) paramRows.appendChild(renderRepresentationHeader(control, connectedInputKeys.size > 0))
     }
     for (const [key, input] of [...connectedRows, ...unconnectedRows]) {
@@ -549,7 +548,7 @@ function renderRepresentationHeader(
   header.appendChild(label)
   const select = document.createElement('select')
   select.setAttribute('aria-label', `${control.label} representation`)
-  if (hasActiveConnections) select.title = 'Remove the active Size connections before switching representation.'
+  if (hasActiveConnections) select.title = `Remove the active ${control.label} connections before switching representation.`
   for (const option of control.options) {
     const item = document.createElement('option')
     item.value = option.value

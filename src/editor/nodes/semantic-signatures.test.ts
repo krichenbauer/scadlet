@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import { CubeNode } from './cube-node'
+import { CylinderNode } from './cylinder-node'
+import { RotateNode } from './rotate-node'
+import { ScaleNode } from './scale-node'
+import { SphereNode } from './sphere-node'
 import { TranslateNode } from './translate-node'
 import { UnionNode } from './union-node'
 import { parseScadletProject } from '../../persistence/validate'
@@ -85,11 +89,71 @@ describe('Milestone 6 semantic node signatures', () => {
     expect(dirtyCount).toBe(2)
   })
 
-  it('a whole Vector3 connection takes precedence over components', () => {
+  it('uses exactly one active vector representation and preserves XYZ literals', () => {
     const transform = new TranslateNode({ x: 1, y: 2, z: 3 })
-    expect(transform.data({ geometry: [{ code: 'cube();' }], vector: [{ code: 'offset' }], x: [{ code: 'x' }] }).geometry.code).toBe(
+    expect(Object.keys(transform.inputs)).toEqual(['geometry', 'x', 'y', 'z'])
+    transform.controls.vectorMode.setValue('vector')
+    expect(Object.keys(transform.inputs)).toEqual(['geometry', 'vector'])
+    expect(transform.data({ geometry: [{ code: 'cube();' }], vector: [{ code: 'offset' }] }).geometry.code).toBe(
       'translate(offset) {\n    cube();\n}',
     )
+    transform.controls.vectorMode.setValue('xyz')
+    expect([transform.controls.x.value, transform.controls.y.value, transform.controls.z.value]).toEqual([1, 2, 3])
+  })
+
+  it('shares the vector representation contract across Rotate and Scale', () => {
+    const rotate = new RotateNode({ x: 0, y: 90, z: 45, representation: 'vector' })
+    const scale = new ScaleNode({ x: 2, y: 3, z: 4 })
+    expect(Object.keys(rotate.inputs)).toEqual(['geometry', 'vector'])
+    expect(rotate.data({ geometry: [{ code: 'cube();' }], vector: [{ code: 'angles' }] }).geometry.code).toBe('rotate(angles) {\n    cube();\n}')
+    expect(Object.keys(scale.inputs)).toEqual(['geometry', 'x', 'y', 'z'])
+    expect(scale.data({ geometry: [{ code: 'cube();' }], y: [{ code: 'factor' }] }).geometry.code).toBe('scale([2, factor, 4]) {\n    cube();\n}')
+  })
+
+  it('refuses a representation switch when the active ports are connected', () => {
+    const transform = new TranslateNode({ x: 1, y: 2, z: 3 }, undefined, () => false)
+    transform.controls.vectorMode.setValue('vector')
+    expect(transform.controls.vectorMode.value).toBe('xyz')
+    expect(Object.keys(transform.inputs)).toEqual(['geometry', 'x', 'y', 'z'])
+
+    const cube = new CubeNode({ size: 10 }, undefined, () => false)
+    cube.controls.sizeMode!.setValue('xyz')
+    expect(cube.controls.sizeMode!.value).toBe('scalar')
+    expect(Object.keys(cube.inputs)).toContain('size')
+  })
+
+  it('keeps only active Cylinder and Sphere sizing ports', () => {
+    const cylinder = new CylinderNode({ mode: 'tapered', r1: 3, r2: 1 }, () => {})
+    expect(Object.keys(cylinder.inputs)).toEqual(['r1', 'r2'])
+    cylinder.controls.mode.setValue('diameter')
+    expect(Object.keys(cylinder.inputs)).toEqual(['d'])
+    const sphere = new SphereNode({ mode: 'radius', r: 5 }, () => {})
+    expect(Object.keys(sphere.inputs)).toEqual(['r'])
+    sphere.controls.mode.setValue('diameter')
+    expect(Object.keys(sphere.inputs)).toEqual(['d'])
+  })
+
+  it('gives Center a Boolean socket whose connection overrides its checkbox literal', () => {
+    const cube = new CubeNode({ size: 10, center: false }, () => {})
+    expect(cube.inputs.center?.socket.name).toBe('boolean')
+    expect(cube.data({ center: [{ code: 'is_centered' }] }).geometry.code).toBe('cube(10, center=is_centered);')
+    cube.controls.center!.setValue(true)
+    expect(cube.data({ center: [{ code: 'false' }] }).geometry.code).toBe('cube(10, center=false);')
+    expect(cube.data({}).geometry.code).toBe('cube(10, center=true);')
+    const cylinder = new CylinderNode({ h: 10, mode: 'radius', r: 5, center: false }, () => {})
+    expect(cylinder.inputs.center?.socket.name).toBe('boolean')
+    expect(cylinder.data({ center: [{ code: 'is_centered' }] }).geometry.code).toBe('cylinder(h=10, r=5, center=is_centered);')
+  })
+
+  it('round-trips a transform representation and retained XYZ literals through the v2 catalog state', () => {
+    const entry = findCatalogEntry('translate')!
+    const original = new TranslateNode({ x: 7, y: 8, z: 9 })
+    original.controls.vectorMode.setValue('vector')
+    const restored = entry.create({ onControlsChanged: () => {} }, entry.serializeParams(original)) as TranslateNode
+    expect(restored.getPersistedParams()).toEqual({ x: 7, y: 8, z: 9, representation: 'vector' })
+    expect(Object.keys(restored.inputs)).toEqual(['geometry', 'vector'])
+    restored.controls.vectorMode.setValue('xyz')
+    expect([restored.controls.x.value, restored.controls.y.value, restored.controls.z.value]).toEqual([7, 8, 9])
   })
 
   it('a variadic Union keeps ordered stable child ports and an extension slot', () => {

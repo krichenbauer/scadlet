@@ -3,7 +3,7 @@ import type { DataflowNode } from 'rete-engine'
 
 import { cubeToOpenSCAD, type CubeParams, type CubeSizeRepresentation, type Vector3Params } from '../../openscad/cube'
 import { CheckboxControl, LabeledNumberControl, ParameterActionsControl, RepresentationSelectControl, type ParameterAction } from '../controls'
-import { geometrySocket, numberSocket, vector3Socket, type GeometryValue, type NumberValue, type Vector3Value } from '../sockets'
+import { booleanSocket, geometrySocket, numberSocket, vector3Socket, type BooleanValue, type GeometryValue, type NumberValue, type Vector3Value } from '../sockets'
 
 type CubeControls = Record<string, ClassicPreset.Control> & {
   sizeMode?: RepresentationSelectControl<CubeSizeRepresentation>
@@ -27,13 +27,15 @@ const SIZE_REPRESENTATIONS: readonly { value: CubeSizeRepresentation; label: str
  * semantics. */
 export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { geometry: ClassicPreset.Socket }, CubeControls> implements DataflowNode {
   private readonly notify?: () => void
+  private readonly canSwitch?: () => boolean
   private representation: CubeSizeRepresentation | undefined
   private scalarLiteral: number
   private xyzLiteral: Vector3Params
 
-  constructor(params: Partial<CubeParams> = {}, notify?: () => void) {
+  constructor(params: Partial<CubeParams> = {}, notify?: () => void, canSwitch?: () => boolean) {
     super('Cube')
     this.notify = notify
+    this.canSwitch = canSwitch
     const legacyDefault = notify === undefined && Object.keys(params).length === 0
     const legacyVector = params.sizeX === undefined ? undefined : { x: params.sizeX, y: params.sizeY ?? params.sizeX, z: params.sizeZ ?? params.sizeX }
     const initialSize = params.size ?? legacyVector
@@ -75,6 +77,10 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
    * and ports. The editor prevents UI switches that would hide connections. */
   private switchRepresentation(next: CubeSizeRepresentation): void {
     if (!this.representation || next === this.representation) return
+    if (this.canSwitch && !this.canSwitch()) {
+      this.controls.sizeMode!.value = this.representation
+      return
+    }
     this.captureActiveLiteral()
     this.removeActiveRepresentation()
     this.representation = next
@@ -122,8 +128,17 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
     this.changed()
   }
 
-  private addCenter(value: boolean): void { if (!this.controls.center) this.addControl('center', new CheckboxControl('Center', value)) }
-  private removeCenter(): void { if (this.controls.center) { this.removeControl('center'); this.changed() } }
+  private addCenter(value: boolean): void {
+    if (this.controls.center) return
+    this.addInput('center', new ClassicPreset.Input(booleanSocket, 'Center'))
+    this.addControl('center', new CheckboxControl('Center', value))
+  }
+  private removeCenter(): void {
+    if (!this.controls.center) return
+    this.removeControl('center')
+    this.removeInput('center')
+    this.changed()
+  }
 
   getPersistedParams(): CubeParams {
     const params: CubeParams = {}
@@ -139,22 +154,32 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
     return params
   }
 
-  data(inputs: Record<string, (NumberValue | Vector3Value)[] | undefined>): { geometry: GeometryValue } {
+  data(inputs: Record<string, (NumberValue | Vector3Value | BooleanValue)[] | undefined>): { geometry: GeometryValue } {
     const params = this.getPersistedParams()
+    const center = inputs.center?.[0]?.code
+    const centerArgument = center ?? (params.center ? 'true' : undefined)
+    const fallback = (): string => {
+      if (!center) return cubeToOpenSCAD(params)
+      if (params.size === undefined) return `cube(center=${center});`
+      const size = typeof params.size === 'number'
+        ? String(params.size)
+        : `[${params.size.x}, ${params.size.y}, ${params.size.z}]`
+      return `cube(${size}, center=${center});`
+    }
     if (this.representation === 'vector') {
       const vector = inputs.sizeVector?.[0]?.code
-      return { geometry: { code: vector ? `cube(${vector}${params.center ? ', center=true' : ''});` : cubeToOpenSCAD(params) } }
+      return { geometry: { code: vector ? `cube(${vector}${centerArgument ? `, center=${centerArgument}` : ''});` : fallback() } }
     }
     if (this.representation === 'scalar') {
       const size = inputs.size?.[0]?.code
-      return { geometry: { code: size ? `cube(${size}${params.center ? ', center=true' : ''});` : cubeToOpenSCAD(params) } }
+      return { geometry: { code: size ? `cube(${size}${centerArgument ? `, center=${centerArgument}` : ''});` : fallback() } }
     }
     if (this.representation === 'xyz') {
       const x = inputs.sizeX?.[0]?.code ?? String(this.xyzLiteral.x)
       const y = inputs.sizeY?.[0]?.code ?? String(this.xyzLiteral.y)
       const z = inputs.sizeZ?.[0]?.code ?? String(this.xyzLiteral.z)
-      if (inputs.sizeX?.[0] || inputs.sizeY?.[0] || inputs.sizeZ?.[0]) return { geometry: { code: `cube([${x}, ${y}, ${z}]${params.center ? ', center=true' : ''});` } }
+      if (inputs.sizeX?.[0] || inputs.sizeY?.[0] || inputs.sizeZ?.[0] || center) return { geometry: { code: `cube([${x}, ${y}, ${z}]${centerArgument ? `, center=${centerArgument}` : ''});` } }
     }
-    return { geometry: { code: cubeToOpenSCAD(params) } }
+    return { geometry: { code: fallback() } }
   }
 }

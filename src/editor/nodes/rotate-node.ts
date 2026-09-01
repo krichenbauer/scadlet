@@ -8,7 +8,7 @@ import { VectorTransformNode } from './vector-transform-node'
  * shared node shape.
  */
 export class RotateNode extends VectorTransformNode {
-  constructor(params: Partial<Vector3Params> = {}) {
-    super('Rotate', { ...DEFAULT_ROTATE_PARAMS, ...params }, rotateToOpenSCAD)
+  constructor(params: Partial<Vector3Params> = {}, notify?: () => void, canSwitch?: () => boolean) {
+    super('Rotate', { ...DEFAULT_ROTATE_PARAMS, ...params }, rotateToOpenSCAD, notify, canSwitch)
   }
 }

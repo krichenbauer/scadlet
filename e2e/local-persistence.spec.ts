@@ -60,6 +60,28 @@ test('Cube Size add menu exposes one selected representation at a time', async (
   await expect(node.locator('[data-param-key="size"], [data-param-key="sizeX"], [data-param-key="sizeY"], [data-param-key="sizeZ"]')).toHaveCount(0)
 })
 
+test('vector transforms expose one representation and Center has a Boolean row', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  await page.getByRole('button', { name: 'Translate', exact: true }).click()
+  const translate = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Translate' }) })
+  await translate.locator('.node-pin').click()
+  await expect(translate.locator('[data-param-key="x"], [data-param-key="y"], [data-param-key="z"]')).toHaveCount(3)
+  await expect(translate.locator('[data-param-key="vector"]')).toHaveCount(0)
+  await translate.locator('[data-param-key="x"] input').fill('12')
+  await translate.locator('.node-param-header select').selectOption('vector')
+  await expect(translate.locator('[data-param-key="vector"]')).toHaveCount(1)
+  await expect(translate.locator('[data-param-key="x"], [data-param-key="y"], [data-param-key="z"]')).toHaveCount(0)
+  await translate.locator('.node-param-header select').selectOption('xyz')
+  await expect(translate.locator('[data-param-key="x"] input')).toHaveValue('12')
+
+  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
+  await cube.locator('.node-pin').click()
+  await cube.getByRole('button', { name: '+ Center', exact: true }).click()
+  await expect(cube.locator('[data-param-key="center"] input[type="checkbox"]')).toHaveCount(1)
+  await expect(cube.locator('[data-param-key="center"] .node-socket[data-socket-type="boolean"]')).toHaveCount(1)
+})
+
 test('autosaves canonical graph state and restores it after reload', async ({ page }) => {
   await waitForLocalLibrary(page)
   await renameProject(page, 'Persistent Cube')

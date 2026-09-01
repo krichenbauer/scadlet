@@ -15,6 +15,11 @@ import { validateCubeParams } from '../openscad/cube'
 import { validateCylinderParams } from '../openscad/cylinder'
 import { validateSphereParams } from '../openscad/sphere'
 import { validateVector3Params } from '../openscad/transform'
+import type { CubeParams } from '../openscad/cube'
+import type { CylinderParams } from '../openscad/cylinder'
+import type { SphereParams } from '../openscad/sphere'
+import type { Vector3Params } from '../openscad/transform'
+import type { SocketType } from './sockets'
 
 /** MIME type used to carry a node-catalog `type` id through native HTML drag-and-drop (see `node-palette.ts`/`node-editor.ts`). */
 export const NODE_DRAG_MIME_TYPE = 'application/x-scadlet-node-type'
@@ -54,6 +59,10 @@ export interface NodeCreationContext {
    * to supply it.
    */
   notifyDirty?(): void
+  /** Whether a representation-changing node may replace its currently
+   * active parameter ports. Returning false protects live connections from
+   * becoming hidden even if a caller bypasses the disabled DOM selector. */
+  canSwitchRepresentation?(nodeId: string): boolean
 }
 
 export interface NodeCatalogEntry {
@@ -66,6 +75,11 @@ export interface NodeCatalogEntry {
   /** Dynamic semantic input identities (currently variadic Boolean child
    * slots) validate against the node's persisted parameter state. */
   isInputPort?(port: string, parameters: Record<string, unknown>): boolean
+  /** Semantic socket type for an active persisted port. This is deliberately
+   * catalog metadata, not a renderer/CSS inference, so file validation uses
+   * the same typing rule as live graph creation. */
+  inputSocketType(port: string, parameters: Record<string, unknown>): SocketType | undefined
+  outputSocketType(port: string): SocketType | undefined
   /**
    * Creates a node of this type. With no `params`, uses the same
    * defaults palette creation always has. `params`, when given, must
@@ -191,9 +205,22 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     labelKey: 'node.cube',
     inputs: [],
     outputs: ['geometry'],
+    isInputPort: (port, parameters) => {
+      const params = parameters as unknown as CubeParams
+      if (port === 'center') return params.center !== undefined
+      if (params.sizeRepresentation === 'scalar') return port === 'size'
+      if (params.sizeRepresentation === 'xyz') return ['sizeX', 'sizeY', 'sizeZ'].includes(port)
+      return params.sizeRepresentation === 'vector' && port === 'sizeVector'
+    },
+    inputSocketType: (port) => port === 'center' ? 'boolean' : port === 'sizeVector' ? 'vector3' : ['size', 'sizeX', 'sizeY', 'sizeZ'].includes(port) ? 'number' : undefined,
+    outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
     create: (context, params) => {
       let node!: CubeNode
-      node = new CubeNode(params ? validateCubeParams(params) : undefined, () => context.onControlsChanged(node.id))
+      node = new CubeNode(
+        params ? validateCubeParams(params) : undefined,
+        () => context.onControlsChanged(node.id),
+        () => context.canSwitchRepresentation?.(node.id) ?? true,
+      )
       return node
     },
     matches: (node) => node instanceof CubeNode,
@@ -206,6 +233,17 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     labelKey: 'node.cylinder',
     inputs: [],
     outputs: ['geometry'],
+    isInputPort: (port, parameters) => {
+      const params = parameters as unknown as CylinderParams
+      if (port === 'h') return params.h !== undefined
+      if (port === 'center') return params.center !== undefined
+      if (port === 'fn') return params.fn !== undefined
+      if (params.mode === 'radius') return port === 'r' && params.r !== undefined
+      if (params.mode === 'diameter') return port === 'd' && params.d !== undefined
+      return params.mode === 'tapered' && ((port === 'r1' && params.r1 !== undefined) || (port === 'r2' && params.r2 !== undefined))
+    },
+    inputSocketType: (port) => port === 'center' ? 'boolean' : ['h', 'r', 'd', 'r1', 'r2', 'fn'].includes(port) ? 'number' : undefined,
+    outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
     create: (context, params) => {
       const node = new CylinderNode(
         params ? validateCylinderParams(params) : {},
@@ -223,6 +261,14 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     labelKey: 'node.sphere',
     inputs: [],
     outputs: ['geometry'],
+    isInputPort: (port, parameters) => {
+      const params = parameters as unknown as SphereParams
+      if (port === 'fn') return params.fn !== undefined
+      return (params.mode === 'radius' && port === 'r' && params.r !== undefined)
+        || (params.mode === 'diameter' && port === 'd' && params.d !== undefined)
+    },
+    inputSocketType: (port) => ['r', 'd', 'fn'].includes(port) ? 'number' : undefined,
+    outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
     create: (context, params) => {
       const node = new SphereNode(
         params ? validateSphereParams(params) : {},
@@ -238,9 +284,24 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'translate',
     category: 'transformations',
     labelKey: 'node.translate',
-    inputs: ['geometry', 'vector', 'x', 'y', 'z'],
+    inputs: ['geometry'],
     outputs: ['geometry'],
-    create: (_context, params) => new TranslateNode(params ? validateVector3Params(params, 'Translate') : undefined),
+    isInputPort: (port, parameters) => {
+      const params = parameters as unknown as Vector3Params
+      return (params.representation === 'vector' && port === 'vector')
+        || ((params.representation ?? 'xyz') === 'xyz' && ['x', 'y', 'z'].includes(port))
+    },
+    inputSocketType: (port) => port === 'geometry' ? 'geometry' : port === 'vector' ? 'vector3' : ['x', 'y', 'z'].includes(port) ? 'number' : undefined,
+    outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
+    create: (context, params) => {
+      let node!: TranslateNode
+      node = new TranslateNode(
+        params ? validateVector3Params(params, 'Translate') : undefined,
+        () => context.onControlsChanged(node.id),
+        () => context.canSwitchRepresentation?.(node.id) ?? true,
+      )
+      return node
+    },
     matches: (node) => node instanceof TranslateNode,
     serializeParams: (node) => (node as TranslateNode).getPersistedParams() as unknown as Record<string, unknown>,
     validateParams: (value) => validateVector3Params(value, 'Translate') as unknown as Record<string, unknown>,
@@ -249,9 +310,24 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'rotate',
     category: 'transformations',
     labelKey: 'node.rotate',
-    inputs: ['geometry', 'vector', 'x', 'y', 'z'],
+    inputs: ['geometry'],
     outputs: ['geometry'],
-    create: (_context, params) => new RotateNode(params ? validateVector3Params(params, 'Rotate') : undefined),
+    isInputPort: (port, parameters) => {
+      const params = parameters as unknown as Vector3Params
+      return (params.representation === 'vector' && port === 'vector')
+        || ((params.representation ?? 'xyz') === 'xyz' && ['x', 'y', 'z'].includes(port))
+    },
+    inputSocketType: (port) => port === 'geometry' ? 'geometry' : port === 'vector' ? 'vector3' : ['x', 'y', 'z'].includes(port) ? 'number' : undefined,
+    outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
+    create: (context, params) => {
+      let node!: RotateNode
+      node = new RotateNode(
+        params ? validateVector3Params(params, 'Rotate') : undefined,
+        () => context.onControlsChanged(node.id),
+        () => context.canSwitchRepresentation?.(node.id) ?? true,
+      )
+      return node
+    },
     matches: (node) => node instanceof RotateNode,
     serializeParams: (node) => (node as RotateNode).getPersistedParams() as unknown as Record<string, unknown>,
     validateParams: (value) => validateVector3Params(value, 'Rotate') as unknown as Record<string, unknown>,
@@ -260,9 +336,24 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'scale',
     category: 'transformations',
     labelKey: 'node.scale',
-    inputs: ['geometry', 'vector', 'x', 'y', 'z'],
+    inputs: ['geometry'],
     outputs: ['geometry'],
-    create: (_context, params) => new ScaleNode(params ? validateVector3Params(params, 'Scale') : undefined),
+    isInputPort: (port, parameters) => {
+      const params = parameters as unknown as Vector3Params
+      return (params.representation === 'vector' && port === 'vector')
+        || ((params.representation ?? 'xyz') === 'xyz' && ['x', 'y', 'z'].includes(port))
+    },
+    inputSocketType: (port) => port === 'geometry' ? 'geometry' : port === 'vector' ? 'vector3' : ['x', 'y', 'z'].includes(port) ? 'number' : undefined,
+    outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
+    create: (context, params) => {
+      let node!: ScaleNode
+      node = new ScaleNode(
+        params ? validateVector3Params(params, 'Scale') : undefined,
+        () => context.onControlsChanged(node.id),
+        () => context.canSwitchRepresentation?.(node.id) ?? true,
+      )
+      return node
+    },
     matches: (node) => node instanceof ScaleNode,
     serializeParams: (node) => (node as ScaleNode).getPersistedParams() as unknown as Record<string, unknown>,
     validateParams: (value) => validateVector3Params(value, 'Scale') as unknown as Record<string, unknown>,
@@ -273,6 +364,8 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     labelKey: 'node.difference',
     inputs: ['base', 'subtract'],
     outputs: ['geometry'],
+    inputSocketType: () => 'geometry',
+    outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
     create: () => new DifferenceNode(),
     matches: (node) => node instanceof DifferenceNode,
     serializeParams: validateEmptyParams,
@@ -284,6 +377,8 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     labelKey: 'node.union',
     inputs: [],
     outputs: ['geometry'],
+    inputSocketType: (port, params) => (params as unknown as VariadicBooleanParams).children.some((child) => port === `child:${child.id}` || port === child.id) ? 'geometry' : undefined,
+    outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
     create: (_context, params) => new UnionNode(params ? validateVariadicBooleanParams(params) : {}, false),
     matches: (node) => node instanceof UnionNode,
     serializeParams: (node) => (node as UnionNode).getPersistedParams() as unknown as Record<string, unknown>,
@@ -296,6 +391,8 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     labelKey: 'node.intersection',
     inputs: [],
     outputs: ['geometry'],
+    inputSocketType: (port, params) => (params as unknown as VariadicBooleanParams).children.some((child) => port === `child:${child.id}` || port === child.id) ? 'geometry' : undefined,
+    outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
     create: (_context, params) => new IntersectionNode(params ? validateVariadicBooleanParams(params) : {}, false),
     matches: (node) => node instanceof IntersectionNode,
     serializeParams: (node) => (node as IntersectionNode).getPersistedParams() as unknown as Record<string, unknown>,
@@ -321,6 +418,7 @@ export const NODE_CATALOG: readonly NodeCatalogEntry[] = CATALOG_ENTRIES.map((en
         context.onControlsChanged(nodeId)
       },
       notifyDirty: context.notifyDirty,
+      canSwitchRepresentation: context.canSwitchRepresentation,
     }
     node = entry.create(wrappedContext, params)
     wireDirtyNotifications(node, context.notifyDirty)

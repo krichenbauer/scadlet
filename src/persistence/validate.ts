@@ -210,6 +210,14 @@ function validateConnection(
     throw new ScadletProjectError(`Connection "${raw.id}" references unknown target port "${targetInput}" on node "${target}"`)
   }
 
+  const sourceType = sourceEntry.outputSocketType(sourceOutput)
+  const targetType = targetEntry.inputSocketType(targetInput, targetNode.parameters)
+  if (!sourceType || !targetType || sourceType !== targetType) {
+    throw new ScadletProjectError(
+      `Connection "${raw.id}" has incompatible socket types: ${sourceType ?? 'unknown'} output cannot connect to ${targetType ?? 'unknown'} input.`,
+    )
+  }
+
   return { id: raw.id, source, sourceOutput, target, targetInput }
 }
 

@@ -1055,6 +1055,18 @@ connection-only whole-Vector3 input. The representation selector belongs in
 the Size header. When its active ports have connections, alternatives are
 disabled in the UI rather than silently hiding or removing graph semantics.
 
+Milestone 6 consistency baseline: Translate, Rotate, and Scale follow the
+same one-vector model as Cube Size. Each uses exactly one active **XYZ** or
+connection-only **Vector** representation, retains XYZ literals across
+switches, and refuses a representation change while its active parameter
+ports are connected. Cylinder and Sphere expose only their active sizing-mode
+ports. `center` is a Boolean parameter socket wherever supported; its Boolean
+connection overrides (and disables) the checkbox literal without discarding
+that literal. The closed socket vocabulary is Geometry, Number, Vector3, and
+Boolean, with diagonal-only compatibility enforced before live Rete graph
+mutation and during `.scadlet` validation. No production value-source nodes
+belong here; those remain Milestone 7 work.
+
 ### Milestone 7 — Typed values and simple dataflow
 
 Add value-driven parameters and a small supporting math layer on top of the Milestone 6 input model.
