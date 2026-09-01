@@ -641,6 +641,16 @@ A storage/database ID is not automatically part of the portable `.scadlet` file 
 
 The purpose of browser persistence is that useful work survives reloads and closed browser windows. Exact autosave timing/debounce is an implementation detail to choose simply; do not build a synchronization framework or render-style queue merely for autosave.
 
+Current implementation choices:
+
+- `src/persistence/local-project-store.ts` uses native IndexedDB with database schema version 1 and stores a small record wrapper (`id`, `revision`, local timestamps) around the validated canonical `ScadletProjectV1` payload. The IndexedDB schema version and `.scadlet` format version remain independent.
+- Local IDs use `crypto.randomUUID()` and are unrelated to names, filenames, or graph/node IDs. External `.scadlet` Open always imports a new local record.
+- This tab's active ID is kept in `sessionStorage`. Startup restores that ID when valid, otherwise opens the most recently updated local project, otherwise creates one empty project.
+- Autosave uses the existing dirty notifications with a 750 ms debounce and one in-flight write at a time. Generation tracking prevents an older completion from marking newer edits clean.
+- Revision comparison and update happen atomically in one IndexedDB read/write transaction. Web Locks are not used because they do not add correctness beyond this transaction plus the authoritative revision check.
+- `BroadcastChannel` carries only create/save/delete identity and revision notifications. A same-project update blocks autosave and offers explicit reload or save-as-local-copy recovery; it never merges or overwrites automatically.
+- `navigator.storage.persist()` is requested once per tab after local storage is successfully established. Absence or denial is non-fatal, as is BroadcastChannel absence.
+
 ### Multiple tabs/windows
 
 Different SCADlet tabs/windows must be able to work on different local projects independently.
@@ -965,7 +975,7 @@ Render performance was also profiled at this stage. The current OpenSCAD WASM pa
 
 The editor also supports **Inspect Node** as a temporary preview root: an intermediate node and its upstream dependency subtree can be rendered without modifying normal graph semantics.
 
-### Milestone 5 — Project persistence / save and load (next)
+### Milestone 5 — Project persistence / save and load (complete)
 
 Implement persistence in three layers, in this order:
 
@@ -987,6 +997,8 @@ Implement persistence in three layers, in this order:
    - use revision-based optimistic concurrency so two tabs editing the same project cannot silently overwrite one another
    - use `BroadcastChannel` for lightweight cross-tab project-library notifications
    - optionally use short per-project Web Locks where supported, while keeping revision checks authoritative
+
+All three layers are implemented. The local-library implementation intentionally relies on atomic IndexedDB revision checks rather than Web Locks.
 
 Do not serialize transient hover, marquee, ordinary selection, drag state, or temporary Inspect state. Do not add collaborative merging, accounts, cloud sync, GitHub storage, or an application backend in this milestone.
 

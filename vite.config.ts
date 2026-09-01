@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 export default defineConfig({
   optimizeDeps: {
@@ -18,8 +18,9 @@ export default defineConfig({
     include: ['openscad-wasm-prebuilt'],
   },
   test: {
-    // Current tests are pure logic (src/openscad/*), no DOM needed.
+    // Unit tests are DOM-free (the IndexedDB suite injects
+    // fake-indexeddb); real browser scenarios live under e2e/.
     environment: 'node',
+    exclude: [...configDefaults.exclude, 'e2e/**'],
   },
 })
-

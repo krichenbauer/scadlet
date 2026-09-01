@@ -15,7 +15,9 @@
           nodejs_24
           pnpm
           git
+          chromium
         ];
+        PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH = "${pkgs.chromium}/bin/chromium";
       };
     };
 }

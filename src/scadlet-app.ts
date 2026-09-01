@@ -9,9 +9,18 @@ import './components/node-palette'
 import type { NodeEditorElement } from './components/node-editor'
 import type { GeometryViewer } from './components/geometry-viewer'
 import type { SCADletEditor } from './editor/editor'
+import { ActiveProjectSession, createBrowserActiveProjectSession, resolveStartupProject } from './persistence/active-project'
+import { AutosaveController, type AutosaveStatus } from './persistence/autosave'
 import { toScadletFilename } from './persistence/filename'
 import { createBrowserFileSystemCapability, pickFileWithInput, ProjectFileService } from './persistence/file-service'
-import { UNTITLED_PROJECT_NAME, type ScadletProjectMetadata, type ScadletProjectV1 } from './persistence/project'
+import {
+  IndexedDBLocalProjectStore,
+  type LocalProjectStore,
+  type ProjectSummary,
+  type StoredProject,
+} from './persistence/local-project-store'
+import { createEmptyProject, UNTITLED_PROJECT_NAME, type ScadletProjectMetadata, type ScadletProjectV1 } from './persistence/project'
+import { LocalProjectEvents, type LocalProjectEvent } from './persistence/project-events'
 import { restoreProject } from './persistence/restore'
 import { serializeProject } from './persistence/serialize'
 import { RenderController } from './render/render-controller'
@@ -87,6 +96,27 @@ export class ScadletApp extends LitElement {
     .dirty-indicator {
       color: #f2b134;
       font-size: 10px;
+    }
+
+    .project-picker {
+      max-width: 180px;
+      font: inherit;
+      padding: 4px 6px;
+    }
+
+    .persistence-status {
+      margin: 0;
+      padding: 6px 10px;
+      background: #453b1f;
+      color: #ffe39a;
+      font-size: 12px;
+      border-top: 1px solid #75652f;
+    }
+
+    .persistence-actions {
+      display: inline-flex;
+      gap: 6px;
+      margin-left: 8px;
     }
 
     .toolbar-gap {
@@ -211,6 +241,13 @@ export class ScadletApp extends LitElement {
   })
   private unsubscribeDirty?: () => void
   private unsubscribeCameraDirty?: () => void
+  private localStore: LocalProjectStore | null = null
+  private activeProjectSession: ActiveProjectSession | null = null
+  private localEvents: LocalProjectEvents | null = null
+  private unsubscribeLocalEvents?: () => void
+  private autosave?: AutosaveController
+  private editorInstance?: SCADletEditor
+  private activeRevision = 0
   /** Whether the user has ever explicitly set a project name (see `_ensureProjectName`) - distinct from the name merely still being the placeholder string, since a project could legitimately be named that on purpose. */
   private hasExplicitName = false
 
@@ -220,6 +257,21 @@ export class ScadletApp extends LitElement {
   /** Unsaved-changes indicator. Covers node/connection add/remove/move, pin state, and project-name edits (see `editor/editor.ts`'s `onDirty` for what it does and does not cover). */
   @state()
   private dirty = false
+
+  @state()
+  private localProjects: ProjectSummary[] = []
+
+  @state()
+  private activeProjectId: string | null = null
+
+  @state()
+  private localInitializing = true
+
+  @state()
+  private autosaveStatus: AutosaveStatus = 'idle'
+
+  @state()
+  private persistenceMessage: string | null = null
 
   @state()
   private scadSource = ''
@@ -255,19 +307,45 @@ export class ScadletApp extends LitElement {
     return html`
       <header>
         <h1>SCADlet</h1>
+        <button type="button" @click=${this._newProject} ?disabled=${this.localInitializing || !this.localStore}>
+          New
+        </button>
+        <select
+          class="project-picker"
+          aria-label="Local project"
+          .value=${this.activeProjectId ?? ''}
+          @change=${this._onLocalProjectSelected}
+          ?disabled=${this.localInitializing || !this.localStore || this.localProjects.length === 0}
+        >
+          ${this.localProjects.map(
+            (project) => html`<option value=${project.id} ?selected=${project.id === this.activeProjectId}>
+              ${project.name}
+            </option>`,
+          )}
+        </select>
+        <button
+          type="button"
+          @click=${this._deleteCurrentProject}
+          ?disabled=${this.localInitializing || !this.localStore || !this.activeProjectId}
+        >
+          Delete
+        </button>
         <input
           type="text"
           class="project-name"
           .value=${this.projectMetadata.name}
           @change=${this._onProjectNameChange}
+          ?disabled=${this.localInitializing}
           aria-label="Project name"
         />
-        ${this.dirty ? html`<span class="dirty-indicator" title="Unsaved changes">●</span>` : nothing}
+        ${this.dirty
+          ? html`<span class="dirty-indicator" title="Changes waiting for local autosave">●</span>`
+          : nothing}
         <span class="toolbar-gap"></span>
-        <button type="button" @click=${this._open}>Open</button>
-        <button type="button" @click=${this._save}>Save</button>
-        <button type="button" @click=${this._saveAs}>Save As</button>
-        <button type="button" @click=${this._render} ?disabled=${this.rendering}>
+        <button type="button" @click=${this._open} ?disabled=${this.localInitializing}>Open</button>
+        <button type="button" @click=${this._save} ?disabled=${this.localInitializing}>Save</button>
+        <button type="button" @click=${this._saveAs} ?disabled=${this.localInitializing}>Save As</button>
+        <button type="button" @click=${this._render} ?disabled=${this.localInitializing || this.rendering}>
           ${this.rendering ? 'Rendering…' : 'Render'}
         </button>
         <button type="button" @click=${this._stop} ?disabled=${!this.rendering}>Stop</button>
@@ -277,9 +355,9 @@ export class ScadletApp extends LitElement {
         <button type="button" @click=${this._downloadStl} ?disabled=${!this.stl}>Download .stl</button>
       </header>
       <div class="workspace">
-        <node-palette @node-palette-pick=${this._onPalettePick}></node-palette>
+        <node-palette .inert=${this.localInitializing} @node-palette-pick=${this._onPalettePick}></node-palette>
         <main style=${styleMap({ '--editor-width': this.editorWidth ? `${this.editorWidth}px` : undefined })}>
-          <node-editor></node-editor>
+          <node-editor .inert=${this.localInitializing}></node-editor>
           <layout-splitter orientation="vertical" @splitter-move=${this._onMainSplitterMove}></layout-splitter>
           <div
             class="side"
@@ -289,6 +367,17 @@ export class ScadletApp extends LitElement {
             <layout-splitter orientation="horizontal" @splitter-move=${this._onSideSplitterMove}></layout-splitter>
             <div class="bottom-panel">
               <pre class="scad-output">${this.scadSource || '// click "Render" to see the generated source'}</pre>
+              ${this.persistenceMessage
+                ? html`<p class="persistence-status">
+                    ${this.persistenceMessage}
+                    ${this.autosaveStatus === 'conflict'
+                      ? html`<span class="persistence-actions">
+                          <button type="button" @click=${this._reloadConflictedProject}>Reload stored version</button>
+                          <button type="button" @click=${this._saveConflictAsCopy}>Save current as a new project</button>
+                        </span>`
+                      : nothing}
+                  </p>`
+                : nothing}
               ${this.renderError ? html`<pre class="render-error">${this.renderError}</pre>` : nothing}
             </div>
           </div>
@@ -303,14 +392,270 @@ export class ScadletApp extends LitElement {
     this.sideResizeObserver = new ResizeObserver(() => this._clampViewerHeight())
     this.sideResizeObserver.observe(this.sideEl)
 
-    void this.nodeEditor.whenReady().then((instance) => {
-      this.unsubscribeDirty = instance.onDirty(() => {
-        this.dirty = true
-      })
+    void this._initializeLocalPersistence()
+  }
+
+  private async _initializeLocalPersistence(): Promise<void> {
+    const instance = await this.nodeEditor.whenReady()
+    await this.viewer.updateComplete
+    this.editorInstance = instance
+
+    try {
+      const store = new IndexedDBLocalProjectStore()
+      const session = createBrowserActiveProjectSession()
+      const stored = await resolveStartupProject(store, session)
+
+      this.localStore = store
+      this.activeProjectSession = session
+      await this._applyStoredProject(stored, false)
+
+      try {
+        this.localEvents = new LocalProjectEvents()
+        this.unsubscribeLocalEvents = this.localEvents.subscribe((event) => this._handleLocalProjectEvent(event))
+      } catch {
+        // Cross-tab notification is optional. IndexedDB's atomic
+        // revision check still prevents stale writes without it.
+        this.localEvents = null
+      }
+      await this._refreshProjectList()
+      void this._requestPersistentStorageOnce()
+    } catch (error) {
+      // IndexedDB/session storage may be unavailable (privacy mode,
+      // policy, quota, corruption). The existing file Open/Save path is
+      // intentionally still fully usable in this degraded mode.
+      this.localStore = null
+      this.activeProjectSession = null
+      this.activeProjectId = null
+      this.activeRevision = 0
+      this.persistenceMessage = `Local project storage is unavailable. You can still use Open and Save: ${this._errorMessage(error)}`
+    } finally {
+      this.unsubscribeDirty = instance.onDirty(() => this._markDirty())
+      this.unsubscribeCameraDirty = this.viewer.onCameraChange(() => this._markDirty())
+      this.localInitializing = false
+    }
+  }
+
+  private _enableAutosave(instance: SCADletEditor): void {
+    this.autosave?.destroy()
+    this.autosave = new AutosaveController({
+      debounceMs: 750,
+      capture: () => this._buildProject(instance),
+      save: async (project) => {
+        if (!this.localStore || !this.activeProjectId) throw new Error('No active local project.')
+        return this.localStore.saveProject(this.activeProjectId, this.activeRevision, project)
+      },
+      onPersisted: (stored, isCurrentGeneration) => {
+        this.activeRevision = stored.revision
+        if (isCurrentGeneration) this.projectMetadata = stored.project.metadata
+        this.localEvents?.publish({ type: 'project-saved', projectId: stored.id, revision: stored.revision })
+        void this._refreshProjectList()
+        void this._requestPersistentStorageOnce()
+      },
+      onStateChange: (state) => {
+        this.dirty = state.dirty
+        this.autosaveStatus = state.status
+        this.persistenceMessage = state.message
+      },
     })
-    this.unsubscribeCameraDirty = this.viewer.onCameraChange(() => {
-      this.dirty = true
-    })
+  }
+
+  private _markDirty(): void {
+    if (this.autosave) {
+      this.autosave.markDirty()
+      return
+    }
+    // Degraded file-only mode retains the original unsaved-change
+    // signal. A successful explicit file save clears it below.
+    this.dirty = true
+  }
+
+  private async _refreshProjectList(): Promise<void> {
+    if (!this.localStore) return
+    try {
+      this.localProjects = await this.localStore.listProjects()
+    } catch (error) {
+      this.persistenceMessage = `Could not read the local project list: ${this._errorMessage(error)}`
+    }
+  }
+
+  private async _applyStoredProject(stored: StoredProject, clearFileHandle = true): Promise<void> {
+    if (!this.editorInstance) throw new Error('The node editor is not ready.')
+    await this._restoreProject(stored.project)
+    this.activeProjectId = stored.id
+    this.activeRevision = stored.revision
+    this.activeProjectSession?.set(stored.id)
+    this.projectMetadata = stored.project.metadata
+    this.hasExplicitName = stored.project.metadata.name !== UNTITLED_PROJECT_NAME
+    if (!this.autosave && this.localStore) this._enableAutosave(this.editorInstance)
+    else this.autosave?.resetClean()
+    this.dirty = false
+    this.autosaveStatus = 'idle'
+    this.persistenceMessage = null
+    if (clearFileHandle) this.fileService.clearHandle()
+    this._clearRenderedOutput()
+  }
+
+  private async _restoreProject(project: ScadletProjectV1): Promise<void> {
+    const instance = this.editorInstance ?? (await this.nodeEditor.whenReady())
+    await instance.withDirtyTrackingSuspended(() =>
+      restoreProject(project, {
+        editor: instance.editor,
+        creationContext: instance.creationContext,
+        setNodePosition: async (id, position) => {
+          await instance.area.translate(id, position)
+        },
+        setPinned: (id, pinned) => instance.setPinned(id, pinned),
+        setViewport: async ({ x, y, k }) => {
+          await instance.area.area.translate(x, y)
+          await instance.area.area.zoom(k, 0, 0)
+        },
+        setViewerCamera: (camera) => this.viewer.setCameraState(camera),
+      }),
+    )
+  }
+
+  private _clearRenderedOutput(): void {
+    this.renderError = null
+    this.scadSource = ''
+    this.exportSource = ''
+    this.stl = null
+    this.viewer.clear()
+  }
+
+  private async _canLeaveCurrentProject(): Promise<boolean> {
+    if (!this.autosave) return !this.dirty || window.confirm('Discard changes that have not been saved to a file?')
+    const saved = await this.autosave.flush()
+    if (!saved) {
+      this.persistenceMessage ??= 'Could not autosave this project, so SCADlet did not switch projects.'
+    }
+    return saved
+  }
+
+  private readonly _onLocalProjectSelected = (event: Event): void => {
+    const id = (event.target as HTMLSelectElement).value
+    if (!id || id === this.activeProjectId) return
+    void this._switchLocalProject(id)
+  }
+
+  private async _switchLocalProject(id: string): Promise<void> {
+    if (!this.localStore || !(await this._canLeaveCurrentProject())) {
+      this.requestUpdate()
+      return
+    }
+    try {
+      const stored = await this.localStore.getProject(id)
+      if (!stored) throw new Error('That local project no longer exists.')
+      await this._applyStoredProject(stored)
+      await this._refreshProjectList()
+    } catch (error) {
+      this.persistenceMessage = `Could not open the local project: ${this._errorMessage(error)}`
+      this.requestUpdate()
+    }
+  }
+
+  private readonly _newProject = (): void => {
+    void this._createNewProject()
+  }
+
+  private async _createNewProject(): Promise<void> {
+    if (!this.localStore || !(await this._canLeaveCurrentProject())) return
+    try {
+      const stored = await this.localStore.createProject(createEmptyProject())
+      await this._applyStoredProject(stored)
+      this.localEvents?.publish({ type: 'project-created', projectId: stored.id, revision: stored.revision })
+      await this._refreshProjectList()
+    } catch (error) {
+      this.persistenceMessage = `Could not create a local project: ${this._errorMessage(error)}`
+    }
+  }
+
+  private readonly _deleteCurrentProject = (): void => {
+    void this._deleteActiveProject()
+  }
+
+  private async _deleteActiveProject(): Promise<void> {
+    if (!this.localStore || !this.activeProjectId) return
+    if (!window.confirm(`Delete "${this.projectMetadata.name}" from this browser? Exported files are not affected.`)) return
+    if (!(await this._canLeaveCurrentProject())) return
+
+    const deletedId = this.activeProjectId
+    try {
+      await this.localStore.deleteProject(deletedId)
+      this.activeProjectSession?.clear()
+      this.localEvents?.publish({ type: 'project-deleted', projectId: deletedId })
+      const replacement = await resolveStartupProject(this.localStore, this.activeProjectSession!)
+      await this._applyStoredProject(replacement)
+      await this._refreshProjectList()
+    } catch (error) {
+      this.persistenceMessage = `Could not delete the local project: ${this._errorMessage(error)}`
+    }
+  }
+
+  private _handleLocalProjectEvent(event: LocalProjectEvent): void {
+    void this._refreshProjectList()
+    if (event.projectId !== this.activeProjectId) return
+
+    if (event.type === 'project-deleted') {
+      this.autosave?.markConflict('This project was deleted in another SCADlet tab. Your current work is still open here.')
+      return
+    }
+    if (event.revision > this.activeRevision) this.autosave?.markConflict()
+  }
+
+  private readonly _reloadConflictedProject = (): void => {
+    void this._reloadStoredProject()
+  }
+
+  private async _reloadStoredProject(): Promise<void> {
+    if (!this.localStore || !this.activeProjectId) return
+    if (this.dirty && !window.confirm('Reload the stored version and discard this tab\'s unsaved changes?')) return
+    try {
+      const stored = await this.localStore.getProject(this.activeProjectId)
+      if (!stored) throw new Error('The local project was deleted.')
+      await this._applyStoredProject(stored, false)
+      await this._refreshProjectList()
+    } catch (error) {
+      this.persistenceMessage = `Could not reload the stored project: ${this._errorMessage(error)}`
+    }
+  }
+
+  private readonly _saveConflictAsCopy = (): void => {
+    void this._saveCurrentAsLocalCopy()
+  }
+
+  private async _saveCurrentAsLocalCopy(): Promise<void> {
+    if (!this.localStore || !this.editorInstance) return
+    try {
+      const stored = await this.localStore.createProject(this._buildProject(this.editorInstance))
+      this.activeProjectId = stored.id
+      this.activeRevision = stored.revision
+      this.activeProjectSession?.set(stored.id)
+      this.projectMetadata = stored.project.metadata
+      this.fileService.clearHandle()
+      this.autosave?.resetClean()
+      this.localEvents?.publish({ type: 'project-created', projectId: stored.id, revision: stored.revision })
+      await this._refreshProjectList()
+    } catch (error) {
+      this.persistenceMessage = `Could not save a local copy: ${this._errorMessage(error)}`
+    }
+  }
+
+  private async _requestPersistentStorageOnce(): Promise<void> {
+    const storage = navigator.storage
+    if (!storage?.persist) return
+    const marker = 'scadlet.persistRequested'
+    try {
+      if (window.sessionStorage.getItem(marker)) return
+      window.sessionStorage.setItem(marker, '1')
+      await storage.persist()
+    } catch {
+      // Optional eviction protection only. Denial/unavailability never
+      // changes correctness or interrupts normal project persistence.
+    }
+  }
+
+  private _errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error)
   }
 
   connectedCallback(): void {
@@ -359,10 +704,13 @@ export class ScadletApp extends LitElement {
   }
 
   private _onProjectNameChange(event: Event): void {
-    const value = (event.target as HTMLInputElement).value
-    this.projectMetadata = { ...this.projectMetadata, name: value }
-    this.hasExplicitName = value.trim().length > 0
-    this.dirty = true
+    const input = event.target as HTMLInputElement
+    const trimmed = input.value.trim()
+    const name = trimmed || UNTITLED_PROJECT_NAME
+    input.value = name
+    this.projectMetadata = { ...this.projectMetadata, name }
+    this.hasExplicitName = trimmed.length > 0
+    this._markDirty()
   }
 
   /**
@@ -381,6 +729,7 @@ export class ScadletApp extends LitElement {
 
     this.projectMetadata = { ...this.projectMetadata, name: trimmed }
     this.hasExplicitName = true
+    this._markDirty()
     return trimmed
   }
 
@@ -396,7 +745,7 @@ export class ScadletApp extends LitElement {
   }
 
   private async _open(): Promise<void> {
-    const instance = await this.nodeEditor.whenReady()
+    if (!(await this._canLeaveCurrentProject())) return
 
     let project: ScadletProjectV1 | null
     try {
@@ -407,36 +756,33 @@ export class ScadletApp extends LitElement {
     }
     if (!project) return // User cancelled - existing project is untouched.
 
-    // Restoring necessarily performs node/connection/position/pin/
-    // viewport operations that would otherwise look exactly like user
-    // edits - suspended so the freshly loaded project starts clean
-    // regardless of how many individual dirty-triggering signals fire
-    // during restore.
-    await instance.withDirtyTrackingSuspended(() =>
-      restoreProject(project, {
-        editor: instance.editor,
-        creationContext: instance.creationContext,
-        setNodePosition: async (id, position) => {
-          await instance.area.translate(id, position)
-        },
-        setPinned: (id, pinned) => instance.setPinned(id, pinned),
-        setViewport: async ({ x, y, k }) => {
-          await instance.area.area.translate(x, y)
-          await instance.area.area.zoom(k, 0, 0)
-        },
-        setViewerCamera: (camera) => this.viewer.setCameraState(camera),
-      }),
-    )
+    if (this.localStore) {
+      try {
+        // Every external file import gets a new local identity. A
+        // same-named project in the library is never overwritten.
+        const stored = await this.localStore.createProject(project)
+        await this._applyStoredProject(stored, false)
+        this.hasExplicitName = true
+        this.localEvents?.publish({ type: 'project-created', projectId: stored.id, revision: stored.revision })
+        await this._refreshProjectList()
+        return
+      } catch (error) {
+        this.persistenceMessage = `The file opened, but it could not be added to local storage: ${this._errorMessage(error)}`
+      }
+    }
 
+    // Degraded file-only mode: opening remains usable even if IndexedDB
+    // is unavailable or the import write failed.
+    await this._restoreProject(project)
+    this.autosave?.destroy()
+    this.autosave = undefined
+    this.activeProjectId = null
+    this.activeRevision = 0
+    this.activeProjectSession?.clear()
     this.projectMetadata = project.metadata
     this.hasExplicitName = true
     this.dirty = false
-    this.renderError = null
-    // The old graph's rendered output/preview no longer describes the newly restored graph.
-    this.scadSource = ''
-    this.exportSource = ''
-    this.stl = null
-    this.viewer.clear()
+    this._clearRenderedOutput()
   }
 
   private async _saveAs(): Promise<void> {
@@ -448,8 +794,13 @@ export class ScadletApp extends LitElement {
       const project = this._buildProject(instance)
       const saved = await this.fileService.saveAs(project, toScadletFilename(name))
       if (!saved) return // User cancelled the save picker - dirty state and metadata are unchanged.
-      this.projectMetadata = project.metadata
-      this.dirty = false
+      // File export is independent from local autosave. In normal mode
+      // it does not redefine local dirty state; in degraded file-only
+      // mode it remains the durable-save boundary.
+      if (!this.autosave) {
+        this.projectMetadata = project.metadata
+        this.dirty = false
+      }
     } catch (error) {
       this.renderError = error instanceof Error ? error.message : String(error)
     }
@@ -464,8 +815,10 @@ export class ScadletApp extends LitElement {
       const project = this._buildProject(instance)
       const saved = await this.fileService.save(project, toScadletFilename(name))
       if (!saved) return // User cancelled the save picker - dirty state and metadata are unchanged.
-      this.projectMetadata = project.metadata
-      this.dirty = false
+      if (!this.autosave) {
+        this.projectMetadata = project.metadata
+        this.dirty = false
+      }
     } catch (error) {
       this.renderError = error instanceof Error ? error.message : String(error)
     }
@@ -551,6 +904,9 @@ export class ScadletApp extends LitElement {
     window.removeEventListener('keydown', this._onKeyDown)
     this.unsubscribeDirty?.()
     this.unsubscribeCameraDirty?.()
+    this.unsubscribeLocalEvents?.()
+    this.localEvents?.close()
+    this.autosave?.destroy()
     this.renderController.destroy()
     this.mainResizeObserver?.disconnect()
     this.sideResizeObserver?.disconnect()
@@ -562,4 +918,3 @@ declare global {
     'scadlet-app': ScadletApp
   }
 }
-
