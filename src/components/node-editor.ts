@@ -267,6 +267,10 @@ export class NodeEditorElement extends LitElement {
   private canvas!: HTMLDivElement
 
   private instance?: SCADletEditor
+  private resolveReady!: (instance: SCADletEditor) => void
+  private readonly readyPromise = new Promise<SCADletEditor>((resolve) => {
+    this.resolveReady = resolve
+  })
 
   render() {
     return html`<div id="canvas"></div>`
@@ -274,6 +278,7 @@ export class NodeEditorElement extends LitElement {
 
   async firstUpdated() {
     this.instance = await createEditor(this.canvas)
+    this.resolveReady(this.instance)
     this.canvas.addEventListener('dragover', this._onDragOver)
     this.canvas.addEventListener('drop', this._onDrop)
   }
@@ -315,6 +320,22 @@ export class NodeEditorElement extends LitElement {
   /** The node id currently selected as the Inspect Node preview root, or `null` if inspection is inactive. */
   getInspectedNodeId(): string | null {
     return this.instance?.getInspectedNodeId() ?? null
+  }
+
+  /**
+   * The underlying editor instance, once initialized (`undefined` before
+   * `firstUpdated` resolves). An escape hatch for project persistence
+   * (`scadlet-app.ts`), which needs lower-level Rete/`AreaPlugin` access
+   * (node positions, viewport, pin state, dirty notifications) beyond
+   * this element's small set of thin wrapper methods above.
+   */
+  getEditorInstance(): SCADletEditor | undefined {
+    return this.instance
+  }
+
+  /** Resolves once the underlying editor instance has been created (i.e. after `firstUpdated`). */
+  whenReady(): Promise<SCADletEditor> {
+    return this.readyPromise
   }
 }
 

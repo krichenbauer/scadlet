@@ -1,8 +1,9 @@
 import { NodeEditor } from 'rete'
 import { describe, expect, it } from 'vitest'
 
-import { findCatalogEntry, NODE_CATALOG, NODE_CATEGORIES } from './node-catalog'
+import { findCatalogEntry, identifyNodeType, NODE_CATALOG, NODE_CATEGORIES } from './node-catalog'
 import { CubeNode } from './nodes/cube-node'
+import { CylinderNode } from './nodes/cylinder-node'
 import type { Schemes } from './schemes'
 import { t } from '../i18n/translate'
 
@@ -85,5 +86,52 @@ describe('NODE_CATALOG', () => {
       await editor.addNode(node)
     }
     expect(editor.getNodes()).toHaveLength(6)
+  })
+
+  it('every entry declares its stable input/output port ids', () => {
+    expect(findCatalogEntry('cube')).toMatchObject({ inputs: [], outputs: ['geometry'] })
+    expect(findCatalogEntry('translate')).toMatchObject({ inputs: ['geometry'], outputs: ['geometry'] })
+    expect(findCatalogEntry('difference')).toMatchObject({ inputs: ['base', 'subtract'], outputs: ['geometry'] })
+    expect(findCatalogEntry('union')).toMatchObject({ inputs: ['a', 'b'], outputs: ['geometry'] })
+  })
+
+  it('identifyNodeType recognizes a live node instance created by create()', () => {
+    const cube = findCatalogEntry('cube')!.create(noopContext)
+    const cylinder = findCatalogEntry('cylinder')!.create(noopContext)
+    expect(identifyNodeType(cube)).toBe('cube')
+    expect(identifyNodeType(cylinder)).toBe('cylinder')
+  })
+
+  it('identifyNodeType returns undefined for a node instance not built by any catalog entry', () => {
+    class NotACatalogNode extends CubeNode {}
+    // A subclass of CubeNode still IS a CubeNode via instanceof, so use an unrelated class shape instead.
+    expect(identifyNodeType({} as unknown as Schemes['Node'])).toBeUndefined()
+    void NotACatalogNode
+  })
+
+  it('serializeParams/create round-trips a node with non-default parameters (Cube)', () => {
+    const entry = findCatalogEntry('cube')!
+    const original = new CubeNode({ sizeX: 1, sizeY: 2, sizeZ: 3, center: true })
+    const params = entry.serializeParams(original)
+    const restored = entry.create(noopContext, params) as CubeNode
+    expect(restored.getPersistedParams()).toEqual(original.getPersistedParams())
+  })
+
+  it('serializeParams/create round-trips a node with progressive-disclosure state (Cylinder, diameter mode + $fn)', () => {
+    const entry = findCatalogEntry('cylinder')!
+    const original = new CylinderNode({ mode: 'diameter', d: 12, fn: 50 })
+    const params = entry.serializeParams(original)
+    const restored = entry.create(noopContext, params) as CylinderNode
+    expect(restored.getPersistedParams()).toEqual(original.getPersistedParams())
+  })
+
+  it('validateParams throws a descriptive error for a malformed parameter object', () => {
+    expect(() => findCatalogEntry('cube')!.validateParams({ sizeX: 'oops' })).toThrow('Invalid Cube parameter "sizeX"')
+  })
+
+  it('validateParams for parameterless nodes (Difference/Union/Intersection) accepts an empty or absent object', () => {
+    expect(findCatalogEntry('difference')!.validateParams(undefined)).toEqual({})
+    expect(findCatalogEntry('union')!.validateParams({})).toEqual({})
+    expect(() => findCatalogEntry('intersection')!.validateParams('nope')).toThrow('Invalid parameters')
   })
 })

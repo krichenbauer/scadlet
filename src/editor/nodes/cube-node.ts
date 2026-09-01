@@ -35,7 +35,8 @@ export class CubeNode
     this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, 'Geometry'))
   }
 
-  private get params(): CubeParams {
+  /** Extracts this node's semantic parameters, e.g. for `.scadlet` persistence (see `editor/node-catalog.ts`) - the same values `data()` generates OpenSCAD from. */
+  getPersistedParams(): CubeParams {
     return {
       sizeX: this.controls.sizeX.value ?? DEFAULT_CUBE_PARAMS.sizeX,
       sizeY: this.controls.sizeY.value ?? DEFAULT_CUBE_PARAMS.sizeY,
@@ -45,6 +46,6 @@ export class CubeNode
   }
 
   data(): { geometry: GeometryValue } {
-    return { geometry: { code: cubeToOpenSCAD(this.params) } }
+    return { geometry: { code: cubeToOpenSCAD(this.getPersistedParams()) } }
   }
 }

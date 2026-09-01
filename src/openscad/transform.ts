@@ -1,4 +1,5 @@
 import { formatBlock, formatVector3 } from './format'
+import { requireFiniteNumber, requireParamsObject } from './param-validation'
 
 /** Shared `[x, y, z]` parameter shape for OpenSCAD's translate/rotate/scale transforms. */
 export interface Vector3Params {
@@ -52,4 +53,18 @@ export function rotateToOpenSCAD(params: Vector3Params, input: string | undefine
 /** Composes an input fragment into a `scale([x, y, z]) { ... }` block. */
 export function scaleToOpenSCAD(params: Vector3Params, input: string | undefined): TransformResult {
   return vectorTransformToOpenSCAD('scale', 'Scale', params, input)
+}
+
+/**
+ * Validates persisted `.scadlet` parameters shared by Translate/Rotate/
+ * Scale, throwing a descriptive `Error` on invalid input. `label` (e.g.
+ * `'Translate'`) identifies the node type in the error message.
+ */
+export function validateVector3Params(value: unknown, label: string): Vector3Params {
+  const obj = requireParamsObject(value, `${label} parameters`)
+  return {
+    x: requireFiniteNumber(obj.x, `${label} parameter "x"`),
+    y: requireFiniteNumber(obj.y, `${label} parameter "y"`),
+    z: requireFiniteNumber(obj.z, `${label} parameter "z"`),
+  }
 }

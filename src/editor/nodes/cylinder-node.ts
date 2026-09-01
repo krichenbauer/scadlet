@@ -112,8 +112,9 @@ export class CylinderNode
     }
   }
 
-  data(): { geometry: GeometryValue } {
-    const params: CylinderParams = {
+  /** Extracts this node's semantic parameters, e.g. for `.scadlet` persistence (see `editor/node-catalog.ts`) - the same values `data()` generates OpenSCAD from. */
+  getPersistedParams(): CylinderParams {
+    return {
       h: this.controls.h.value ?? DEFAULT_CYLINDER_PARAMS.h,
       mode: this.controls.mode.value,
       r: this.r,
@@ -123,6 +124,9 @@ export class CylinderNode
       center: this.controls.center.value,
       fn: this.controls.fnEnabled.value ? this.fnValue : undefined,
     }
-    return { geometry: { code: cylinderToOpenSCAD(params) } }
+  }
+
+  data(): { geometry: GeometryValue } {
+    return { geometry: { code: cylinderToOpenSCAD(this.getPersistedParams()) } }
   }
 }

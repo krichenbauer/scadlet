@@ -8,6 +8,10 @@ import { ScaleNode } from './nodes/scale-node'
 import { SphereNode } from './nodes/sphere-node'
 import { TranslateNode } from './nodes/translate-node'
 import { UnionNode } from './nodes/union-node'
+import { validateCubeParams } from '../openscad/cube'
+import { validateCylinderParams } from '../openscad/cylinder'
+import { validateSphereParams } from '../openscad/sphere'
+import { validateVector3Params } from '../openscad/transform'
 
 /** MIME type used to carry a node-catalog `type` id through native HTML drag-and-drop (see `node-palette.ts`/`node-editor.ts`). */
 export const NODE_DRAG_MIME_TYPE = 'application/x-scadlet-node-type'
@@ -45,7 +49,36 @@ export interface NodeCatalogEntry {
   readonly type: NodeTypeId
   readonly category: NodeCategoryId
   readonly labelKey: string
-  create(context: NodeCreationContext): Schemes['Node']
+  /** Stable input/output port ids, in the order Rete's own port map would report them - used to validate persisted connections without constructing a node. */
+  readonly inputs: readonly string[]
+  readonly outputs: readonly string[]
+  /**
+   * Creates a node of this type. With no `params`, uses the same
+   * defaults palette creation always has. `params`, when given, must
+   * already be validated (e.g. via `validateParams`) - used by `.scadlet`
+   * project restore (`persistence/restore.ts`) to reconstruct a node
+   * with its exact persisted semantic state.
+   */
+  create(context: NodeCreationContext, params?: Record<string, unknown>): Schemes['Node']
+  /** True if `node` was constructed by this entry's `create` - used to identify a live node's catalog type for `.scadlet` serialization. */
+  matches(node: Schemes['Node']): boolean
+  /** Extracts this node's semantic parameters for `.scadlet` persistence (an empty object for nodes with no parameters, e.g. Difference/Union/Intersection). */
+  serializeParams(node: Schemes['Node']): Record<string, unknown>
+  /** Validates raw persisted parameters for this node type, throwing a descriptive `Error` on invalid input. */
+  validateParams(value: unknown): Record<string, unknown>
+}
+
+/**
+ * Nodes with no parameters of their own (Difference/Union/Intersection)
+ * share this trivial "parameters" validator: persisted parameters must be
+ * absent or a plain object, and are otherwise ignored (forward-compatible
+ * with any future additive fields, per AGENTS.md's persistence policy).
+ */
+function validateEmptyParams(value: unknown): Record<string, never> {
+  if (value !== undefined && (typeof value !== 'object' || value === null || Array.isArray(value))) {
+    throw new Error('Invalid parameters: expected an object (or none) for this node type')
+  }
+  return {}
 }
 
 /**
@@ -67,72 +100,131 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
  * created". The palette UI, the canvas drop handler, and the click
  * fallback all resolve a `NodeTypeId` through this catalog and call
  * `entry.create()` rather than duplicating per-node-type construction
- * logic (see `editor.ts`'s `addNodeAt`/`addNodeAtCenter`).
+ * logic (see `editor.ts`'s `addNodeAt`/`addNodeAtCenter`). `.scadlet`
+ * project persistence (`persistence/`) reuses the same catalog for both
+ * directions: `serializeParams`/`matches` to save a live node, and
+ * `validateParams`/`create(context, params)` to restore one.
  */
 export const NODE_CATALOG: readonly NodeCatalogEntry[] = [
   {
     type: 'cube',
     category: 'primitives',
     labelKey: 'node.cube',
-    create: () => new CubeNode(),
+    inputs: [],
+    outputs: ['geometry'],
+    create: (_context, params) => new CubeNode(params ? validateCubeParams(params) : undefined),
+    matches: (node) => node instanceof CubeNode,
+    serializeParams: (node) => (node as CubeNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateCubeParams(value) as unknown as Record<string, unknown>,
   },
   {
     type: 'cylinder',
     category: 'primitives',
     labelKey: 'node.cylinder',
-    create: (context) => {
-      const node = new CylinderNode({}, () => context.onControlsChanged(node.id))
+    inputs: [],
+    outputs: ['geometry'],
+    create: (context, params) => {
+      const node = new CylinderNode(
+        params ? validateCylinderParams(params) : {},
+        () => context.onControlsChanged(node.id),
+      )
       return node
     },
+    matches: (node) => node instanceof CylinderNode,
+    serializeParams: (node) => (node as CylinderNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateCylinderParams(value) as unknown as Record<string, unknown>,
   },
   {
     type: 'sphere',
     category: 'primitives',
     labelKey: 'node.sphere',
-    create: (context) => {
-      const node = new SphereNode({}, () => context.onControlsChanged(node.id))
+    inputs: [],
+    outputs: ['geometry'],
+    create: (context, params) => {
+      const node = new SphereNode(
+        params ? validateSphereParams(params) : {},
+        () => context.onControlsChanged(node.id),
+      )
       return node
     },
+    matches: (node) => node instanceof SphereNode,
+    serializeParams: (node) => (node as SphereNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateSphereParams(value) as unknown as Record<string, unknown>,
   },
   {
     type: 'translate',
     category: 'transformations',
     labelKey: 'node.translate',
-    create: () => new TranslateNode(),
+    inputs: ['geometry'],
+    outputs: ['geometry'],
+    create: (_context, params) => new TranslateNode(params ? validateVector3Params(params, 'Translate') : undefined),
+    matches: (node) => node instanceof TranslateNode,
+    serializeParams: (node) => (node as TranslateNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateVector3Params(value, 'Translate') as unknown as Record<string, unknown>,
   },
   {
     type: 'rotate',
     category: 'transformations',
     labelKey: 'node.rotate',
-    create: () => new RotateNode(),
+    inputs: ['geometry'],
+    outputs: ['geometry'],
+    create: (_context, params) => new RotateNode(params ? validateVector3Params(params, 'Rotate') : undefined),
+    matches: (node) => node instanceof RotateNode,
+    serializeParams: (node) => (node as RotateNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateVector3Params(value, 'Rotate') as unknown as Record<string, unknown>,
   },
   {
     type: 'scale',
     category: 'transformations',
     labelKey: 'node.scale',
-    create: () => new ScaleNode(),
+    inputs: ['geometry'],
+    outputs: ['geometry'],
+    create: (_context, params) => new ScaleNode(params ? validateVector3Params(params, 'Scale') : undefined),
+    matches: (node) => node instanceof ScaleNode,
+    serializeParams: (node) => (node as ScaleNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateVector3Params(value, 'Scale') as unknown as Record<string, unknown>,
   },
   {
     type: 'difference',
     category: 'boolean-operations',
     labelKey: 'node.difference',
+    inputs: ['base', 'subtract'],
+    outputs: ['geometry'],
     create: () => new DifferenceNode(),
+    matches: (node) => node instanceof DifferenceNode,
+    serializeParams: validateEmptyParams,
+    validateParams: validateEmptyParams,
   },
   {
     type: 'union',
     category: 'boolean-operations',
     labelKey: 'node.union',
+    inputs: ['a', 'b'],
+    outputs: ['geometry'],
     create: () => new UnionNode(),
+    matches: (node) => node instanceof UnionNode,
+    serializeParams: validateEmptyParams,
+    validateParams: validateEmptyParams,
   },
   {
     type: 'intersection',
     category: 'boolean-operations',
     labelKey: 'node.intersection',
+    inputs: ['a', 'b'],
+    outputs: ['geometry'],
     create: () => new IntersectionNode(),
+    matches: (node) => node instanceof IntersectionNode,
+    serializeParams: validateEmptyParams,
+    validateParams: validateEmptyParams,
   },
 ]
 
 /** Looks up a catalog entry by its (possibly untrusted, e.g. drag-payload) type string. */
 export function findCatalogEntry(type: string): NodeCatalogEntry | undefined {
   return NODE_CATALOG.find((entry) => entry.type === type)
+}
+
+/** Identifies a live node's catalog type id, or `undefined` if it wasn't constructed by any current catalog entry. */
+export function identifyNodeType(node: Schemes['Node']): NodeTypeId | undefined {
+  return NODE_CATALOG.find((entry) => entry.matches(node))?.type
 }

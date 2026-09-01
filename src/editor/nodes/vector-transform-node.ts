@@ -45,12 +45,17 @@ export class VectorTransformNode
     this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, 'Geometry'))
   }
 
-  data(inputs: { geometry?: GeometryValue[] }): { geometry: GeometryValue } {
-    const params: Vector3Params = {
+  /** Extracts this node's semantic parameters, e.g. for `.scadlet` persistence (see `editor/node-catalog.ts`) - the same values `data()` generates OpenSCAD from. */
+  getPersistedParams(): Vector3Params {
+    return {
       x: this.controls.x.value ?? 0,
       y: this.controls.y.value ?? 0,
       z: this.controls.z.value ?? 0,
     }
+  }
+
+  data(inputs: { geometry?: GeometryValue[] }): { geometry: GeometryValue } {
+    const params = this.getPersistedParams()
     const input = inputs.geometry?.[0]?.code
 
     return { geometry: this.toOpenSCAD(params, input) }

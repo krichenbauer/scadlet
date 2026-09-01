@@ -8,7 +8,7 @@ import { evaluateOpenSCAD } from './evaluate'
 import { isEditableTarget, removeNodeWithConnections } from './deletion'
 import { InspectManager } from './inspect'
 import { attachMarqueeSelection } from './marquee'
-import { findCatalogEntry } from './node-catalog'
+import { findCatalogEntry, type NodeCreationContext } from './node-catalog'
 import { NodePresentationManager } from './presentation'
 import { attachRenderer } from './render'
 import type { AreaExtra, Schemes } from './schemes'
@@ -17,6 +17,8 @@ import { attachNodeSelection } from './selection'
 export interface SCADletEditor {
   editor: NodeEditor<Schemes>
   area: AreaPlugin<Schemes, AreaExtra>
+  /** The node-creation context passed to catalog `create()` calls - reused by `.scadlet` project restore (`persistence/restore.ts`) so restored nodes get the same progressive-disclosure wiring as normally-created ones. */
+  creationContext: NodeCreationContext
   /**
    * Creates a node of the given catalog type and places it so that
    * `clientPosition` (viewport coordinates, e.g. `event.clientX/Y`)
@@ -36,6 +38,18 @@ export interface SCADletEditor {
   evaluate(rootNodeId?: string): Promise<string>
   /** The node id currently selected as the Inspect Node preview root, or `null` if inspection is inactive. */
   getInspectedNodeId(): string | null
+  /** Whether `nodeId` is currently explicitly pinned open (editor presentation state - see `presentation.ts`). */
+  isPinned(nodeId: string): boolean
+  /** Sets a node's pinned state directly (used by `.scadlet` project restore) rather than toggling. */
+  setPinned(nodeId: string, pinned: boolean): void
+  /**
+   * Subscribes to "the project has unsaved changes" notifications (node/
+   * connection added/removed/moved, or pin state changed - see
+   * `scadlet-app.ts` for project-name/parameter-edit dirty tracking,
+   * which this editor-level hook does not cover). Returns an unsubscribe
+   * function.
+   */
+  onDirty(callback: () => void): () => void
   destroy(): void
 }
 
@@ -91,6 +105,35 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
 
   attachDeletion(editor, area, container)
 
+  // "Unsaved changes" tracking (Milestone 5 persistence) for the
+  // structural/positional changes that are cheap to observe centrally via
+  // Rete/AreaPlugin's own signals. Deliberately does NOT cover per-control
+  // parameter edits (e.g. typing a new Cube size) - those never go through
+  // any Rete pipe today, and wiring one would mean touching every control
+  // class's `setValue`/every node constructor rather than one central
+  // place; scadlet-app.ts's final summary documents this as a known gap
+  // rather than silently pretending it's covered.
+  const dirtyListeners = new Set<() => void>()
+  function notifyDirty(): void {
+    for (const listener of dirtyListeners) listener()
+  }
+
+  editor.addPipe((context) => {
+    if (
+      context.type === 'nodecreated' ||
+      context.type === 'noderemoved' ||
+      context.type === 'connectioncreated' ||
+      context.type === 'connectionremoved'
+    ) {
+      notifyDirty()
+    }
+    return context
+  })
+  area.addPipe((context) => {
+    if (context.type === 'nodetranslated') notifyDirty()
+    return context
+  })
+
   // Shift+drag rectangle selection on empty canvas (AGENTS.md-adjacent
   // task: multi-selection). Selects through the same `nodeSelection` API
   // click-based selection uses, so marquee-selected nodes participate in
@@ -124,11 +167,15 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // re-framed the whole viewport around every node (jarring, and doubly
   // pointless once nodes get real positions instead of all stacking at
   // (0, 0)). The current pan/zoom must survive node creation unchanged.
+  const creationContext: NodeCreationContext = {
+    onControlsChanged: (id) => void area.update('node', id),
+  }
+
   async function addNodeAt(type: string, clientPosition: Position): Promise<void> {
     const entry = findCatalogEntry(type)
     if (!entry) return
 
-    const node = entry.create({ onControlsChanged: (id) => void area.update('node', id) })
+    const node = entry.create(creationContext)
     await editor.addNode(node)
 
     const rect = area.container.getBoundingClientRect()
@@ -144,10 +191,21 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   return {
     editor,
     area,
+    creationContext,
     addNodeAt,
     addNodeAtCenter,
     evaluate: (rootNodeId?: string) => evaluateOpenSCAD(editor, engine, rootNodeId),
     getInspectedNodeId: () => inspect.id,
+    isPinned: (nodeId: string) => presentation.isPinned(nodeId),
+    setPinned: (nodeId: string, pinned: boolean) => {
+      if (presentation.isPinned(nodeId) === pinned) return
+      presentation.togglePin(nodeId)
+      notifyDirty()
+    },
+    onDirty: (callback: () => void) => {
+      dirtyListeners.add(callback)
+      return () => dirtyListeners.delete(callback)
+    },
     destroy: () => {
       detachMarquee()
       nodeSelection.destroy()

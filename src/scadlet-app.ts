@@ -8,6 +8,12 @@ import './components/splitter'
 import './components/node-palette'
 import type { NodeEditorElement } from './components/node-editor'
 import type { GeometryViewer } from './components/geometry-viewer'
+import type { SCADletEditor } from './editor/editor'
+import { toScadletFilename } from './persistence/filename'
+import { createBrowserFileSystemCapability, pickFileWithInput, ProjectFileService } from './persistence/file-service'
+import { UNTITLED_PROJECT_NAME, type ScadletProjectMetadata, type ScadletProjectV1 } from './persistence/project'
+import { restoreProject } from './persistence/restore'
+import { serializeProject } from './persistence/serialize'
 import { RenderController } from './render/render-controller'
 import { scadBlob, stlBlob, triggerDownload } from './render/download'
 
@@ -61,6 +67,26 @@ export class ScadletApp extends LitElement {
     button:disabled {
       cursor: default;
       opacity: 0.5;
+    }
+
+    .project-name {
+      font: inherit;
+      padding: 4px 8px;
+      min-width: 160px;
+      background: transparent;
+      color: inherit;
+      border: 1px solid transparent;
+      border-radius: 4px;
+    }
+
+    .project-name:hover,
+    .project-name:focus {
+      border-color: #666;
+    }
+
+    .dirty-indicator {
+      color: #f2b134;
+      font-size: 10px;
     }
 
     .toolbar-gap {
@@ -177,6 +203,23 @@ export class ScadletApp extends LitElement {
   private mainResizeObserver?: ResizeObserver
   private sideResizeObserver?: ResizeObserver
 
+  private readonly fileService = new ProjectFileService({
+    capability: createBrowserFileSystemCapability(),
+    pickFileFallback: pickFileWithInput,
+    downloadFallback: (content, filename) =>
+      triggerDownload(new Blob([content], { type: 'application/json' }), filename),
+  })
+  private unsubscribeDirty?: () => void
+  /** Whether the user has ever explicitly set a project name (see `_ensureProjectName`) - distinct from the name merely still being the placeholder string, since a project could legitimately be named that on purpose. */
+  private hasExplicitName = false
+
+  @state()
+  private projectMetadata: ScadletProjectMetadata = { name: UNTITLED_PROJECT_NAME }
+
+  /** Unsaved-changes indicator. Covers node/connection add/remove/move, pin state, and project-name edits (see `editor/editor.ts`'s `onDirty` for what it does and does not cover). */
+  @state()
+  private dirty = false
+
   @state()
   private scadSource = ''
 
@@ -211,7 +254,18 @@ export class ScadletApp extends LitElement {
     return html`
       <header>
         <h1>SCADlet</h1>
+        <input
+          type="text"
+          class="project-name"
+          .value=${this.projectMetadata.name}
+          @change=${this._onProjectNameChange}
+          aria-label="Project name"
+        />
+        ${this.dirty ? html`<span class="dirty-indicator" title="Unsaved changes">●</span>` : nothing}
         <span class="toolbar-gap"></span>
+        <button type="button" @click=${this._open}>Open</button>
+        <button type="button" @click=${this._save}>Save</button>
+        <button type="button" @click=${this._saveAs}>Save As</button>
         <button type="button" @click=${this._render} ?disabled=${this.rendering}>
           ${this.rendering ? 'Rendering…' : 'Render'}
         </button>
@@ -247,6 +301,17 @@ export class ScadletApp extends LitElement {
     this.mainResizeObserver.observe(this.mainEl)
     this.sideResizeObserver = new ResizeObserver(() => this._clampViewerHeight())
     this.sideResizeObserver.observe(this.sideEl)
+
+    void this.nodeEditor.whenReady().then((instance) => {
+      this.unsubscribeDirty = instance.onDirty(() => {
+        this.dirty = true
+      })
+    })
+  }
+
+  connectedCallback(): void {
+    super.connectedCallback()
+    window.addEventListener('keydown', this._onKeyDown)
   }
 
   private _clampEditorWidth(): void {
@@ -287,6 +352,116 @@ export class ScadletApp extends LitElement {
 
   private _onPalettePick(event: CustomEvent<{ type: string }>): void {
     void this.nodeEditor.addNodeAtCenter(event.detail.type)
+  }
+
+  private _onProjectNameChange(event: Event): void {
+    const value = (event.target as HTMLInputElement).value
+    this.projectMetadata = { ...this.projectMetadata, name: value }
+    this.hasExplicitName = value.trim().length > 0
+    this.dirty = true
+  }
+
+  /**
+   * Returns the current project name, prompting the user for one first
+   * if they have never explicitly set it (AGENTS.md: a meaningful name
+   * is required before the first explicit Save/Save As/export). Returns
+   * `null` if the user cancels/enters nothing, in which case the calling
+   * Save/Save As action must not proceed.
+   */
+  private _ensureProjectName(): string | null {
+    if (this.hasExplicitName) return this.projectMetadata.name
+
+    const entered = window.prompt('Name this project before saving:', this.projectMetadata.name)
+    const trimmed = entered?.trim()
+    if (!trimmed) return null
+
+    this.projectMetadata = { ...this.projectMetadata, name: trimmed }
+    this.hasExplicitName = true
+    return trimmed
+  }
+
+  private _buildProject(instance: SCADletEditor): ScadletProjectV1 {
+    return serializeProject({
+      editor: instance.editor,
+      metadata: this.projectMetadata,
+      getNodePosition: (id) => instance.area.nodeViews.get(id)?.position ?? { x: 0, y: 0 },
+      isPinned: (id) => instance.isPinned(id),
+      viewport: instance.area.area.transform,
+      viewerCamera: this.viewer.getCameraState(),
+    })
+  }
+
+  private async _open(): Promise<void> {
+    const instance = await this.nodeEditor.whenReady()
+
+    let project: ScadletProjectV1 | null
+    try {
+      project = await this.fileService.open()
+    } catch (error) {
+      this.renderError = error instanceof Error ? error.message : String(error)
+      return
+    }
+    if (!project) return // User cancelled - existing project is untouched.
+
+    await restoreProject(project, {
+      editor: instance.editor,
+      creationContext: instance.creationContext,
+      setNodePosition: async (id, position) => {
+        await instance.area.translate(id, position)
+      },
+      setPinned: (id, pinned) => instance.setPinned(id, pinned),
+      setViewport: async ({ x, y, k }) => {
+        await instance.area.area.translate(x, y)
+        await instance.area.area.zoom(k, 0, 0)
+      },
+      setViewerCamera: (camera) => this.viewer.setCameraState(camera),
+    })
+
+    this.projectMetadata = project.metadata
+    this.hasExplicitName = true
+    this.dirty = false
+    this.renderError = null
+    // The old graph's rendered output/preview no longer describes the newly restored graph.
+    this.scadSource = ''
+    this.exportSource = ''
+    this.stl = null
+    this.viewer.clear()
+  }
+
+  private async _saveAs(): Promise<void> {
+    const instance = await this.nodeEditor.whenReady()
+    const name = this._ensureProjectName()
+    if (!name) return
+
+    try {
+      const project = this._buildProject(instance)
+      await this.fileService.saveAs(project, toScadletFilename(name))
+      this.projectMetadata = project.metadata
+      this.dirty = false
+    } catch (error) {
+      this.renderError = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  private async _save(): Promise<void> {
+    const instance = await this.nodeEditor.whenReady()
+    const name = this._ensureProjectName()
+    if (!name) return
+
+    try {
+      const project = this._buildProject(instance)
+      await this.fileService.save(project, toScadletFilename(name))
+      this.projectMetadata = project.metadata
+      this.dirty = false
+    } catch (error) {
+      this.renderError = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  private readonly _onKeyDown = (event: KeyboardEvent): void => {
+    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return
+    event.preventDefault()
+    void this._save()
   }
 
   private async _render() {
@@ -360,6 +535,8 @@ export class ScadletApp extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback()
+    window.removeEventListener('keydown', this._onKeyDown)
+    this.unsubscribeDirty?.()
     this.renderController.destroy()
     this.mainResizeObserver?.disconnect()
     this.sideResizeObserver?.disconnect()

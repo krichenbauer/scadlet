@@ -5,6 +5,17 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 
 /**
+ * The minimal Three.js view state needed to restore the user's camera
+ * (see `persistence/project.ts`'s `ScadletViewerCamera`, which mirrors
+ * this shape) - deliberately not the `THREE.PerspectiveCamera`/
+ * `OrbitControls` objects themselves.
+ */
+export interface CameraState {
+  position: [number, number, number]
+  target: [number, number, number]
+}
+
+/**
  * Interactive Three.js preview for the STL produced by the OpenSCAD
  * render worker (Milestone 2). This is a mesh viewer only - it has no
  * awareness of the Rete graph and never feeds state back into it (see
@@ -115,6 +126,31 @@ export class GeometryViewer extends LitElement {
     this.mesh.geometry.dispose()
     ;(this.mesh.material as THREE.Material).dispose()
     this.mesh = undefined
+  }
+
+  /** Captures the current camera position and orbit target - see `CameraState`. */
+  getCameraState(): CameraState {
+    const position = this.camera.position
+    const target = this.controls?.target
+    return {
+      position: [position.x, position.y, position.z],
+      target: target ? [target.x, target.y, target.z] : [0, 0, 0],
+    }
+  }
+
+  /**
+   * Restores a previously captured camera position/target (project
+   * restore - see `persistence/restore.ts`). Marks the camera as already
+   * "fitted" so a subsequent `showSTL` never overrides the restored view
+   * with its own auto-fit framing.
+   */
+  setCameraState(state: CameraState): void {
+    this.camera.position.set(...state.position)
+    if (this.controls) {
+      this.controls.target.set(...state.target)
+      this.controls.update()
+    }
+    this.hasFittedOnce = true
   }
 
   private fitToView(geometry: THREE.BufferGeometry): void {

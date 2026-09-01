@@ -1,4 +1,5 @@
 import { formatCall, formatNumber, formatVector3 } from './format'
+import { requireBoolean, requireFiniteNumber, requireParamsObject } from './param-validation'
 
 /** Parameters for OpenSCAD's `cube(size, center)`. */
 export interface CubeParams {
@@ -27,4 +28,15 @@ export function cubeToOpenSCAD(params: CubeParams): string {
   const size = isUniform ? formatNumber(sizeX) : formatVector3(sizeX, sizeY, sizeZ)
 
   return formatCall('cube', [size], center ? { center: 'true' } : {})
+}
+
+/** Validates persisted `.scadlet` parameters for a Cube node, throwing a descriptive `Error` on invalid input. */
+export function validateCubeParams(value: unknown): CubeParams {
+  const obj = requireParamsObject(value, 'Cube parameters')
+  return {
+    sizeX: requireFiniteNumber(obj.sizeX, 'Cube parameter "sizeX"'),
+    sizeY: requireFiniteNumber(obj.sizeY, 'Cube parameter "sizeY"'),
+    sizeZ: requireFiniteNumber(obj.sizeZ, 'Cube parameter "sizeZ"'),
+    center: requireBoolean(obj.center, 'Cube parameter "center"'),
+  }
 }

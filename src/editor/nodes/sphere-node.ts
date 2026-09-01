@@ -97,13 +97,17 @@ export class SphereNode
     }
   }
 
-  data(): { geometry: GeometryValue } {
-    const params: SphereParams = {
+  /** Extracts this node's semantic parameters, e.g. for `.scadlet` persistence (see `editor/node-catalog.ts`) - the same values `data()` generates OpenSCAD from. */
+  getPersistedParams(): SphereParams {
+    return {
       mode: this.controls.mode.value,
       r: this.r,
       d: this.d,
       fn: this.controls.fnEnabled.value ? this.fnValue : undefined,
     }
-    return { geometry: { code: sphereToOpenSCAD(params) } }
+  }
+
+  data(): { geometry: GeometryValue } {
+    return { geometry: { code: sphereToOpenSCAD(this.getPersistedParams()) } }
   }
 }

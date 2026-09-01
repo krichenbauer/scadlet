@@ -7,6 +7,7 @@ import {
   rotateToOpenSCAD,
   scaleToOpenSCAD,
   translateToOpenSCAD,
+  validateVector3Params,
 } from './transform'
 
 describe('translateToOpenSCAD', () => {
@@ -88,5 +89,25 @@ describe('scaleToOpenSCAD', () => {
 
   it('reports an error when the geometry input is missing', () => {
     expect(scaleToOpenSCAD(DEFAULT_SCALE_PARAMS, undefined).error).toBe('Scale is missing its geometry input')
+  })
+})
+
+describe('validateVector3Params', () => {
+  it('accepts positive, negative, and fractional values', () => {
+    expect(validateVector3Params({ x: 10, y: -5.5, z: 0 }, 'Translate')).toEqual({ x: 10, y: -5.5, z: 0 })
+  })
+
+  it('rejects a non-object value', () => {
+    expect(() => validateVector3Params(null, 'Translate')).toThrow('Invalid Translate parameters')
+  })
+
+  it('rejects a non-finite component, naming both the node type and the axis', () => {
+    expect(() => validateVector3Params({ x: 1, y: NaN, z: 1 }, 'Rotate')).toThrow(
+      'Invalid Rotate parameter "y"',
+    )
+  })
+
+  it('rejects a missing component', () => {
+    expect(() => validateVector3Params({ x: 1, y: 1 }, 'Scale')).toThrow('Invalid Scale parameter "z"')
   })
 })
