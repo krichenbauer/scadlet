@@ -1,6 +1,10 @@
 import { configDefaults, defineConfig } from 'vitest/config'
 
 export default defineConfig({
+  // GitHub Pages serves project sites below `/<repository>/`. The deployment
+  // workflow supplies that prefix, while local development and other static
+  // hosts continue to use the root path.
+  base: process.env.BASE_PATH ?? '/',
   optimizeDeps: {
     // `openscad-wasm-prebuilt` is only ever imported from
     // `src/render/render-worker.ts`, which is loaded lazily as a

@@ -723,6 +723,12 @@ The build output should be hostable as ordinary static files on:
 
 GitHub Pages is the initial public hosting target, but do not make the application dependent on GitHub Pages.
 
+The repository deploys its `main` branch through
+`.github/workflows/deploy-pages.yml`. That workflow supplies Vite's
+`BASE_PATH` from `actions/configure-pages`; retain the `/` default in
+`vite.config.ts` so development and non-GitHub static hosting remain
+root-relative.
+
 ### No third-party runtime dependencies
 
 For privacy and self-hostability, all runtime resources must be served by the same site/application deployment.
