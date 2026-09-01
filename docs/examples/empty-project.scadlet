@@ -1,0 +1,19 @@
+{
+  "format": "scadlet",
+  "version": 1,
+  "metadata": {
+    "name": "Empty Project",
+    "createdAt": "2026-09-01T00:00:00.000Z",
+    "updatedAt": "2026-09-01T00:00:00.000Z"
+  },
+  "graph": {
+    "nodes": [],
+    "connections": []
+  },
+  "editor": {
+    "viewport": { "x": 0, "y": 0, "zoom": 1 }
+  },
+  "viewer": {
+    "camera": { "position": [80, 80, 60], "target": [0, 0, 0] }
+  }
+}

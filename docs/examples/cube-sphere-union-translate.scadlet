@@ -1,0 +1,49 @@
+{
+  "format": "scadlet",
+  "version": 1,
+  "metadata": {
+    "name": "Cube Sphere Union Translate",
+    "createdAt": "2026-09-01T00:00:00.000Z",
+    "updatedAt": "2026-09-01T00:00:00.000Z"
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "cube-1",
+        "type": "cube",
+        "position": { "x": -200, "y": 0 },
+        "parameters": { "sizeX": 10, "sizeY": 10, "sizeZ": 10, "center": false }
+      },
+      {
+        "id": "sphere-1",
+        "type": "sphere",
+        "position": { "x": -200, "y": 150 },
+        "parameters": { "mode": "radius", "r": 5, "d": 10 }
+      },
+      {
+        "id": "union-1",
+        "type": "union",
+        "position": { "x": 0, "y": 75 },
+        "parameters": {}
+      },
+      {
+        "id": "translate-1",
+        "type": "translate",
+        "position": { "x": 200, "y": 75 },
+        "parameters": { "x": 10, "y": 0, "z": 0 },
+        "pinned": true
+      }
+    ],
+    "connections": [
+      { "id": "c1", "source": "cube-1", "sourceOutput": "geometry", "target": "union-1", "targetInput": "a" },
+      { "id": "c2", "source": "sphere-1", "sourceOutput": "geometry", "target": "union-1", "targetInput": "b" },
+      { "id": "c3", "source": "union-1", "sourceOutput": "geometry", "target": "translate-1", "targetInput": "geometry" }
+    ]
+  },
+  "editor": {
+    "viewport": { "x": -50, "y": 20, "zoom": 1.2 }
+  },
+  "viewer": {
+    "camera": { "position": [120, 100, 90], "target": [0, 0, 0] }
+  }
+}

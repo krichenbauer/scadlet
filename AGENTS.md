@@ -538,6 +538,13 @@ Project persistence is the next milestone and must remain fully client-side. Tre
 
 ### Canonical `.scadlet` project format
 
+The canonical v1 `.scadlet` format is documented in detail in
+`docs/scadlet-format.md`, generated from and kept aligned with the actual
+implementation (`src/persistence/`, `src/editor/node-catalog.ts`). Keep
+implementation, validation, and any future migrations consistent with
+that specification; update it alongside the code rather than letting it
+drift.
+
 Define a SCADlet-owned, versioned JSON format. Do not serialize Rete objects, DOM state, Three.js objects, or other library-internal structures directly. The file format is a stable SCADlet contract that adapters reconstruct into the current implementation.
 
 Use a top-level shape conceptually like:
