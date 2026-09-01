@@ -1115,6 +1115,12 @@ headless CLI mode with a temporary CSG output target, captures its marked
 nodes retain focus while controls are edited and temporarily reveal only
 compatible existing parameter rows while a connection wire hovers them.
 
+Source-node cleanup: a Number, Boolean, or Vector3's persisted descriptive
+name is rendered as its directly editable node title, with the localized node
+type as the fallback for blank/default names. Do not render a separate Name
+row or a redundant Value label for a source literal; titles remain SCADlet
+documentation only and must not affect OpenSCAD expressions or port identity.
+
 ### Milestone 8 — Modules / reusable subgraphs
 
 Support reusable, parameterized graph structures corresponding to OpenSCAD modules.

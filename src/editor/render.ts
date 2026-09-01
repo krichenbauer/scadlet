@@ -191,18 +191,21 @@ function renderNode(
 
   // Keys of parameter inputs that map 1-to-1 to a control of the same key.
   const paramInputKeys = new Set(parameterInputs.map(([key]) => key))
+  const sourceNameControl = node.outputs.value && node.controls.name instanceof LabeledTextControl
+    ? node.controls.name
+    : undefined
   // Controls that don't have a co-located parameter input row go in `.node-controls` when expanded.
   const representationControls = Object.values(node.controls).filter(
     (control): control is RepresentationSelectControl => control instanceof RepresentationSelectControl,
   )
   const standaloneControls = Object.entries(node.controls).filter(
-    ([key, ctrl]) => ctrl && !paramInputKeys.has(key) && !(ctrl instanceof RepresentationSelectControl),
+    ([key, ctrl]) => ctrl && !paramInputKeys.has(key) && !(ctrl instanceof RepresentationSelectControl) && !(sourceNameControl && key === 'name'),
   )
   // Literal value sources have no inputs, so their primary control is part
   // of the compact node rather than hidden behind hover/pinning. Other
   // standalone controls retain the normal progressive-disclosure behavior.
   const alwaysVisibleControls = standaloneControls.filter(
-    ([key]) => Boolean(node.outputs.value) && (key === 'name' || (key === 'value' && parameterInputs.length === 0)),
+    ([key]) => Boolean(sourceNameControl) && key === 'value' && parameterInputs.length === 0,
   )
   const expandableStandaloneControls = standaloneControls.filter(([key]) => !alwaysVisibleControls.some(([primary]) => primary === key))
 
@@ -267,7 +270,7 @@ function renderNode(
 
   const body = document.createElement('div')
   body.className = 'node-body'
-  body.appendChild(renderHeader(node, presentation, hasCollapsibleContent, inspected, notifyDirty))
+  body.appendChild(renderHeader(node, presentation, hasCollapsibleContent, inspected, notifyDirty, sourceNameControl))
   main.appendChild(body)
 
   if (Object.values(node.outputs).some(Boolean)) {
@@ -327,7 +330,7 @@ function renderNode(
     if (alwaysVisibleControls.length > 0) controls.classList.add('node-controls--primary')
     for (const [key, control] of [...alwaysVisibleControls, ...(expanded ? expandableStandaloneControls : [])]) {
       if (!control) continue
-      const rendered = renderControl(key, control)
+      const rendered = renderControl(key, control, Boolean(sourceNameControl && key === 'value'))
       if (rendered) controls.appendChild(rendered)
     }
     element.appendChild(controls)
@@ -346,13 +349,30 @@ function renderHeader(
   hasCollapsibleContent: boolean,
   inspected: boolean,
   notifyDirty: () => void,
+  sourceNameControl: LabeledTextControl | undefined,
 ): HTMLElement {
   const header = document.createElement('div')
   header.className = 'node-header'
 
-  const title = document.createElement('div')
+  const title = sourceNameControl ? document.createElement('input') : document.createElement('div')
   title.className = 'node-title'
-  title.textContent = node.label
+  if (title instanceof HTMLInputElement) {
+    const nameControl = sourceNameControl!
+    title.type = 'text'
+    // A blank descriptive name deliberately falls back to the localized
+    // type title. The persisted node type and generated expression remain
+    // independent from this presentation-only string.
+    title.value = nameControl.value || node.label
+    title.setAttribute('aria-label', `${node.label} ${t('control.name')}`)
+    title.addEventListener('pointerdown', (event) => event.stopPropagation())
+    title.addEventListener('dblclick', (event) => event.stopPropagation())
+    title.addEventListener('input', () => nameControl.setValue(title.value))
+    title.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') title.blur()
+    })
+  } else {
+    title.textContent = node.label
+  }
   header.appendChild(title)
 
   if (inspected) {
@@ -529,7 +549,7 @@ function renderParamControlValue(control: ClassicPreset.Control, overridden: boo
   return null
 }
 
-function renderControl(key: string, control: ClassicPreset.Control): HTMLElement | null {
+function renderControl(key: string, control: ClassicPreset.Control, hideLabel = false): HTMLElement | null {
   if (control instanceof ParameterActionsControl) {
     const wrapper = document.createElement('div')
     wrapper.className = 'node-control node-control--actions'
@@ -547,10 +567,12 @@ function renderControl(key: string, control: ClassicPreset.Control): HTMLElement
     input.addEventListener('pointerdown', (event) => event.stopPropagation())
     input.addEventListener('change', () => control.setValue(input.checked))
 
-    const text = document.createElement('span')
-    text.textContent = control.label
-
-    wrapper.append(input, text)
+    wrapper.appendChild(input)
+    if (!hideLabel) {
+      const text = document.createElement('span')
+      text.textContent = control.label
+      wrapper.appendChild(text)
+    }
     return wrapper
   }
 
@@ -582,10 +604,12 @@ function renderControl(key: string, control: ClassicPreset.Control): HTMLElement
     const wrapper = document.createElement('label')
     wrapper.className = 'node-control'
 
-    const text = document.createElement('span')
-    text.className = 'node-control-label'
-    text.textContent = control instanceof LabeledNumberControl ? control.label : key
-    wrapper.appendChild(text)
+    if (!hideLabel) {
+      const text = document.createElement('span')
+      text.className = 'node-control-label'
+      text.textContent = control instanceof LabeledNumberControl ? control.label : key
+      wrapper.appendChild(text)
+    }
 
     const input = document.createElement('input')
     input.type = 'number'

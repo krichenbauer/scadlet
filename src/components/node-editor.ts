@@ -110,6 +110,24 @@ export class NodeEditorElement extends LitElement {
       overflow-wrap: anywhere;
     }
 
+    input.node-title {
+      width: 100%;
+      min-width: 0;
+      padding: 1px 3px;
+      border: 1px solid transparent;
+      border-radius: 3px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      font-weight: 600;
+    }
+
+    input.node-title:hover,
+    input.node-title:focus {
+      border-color: #666;
+      outline: none;
+    }
+
     .node-pin {
       flex: none;
       width: 20px;
