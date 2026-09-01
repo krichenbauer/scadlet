@@ -8,6 +8,7 @@ import { CheckboxControl, LabeledNumberControl, ParameterActionsControl, Represe
 import { isEditableTarget } from './deletion'
 import { t } from '../i18n/translate'
 import type { InspectManager } from './inspect'
+import { BooleanOpNode } from './nodes/boolean-op-node'
 import { bringNodeToFront } from './order'
 import { isRedundantTypeLabel } from './ports'
 import type { NodePresentationManager } from './presentation'
@@ -15,6 +16,20 @@ import type { AreaExtra, Schemes } from './schemes'
 
 type Position = { x: number; y: number }
 type Side = 'input' | 'output'
+
+interface PortPresentation {
+  visibleLabel?: string
+  accessibleLabel?: string
+}
+
+/** Dynamic child slots keep their stable semantic ids while this supplies
+ * the compact, localized visual/accessibility distinction. */
+export function geometryInputPresentation(node: Schemes['Node'], key: string): PortPresentation | undefined {
+  if (!(node instanceof BooleanOpNode) || !node.isInputPort(key)) return undefined
+  return node.isExtensionPort(key)
+    ? { visibleLabel: '+', accessibleLabel: t('input.addGeometryChild') }
+    : { visibleLabel: '', accessibleLabel: t('input.geometryChild') }
+}
 
 const CONNECTION_CURVATURE = 0.3
 // Padding (in px) around a connection's start/end points when sizing its
@@ -191,7 +206,7 @@ function renderNode(
     const inputs = document.createElement('div')
     inputs.className = 'node-inputs'
     for (const [key, input] of geometryInputs) {
-      inputs.appendChild(renderPort(area, node.id, 'input', key, input.label, input.socket.name))
+      inputs.appendChild(renderPort(area, node.id, 'input', key, input.label, input.socket.name, geometryInputPresentation(node, key)))
     }
     main.appendChild(inputs)
   }
@@ -326,11 +341,12 @@ function renderPort(
   key: string,
   label: string | undefined,
   socketName: string,
+  presentation?: PortPresentation,
 ): HTMLElement {
   const row = document.createElement('div')
   row.className = `node-port node-port--${side}`
 
-  const accessibleName = label ?? key
+  const accessibleName = presentation?.accessibleLabel ?? label ?? key
 
   const socket = document.createElement('div')
   socket.className = 'node-socket'
@@ -350,10 +366,11 @@ function renderPort(
   // type; a label that disambiguates sibling ports on the same side (e.g.
   // Difference's "Base"/"Subtract") stays visible, since position alone
   // can't tell those apart.
-  if (!isRedundantTypeLabel(label, socketName)) {
+  const visibleLabel = presentation?.visibleLabel ?? (!isRedundantTypeLabel(label, socketName) ? accessibleName : undefined)
+  if (visibleLabel) {
     const text = document.createElement('span')
     text.className = 'node-port-label'
-    text.textContent = accessibleName
+    text.textContent = visibleLabel
     row.appendChild(text)
   }
 
@@ -547,8 +564,8 @@ function renderRepresentationHeader(
   label.textContent = control.label
   header.appendChild(label)
   const select = document.createElement('select')
-  select.setAttribute('aria-label', `${control.label} representation`)
-  if (hasActiveConnections) select.title = `Remove the active ${control.label} connections before switching representation.`
+  select.setAttribute('aria-label', t('control.representation'))
+  if (hasActiveConnections) select.title = t('control.removeConnectionsBeforeSwitch')
   for (const option of control.options) {
     const item = document.createElement('option')
     item.value = option.value

@@ -2,6 +2,7 @@ import { ClassicPreset } from 'rete'
 import type { DataflowNode } from 'rete-engine'
 
 import { differenceToOpenSCAD } from '../../openscad/csg'
+import { t } from '../../i18n/translate'
 import { geometrySocket, type GeometryValue } from '../sockets'
 
 /**
@@ -20,10 +21,10 @@ export class DifferenceNode
   implements DataflowNode
 {
   constructor() {
-    super('Difference')
-    this.addInput('base', new ClassicPreset.Input(geometrySocket, 'Base'))
-    this.addInput('subtract', new ClassicPreset.Input(geometrySocket, 'Subtract'))
-    this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, 'Geometry'))
+    super(t('node.difference'))
+    this.addInput('base', new ClassicPreset.Input(geometrySocket, t('input.base')))
+    this.addInput('subtract', new ClassicPreset.Input(geometrySocket, t('input.subtract')))
+    this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, t('input.geometry')))
   }
 
   data(inputs: { base?: GeometryValue[]; subtract?: GeometryValue[] }): { geometry: GeometryValue } {

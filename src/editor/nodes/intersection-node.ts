@@ -1,2 +1,3 @@
 import { BooleanOpNode, type VariadicBooleanParams } from './boolean-op-node'
-export class IntersectionNode extends BooleanOpNode { constructor(params: Partial<VariadicBooleanParams> = {}, legacy = true) { super('Intersection', 'intersection', params, legacy) } }
+import { t } from '../../i18n/translate'
+export class IntersectionNode extends BooleanOpNode { constructor(params: Partial<VariadicBooleanParams> = {}, legacy = true) { super(t('node.intersection'), 'intersection', params, legacy) } }

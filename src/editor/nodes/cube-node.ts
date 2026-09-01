@@ -2,6 +2,7 @@ import { ClassicPreset } from 'rete'
 import type { DataflowNode } from 'rete-engine'
 
 import { cubeToOpenSCAD, type CubeParams, type CubeSizeRepresentation, type Vector3Params } from '../../openscad/cube'
+import { t } from '../../i18n/translate'
 import { CheckboxControl, LabeledNumberControl, ParameterActionsControl, RepresentationSelectControl, type ParameterAction } from '../controls'
 import { booleanSocket, geometrySocket, numberSocket, vector3Socket, type BooleanValue, type GeometryValue, type NumberValue, type Vector3Value } from '../sockets'
 
@@ -16,9 +17,9 @@ type CubeControls = Record<string, ClassicPreset.Control> & {
 }
 
 const SIZE_REPRESENTATIONS: readonly { value: CubeSizeRepresentation; label: string }[] = [
-  { value: 'scalar', label: 'Scalar' },
-  { value: 'xyz', label: 'XYZ' },
-  { value: 'vector', label: 'Vector' },
+  { value: 'scalar', label: t('mode.scalar') },
+  { value: 'xyz', label: t('mode.xyz') },
+  { value: 'vector', label: t('mode.vector') },
 ]
 
 /** Cube has one semantic `size` argument. Scalar, XYZ, and Vector are
@@ -33,7 +34,7 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
   private xyzLiteral: Vector3Params
 
   constructor(params: Partial<CubeParams> = {}, notify?: () => void, canSwitch?: () => boolean) {
-    super('Cube')
+    super(t('node.cube'))
     this.notify = notify
     this.canSwitch = canSwitch
     const legacyDefault = notify === undefined && Object.keys(params).length === 0
@@ -45,7 +46,7 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
     if (this.representation) this.addSize(this.representation)
     if (params.center !== undefined || legacyDefault) this.addCenter(params.center ?? false)
     this.addControl('actions', new ParameterActionsControl(() => this.actions()))
-    this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, 'Geometry'))
+    this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, t('input.geometry')))
   }
 
   private changed(): void { this.notify?.() }
@@ -54,20 +55,20 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
     const actions: ParameterAction[] = []
     if (!this.representation) {
       actions.push({
-        id: 'add-size', label: '+ Size', children: SIZE_REPRESENTATIONS.map(({ value, label }) => ({
+        id: 'add-size', label: t('action.addSize'), children: SIZE_REPRESENTATIONS.map(({ value, label }) => ({
           id: `add-size-${value}`, label, run: () => { this.addSize(value); this.changed() },
         })),
       })
     }
-    if (!this.controls.center) actions.push({ id: 'add-center', label: '+ Center', run: () => { this.addCenter(false); this.changed() } })
-    if (this.representation) actions.push({ id: 'remove-size', label: '− Size', run: () => this.removeSize() })
-    if (this.controls.center) actions.push({ id: 'remove-center', label: '− Center', run: () => this.removeCenter() })
+    if (!this.controls.center) actions.push({ id: 'add-center', label: t('action.addCenter'), run: () => { this.addCenter(false); this.changed() } })
+    if (this.representation) actions.push({ id: 'remove-size', label: t('action.removeSize'), run: () => this.removeSize() })
+    if (this.controls.center) actions.push({ id: 'remove-center', label: t('action.removeCenter'), run: () => this.removeCenter() })
     return actions
   }
 
   private addSize(representation: CubeSizeRepresentation): void {
     this.representation = representation
-    const mode = new RepresentationSelectControl('size', 'Size', SIZE_REPRESENTATIONS, representation)
+    const mode = new RepresentationSelectControl('size', t('control.size'), SIZE_REPRESENTATIONS, representation)
     mode.onChange = (next) => this.switchRepresentation(next)
     this.addControl('sizeMode', mode)
     this.addActiveRepresentation(representation)
@@ -90,15 +91,15 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
 
   private addActiveRepresentation(representation: CubeSizeRepresentation): void {
     if (representation === 'scalar') {
-      this.addInput('size', new ClassicPreset.Input(numberSocket, 'Size'))
-      this.addControl('size', new LabeledNumberControl('Size', { initial: this.scalarLiteral, change: (value) => { this.scalarLiteral = value } }))
+      this.addInput('size', new ClassicPreset.Input(numberSocket, t('control.size')))
+      this.addControl('size', new LabeledNumberControl(t('control.size'), { initial: this.scalarLiteral, change: (value) => { this.scalarLiteral = value } }))
     } else if (representation === 'xyz') {
-      for (const [key, label, value] of [['sizeX', 'X', this.xyzLiteral.x], ['sizeY', 'Y', this.xyzLiteral.y], ['sizeZ', 'Z', this.xyzLiteral.z]] as const) {
+      for (const [key, label, value] of [['sizeX', t('control.x'), this.xyzLiteral.x], ['sizeY', t('control.y'), this.xyzLiteral.y], ['sizeZ', t('control.z'), this.xyzLiteral.z]] as const) {
         this.addInput(key, new ClassicPreset.Input(numberSocket, label))
         this.addControl(key, new LabeledNumberControl(label, { initial: value, change: (next) => { this.xyzLiteral = { ...this.xyzLiteral, [key === 'sizeX' ? 'x' : key === 'sizeY' ? 'y' : 'z']: next } } }))
       }
     } else {
-      this.addInput('sizeVector', new ClassicPreset.Input(vector3Socket, 'Vector3'))
+      this.addInput('sizeVector', new ClassicPreset.Input(vector3Socket, t('mode.vector')))
     }
   }
 
@@ -130,8 +131,8 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
 
   private addCenter(value: boolean): void {
     if (this.controls.center) return
-    this.addInput('center', new ClassicPreset.Input(booleanSocket, 'Center'))
-    this.addControl('center', new CheckboxControl('Center', value))
+    this.addInput('center', new ClassicPreset.Input(booleanSocket, t('control.center')))
+    this.addControl('center', new CheckboxControl(t('control.center'), value))
   }
   private removeCenter(): void {
     if (!this.controls.center) return

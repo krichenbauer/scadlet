@@ -1,4 +1,5 @@
 import { DEFAULT_ROTATE_PARAMS, rotateToOpenSCAD, type Vector3Params } from '../../openscad/transform'
+import { t } from '../../i18n/translate'
 import { VectorTransformNode } from './vector-transform-node'
 
 /**
@@ -9,6 +10,6 @@ import { VectorTransformNode } from './vector-transform-node'
  */
 export class RotateNode extends VectorTransformNode {
   constructor(params: Partial<Vector3Params> = {}, notify?: () => void, canSwitch?: () => boolean) {
-    super('Rotate', { ...DEFAULT_ROTATE_PARAMS, ...params }, rotateToOpenSCAD, notify, canSwitch)
+    super(t('node.rotate'), { ...DEFAULT_ROTATE_PARAMS, ...params }, rotateToOpenSCAD, notify, canSwitch)
   }
 }

@@ -1,2 +1,3 @@
 import { BooleanOpNode, type VariadicBooleanParams } from './boolean-op-node'
-export class UnionNode extends BooleanOpNode { constructor(params: Partial<VariadicBooleanParams> = {}, legacy = true) { super('Union', 'union', params, legacy) } }
+import { t } from '../../i18n/translate'
+export class UnionNode extends BooleanOpNode { constructor(params: Partial<VariadicBooleanParams> = {}, legacy = true) { super(t('node.union'), 'union', params, legacy) } }

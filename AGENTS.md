@@ -540,6 +540,16 @@ t('category.primitives')
 
 The current localization layer is intentionally minimal and English-only. A future German translation should be addable by extending the translation dictionary rather than changing graph semantics, node IDs, or call sites.
 
+Current UI-label baseline: all visible/accessibility-relevant natural-language
+labels in the node palette, current node controls, compact-node affordances,
+and app toolbar use `t()` keys. OpenSCAD syntax such as `$fn`, `X`, `Y`, `Z`,
+`R`, and `D` may still use translation keys but remains semantically neutral.
+Variadic Union/Intersection child slots retain stable internal port IDs while
+the renderer presents connected children without repeated text and the final
+empty extension slot as `+`; localized accessible names distinguish
+`Geometry child` from `Add geometry child`. Presentation labels never become
+port IDs or persisted state.
+
 Do not add a full i18n framework or language switcher unless the project has grown enough to justify it.
 
 ---

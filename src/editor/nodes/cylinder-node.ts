@@ -2,6 +2,7 @@ import { ClassicPreset } from 'rete'
 import type { DataflowNode } from 'rete-engine'
 
 import { cylinderToOpenSCAD, type CylinderParams, type CylinderSizeMode } from '../../openscad/cylinder'
+import { t } from '../../i18n/translate'
 import { CheckboxControl, LabeledNumberControl, ParameterActionsControl, SelectControl } from '../controls'
 import { booleanSocket, geometrySocket, numberSocket, type BooleanValue, type GeometryValue, type NumberValue } from '../sockets'
 
@@ -10,7 +11,7 @@ type CylinderControls = Record<string, ClassicPreset.Control> & {
   r1: LabeledNumberControl; r2: LabeledNumberControl; center: CheckboxControl; fn: LabeledNumberControl; fnEnabled: CheckboxControl
 }
 const MODES: readonly { value: CylinderSizeMode; label: string }[] = [
-  { value: 'radius', label: 'Radius' }, { value: 'diameter', label: 'Diameter' }, { value: 'tapered', label: 'Tapered' },
+  { value: 'radius', label: t('mode.radius') }, { value: 'diameter', label: t('mode.diameter') }, { value: 'tapered', label: t('mode.tapered') },
 ]
 
 /** OpenSCAD's optional cylinder signature. A field exists only after the
@@ -20,15 +21,15 @@ export class CylinderNode extends ClassicPreset.Node<Record<string, ClassicPrese
   private values: CylinderParams
 
   constructor(params: Partial<CylinderParams> = {}, notify?: () => void) {
-    super('Cylinder')
+    super(t('node.cylinder'))
     this.notify = notify
     this.values = Object.keys(params).length === 0 && notify === undefined ? { h: 10, mode: 'radius', r: 5, d: 10, r1: 5, r2: 5, center: false } : { ...params }
-    if (params.h !== undefined) this.addNumber('h', 'H', params.h)
+    if (params.h !== undefined) this.addNumber('h', t('control.height'), params.h)
     if (params.mode !== undefined) this.addSize(params.mode)
     if (params.center !== undefined) this.addCenter(params.center)
-    if (params.fn !== undefined) this.addNumber('fn', '$fn', params.fn)
+    if (params.fn !== undefined) this.addNumber('fn', t('control.fn'), params.fn)
     this.addControl('actions', new ParameterActionsControl(() => this.actions()))
-    this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, 'Geometry'))
+    this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, t('input.geometry')))
   }
 
   private changed(): void { this.notify?.() }
@@ -42,12 +43,12 @@ export class CylinderNode extends ClassicPreset.Node<Record<string, ClassicPrese
     this.removeSize()
     this.values = { ...this.values, ...previous }
     this.values.mode = mode
-    this.addControl('mode', new SelectControl('Size', MODES, mode))
+    this.addControl('mode', new SelectControl(t('control.size'), MODES, mode))
     const select = this.controls.mode as SelectControl<CylinderSizeMode>
     select.onChange = (next) => { this.addSize(next); this.changed() }
-    if (mode === 'radius') this.addNumber('r', 'R', this.values.r ?? 5)
-    if (mode === 'diameter') this.addNumber('d', 'D', this.values.d ?? 10)
-    if (mode === 'tapered') { this.addNumber('r1', 'R1', this.values.r1 ?? 5); this.addNumber('r2', 'R2', this.values.r2 ?? 5) }
+    if (mode === 'radius') this.addNumber('r', t('control.radius'), this.values.r ?? 5)
+    if (mode === 'diameter') this.addNumber('d', t('control.diameter'), this.values.d ?? 10)
+    if (mode === 'tapered') { this.addNumber('r1', t('control.radiusBottom'), this.values.r1 ?? 5); this.addNumber('r2', t('control.radiusTop'), this.values.r2 ?? 5) }
   }
   private removeSize(): void {
     for (const key of ['mode', 'r', 'd', 'r1', 'r2']) {
@@ -58,15 +59,15 @@ export class CylinderNode extends ClassicPreset.Node<Record<string, ClassicPrese
   }
   private addCenter(value: boolean): void {
     this.values.center = value
-    this.addInput('center', new ClassicPreset.Input(booleanSocket, 'Center'))
-    this.addControl('center', new CheckboxControl('Center', value))
+    this.addInput('center', new ClassicPreset.Input(booleanSocket, t('control.center')))
+    this.addControl('center', new CheckboxControl(t('control.center'), value))
   }
   private actions(): readonly { id: string; label: string; run: () => void }[] {
     const actions: { id: string; label: string; run: () => void }[] = []
-    if (this.values.h === undefined) actions.push({ id: 'h', label: '+ Height', run: () => { this.addNumber('h', 'H', 10); this.changed() } })
-    if (!this.controls.mode) actions.push({ id: 'size', label: '+ Size', run: () => { this.addSize('radius'); this.changed() } })
-    if (this.values.center === undefined) actions.push({ id: 'center', label: '+ Center', run: () => { this.addCenter(false); this.changed() } })
-    if (this.values.fn === undefined) actions.push({ id: 'fn', label: '+ $fn', run: () => { this.addNumber('fn', '$fn', 30); this.changed() } })
+    if (this.values.h === undefined) actions.push({ id: 'h', label: t('action.addHeight'), run: () => { this.addNumber('h', t('control.height'), 10); this.changed() } })
+    if (!this.controls.mode) actions.push({ id: 'size', label: t('action.addSize'), run: () => { this.addSize('radius'); this.changed() } })
+    if (this.values.center === undefined) actions.push({ id: 'center', label: t('action.addCenter'), run: () => { this.addCenter(false); this.changed() } })
+    if (this.values.fn === undefined) actions.push({ id: 'fn', label: t('action.addFn'), run: () => { this.addNumber('fn', t('control.fn'), 30); this.changed() } })
     return actions
   }
   getPersistedParams(): CylinderParams {

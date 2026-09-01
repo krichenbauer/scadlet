@@ -82,6 +82,20 @@ test('vector transforms expose one representation and Center has a Boolean row',
   await expect(cube.locator('[data-param-key="center"] .node-socket[data-socket-type="boolean"]')).toHaveCount(1)
 })
 
+test('variadic Boolean nodes use compact localized child affordances', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  await page.getByRole('button', { name: 'Union', exact: true }).click()
+  const union = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Union' }) })
+  await expect(union.locator('.node-port-label')).toHaveText('+')
+  await expect(union.locator('.node-socket[aria-label="Add geometry child"]')).toHaveCount(1)
+  await expect(union.getByText('Geometry child', { exact: true })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Intersection', exact: true }).click()
+  const intersection = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Intersection' }) })
+  await expect(intersection.locator('.node-port-label')).toHaveText('+')
+  await expect(intersection.locator('.node-socket[aria-label="Add geometry child"]')).toHaveCount(1)
+})
+
 test('autosaves canonical graph state and restores it after reload', async ({ page }) => {
   await waitForLocalLibrary(page)
   await renameProject(page, 'Persistent Cube')

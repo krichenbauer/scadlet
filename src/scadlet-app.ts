@@ -25,6 +25,7 @@ import { restoreProject } from './persistence/restore'
 import { serializeProject } from './persistence/serialize'
 import { RenderController } from './render/render-controller'
 import { scadBlob, stlBlob, triggerDownload } from './render/download'
+import { t } from './i18n/translate'
 
 /** Pane size limits for the resizable workspace layout, in pixels. */
 const MIN_EDITOR_WIDTH = 280
@@ -308,11 +309,11 @@ export class ScadletApp extends LitElement {
       <header>
         <h1>SCADlet</h1>
         <button type="button" @click=${this._newProject} ?disabled=${this.localInitializing || !this.localStore}>
-          New
+          ${t('toolbar.new')}
         </button>
         <select
           class="project-picker"
-          aria-label="Local project"
+          aria-label=${t('toolbar.localProject')}
           .value=${this.activeProjectId ?? ''}
           @change=${this._onLocalProjectSelected}
           ?disabled=${this.localInitializing || !this.localStore || this.localProjects.length === 0}
@@ -328,7 +329,7 @@ export class ScadletApp extends LitElement {
           @click=${this._deleteCurrentProject}
           ?disabled=${this.localInitializing || !this.localStore || !this.activeProjectId}
         >
-          Delete
+          ${t('toolbar.delete')}
         </button>
         <input
           type="text"
@@ -336,23 +337,23 @@ export class ScadletApp extends LitElement {
           .value=${this.projectMetadata.name}
           @change=${this._onProjectNameChange}
           ?disabled=${this.localInitializing}
-          aria-label="Project name"
+          aria-label=${t('toolbar.projectName')}
         />
         ${this.dirty
-          ? html`<span class="dirty-indicator" title="Changes waiting for local autosave">●</span>`
+          ? html`<span class="dirty-indicator" title=${t('toolbar.autosavePending')}>●</span>`
           : nothing}
         <span class="toolbar-gap"></span>
-        <button type="button" @click=${this._open} ?disabled=${this.localInitializing}>Open</button>
-        <button type="button" @click=${this._save} ?disabled=${this.localInitializing}>Save</button>
-        <button type="button" @click=${this._saveAs} ?disabled=${this.localInitializing}>Save As</button>
+        <button type="button" @click=${this._open} ?disabled=${this.localInitializing}>${t('toolbar.open')}</button>
+        <button type="button" @click=${this._save} ?disabled=${this.localInitializing}>${t('toolbar.save')}</button>
+        <button type="button" @click=${this._saveAs} ?disabled=${this.localInitializing}>${t('toolbar.saveAs')}</button>
         <button type="button" @click=${this._render} ?disabled=${this.localInitializing || this.rendering}>
-          ${this.rendering ? 'Rendering…' : 'Render'}
+          ${this.rendering ? t('toolbar.rendering') : t('toolbar.render')}
         </button>
-        <button type="button" @click=${this._stop} ?disabled=${!this.rendering}>Stop</button>
+        <button type="button" @click=${this._stop} ?disabled=${!this.rendering}>${t('toolbar.stop')}</button>
         <button type="button" @click=${this._downloadScad} ?disabled=${!this.exportSource}>
-          Download .scad
+          ${t('toolbar.downloadScad')}
         </button>
-        <button type="button" @click=${this._downloadStl} ?disabled=${!this.stl}>Download .stl</button>
+        <button type="button" @click=${this._downloadStl} ?disabled=${!this.stl}>${t('toolbar.downloadStl')}</button>
       </header>
       <div class="workspace">
         <node-palette .inert=${this.localInitializing} @node-palette-pick=${this._onPalettePick}></node-palette>
@@ -366,14 +367,14 @@ export class ScadletApp extends LitElement {
             <geometry-viewer></geometry-viewer>
             <layout-splitter orientation="horizontal" @splitter-move=${this._onSideSplitterMove}></layout-splitter>
             <div class="bottom-panel">
-              <pre class="scad-output">${this.scadSource || '// click "Render" to see the generated source'}</pre>
+              <pre class="scad-output">${this.scadSource || `// ${t('toolbar.renderHint')}`}</pre>
               ${this.persistenceMessage
                 ? html`<p class="persistence-status">
                     ${this.persistenceMessage}
                     ${this.autosaveStatus === 'conflict'
                       ? html`<span class="persistence-actions">
-                          <button type="button" @click=${this._reloadConflictedProject}>Reload stored version</button>
-                          <button type="button" @click=${this._saveConflictAsCopy}>Save current as a new project</button>
+                          <button type="button" @click=${this._reloadConflictedProject}>${t('toolbar.reloadStored')}</button>
+                          <button type="button" @click=${this._saveConflictAsCopy}>${t('toolbar.saveAsNew')}</button>
                         </span>`
                       : nothing}
                   </p>`

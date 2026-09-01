@@ -49,15 +49,15 @@ export class VectorTransformNode
     this.representation = defaults.representation ?? 'xyz'
     this.xyzLiteral = { x: defaults.x, y: defaults.y, z: defaults.z }
 
-    this.addInput('geometry', new ClassicPreset.Input(geometrySocket, 'Geometry'))
+    this.addInput('geometry', new ClassicPreset.Input(geometrySocket, t('input.geometry')))
     const mode = new RepresentationSelectControl('vector', label, [
-      { value: 'xyz', label: 'XYZ' },
-      { value: 'vector', label: 'Vector' },
+      { value: 'xyz', label: t('mode.xyz') },
+      { value: 'vector', label: t('mode.vector') },
     ], this.representation)
     mode.onChange = (next) => this.switchRepresentation(next)
     this.addControl('vectorMode', mode)
     this.addActiveRepresentation(this.representation)
-    this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, 'Geometry'))
+    this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, t('input.geometry')))
   }
 
   /** Extracts this node's semantic parameters, e.g. for `.scadlet` persistence (see `editor/node-catalog.ts`) - the same values `data()` generates OpenSCAD from. */
@@ -88,7 +88,7 @@ export class VectorTransformNode
 
   private addActiveRepresentation(representation: Vector3Representation): void {
     if (representation === 'vector') {
-      this.addInput('vector', new ClassicPreset.Input(vector3Socket, 'Vector'))
+      this.addInput('vector', new ClassicPreset.Input(vector3Socket, t('mode.vector')))
       return
     }
     for (const [key, label, value] of [
