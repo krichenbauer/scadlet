@@ -224,47 +224,57 @@ Initial node families include:
 
 - values/math exist to support geometry, not to dominate the graph
 
-The current geometry vocabulary is implemented and includes Cube, Cylinder, Sphere, Translate, Rotate, Scale, Difference, Union, and Intersection. These nodes establish the reusable patterns for primitives, parameterized primitives with progressive disclosure, unary geometry transforms, and Boolean composition.
+The current geometry vocabulary is implemented and includes Cube, Cylinder, Sphere, Translate, Rotate, Scale, Difference, Union, and Intersection. These nodes establish the current working baseline for primitives, transforms, and Boolean composition. Their existing parameter surfaces and fixed Boolean inputs are not the final interaction model: Milestone 6 deliberately refines them toward OpenSCAD-semantic signatures before broader value/dataflow work.
 
-### Parameters
+### Parameters and semantic signatures
 
-Simple values should normally be editable directly inside geometry nodes.
+SCADlet should expose OpenSCAD semantics without forcing beginners to construct a value graph for every literal. A parameter is a semantic unit of the OpenSCAD call; its visual editor may offer several convenient ways to provide that value.
 
-Example:
+Prefer the **smallest valid OpenSCAD signature** for a newly created node. Do not permanently show arguments that OpenSCAD can validly omit. For example, the intended Cube progression is conceptually:
 
 ```text
+Cube
+→ cube();
 
-Cylinder
+Cube + Size = 20
+→ cube(20);
 
-  radius: 5
+Cube + Size = [20, 10, 10]
+→ cube([20, 10, 10]);
 
-  height: 20
-
+Cube + Size = [20, 10, 10] + Center = true
+→ cube([20, 10, 10], center = true);
 ```
 
-Parameters may later also expose ports so their values can come from other nodes.
+Use an explicit, compact add-parameter affordance (for example `+` with a small context menu) to add supported optional arguments. Removing an optional argument should return the node to the corresponding simpler valid signature without losing unrelated graph state. Required arguments, where OpenSCAD truly has no usable default, remain visible.
 
-Avoid forcing users to create value nodes for every numeric literal.
+Do not confuse a convenient editor decomposition with OpenSCAD parameter identity. For example, Cube has one semantic `size` parameter even when SCADlet presents its vector form as editable X/Y/Z components. The UI may therefore support several representations of the same parameter, such as:
 
-### Optional OpenSCAD parameters
+- scalar Number literal
+- scalar Number connection
+- Vector3 literal edited as X/Y/Z
+- Vector3 connection
+- Vector3 assembled from a mixture of component literals and Number connections
 
-Use progressive disclosure.
+Inline literals remain the usability fallback. When a compatible value connection supplies a parameter/component, disable the corresponding inline editor visually and semantically but preserve its previous literal value so disconnecting restores it. A whole-Vector3 input takes precedence over X/Y/Z component inputs; component literals/connections should remain preserved and visibly inactive so removing the Vector3 connection restores the previous component state rather than destroying user work.
 
-Do not show every possible OpenSCAD parameter on every node by default. Show the common form first and let users enable additional options.
+Avoid an `int`/`float` distinction for ordinary OpenSCAD numeric values. Treat them as a single **Number** type. Geometry, Number, Vector3, and later genuinely distinct types such as Boolean or String may use distinct socket colors/visuals. Do not model OpenSCAD's weak/list typing so literally that the educational UI becomes ambiguous: a semantic Vector3 socket is acceptable even though OpenSCAD represents the value as a three-element list.
 
-For mutually exclusive OpenSCAD forms, expose semantic modes rather than independent conflicting fields.
+### Optional parameters and progressive disclosure
 
-For example, a cylinder may offer:
+Use progressive disclosure, but tie it to the semantic signature rather than merely hiding a large fixed form.
 
-- radius
+Do not show every possible OpenSCAD parameter on every node by default. Start with the smallest useful/valid form and let users add supported parameters as needed. For mutually exclusive OpenSCAD forms, expose semantic modes rather than independent conflicting fields. Existing examples include radius, diameter, and different bottom/top radii for a cylinder. Optional advanced parameters such as `$fn`, `$fa`, and `$fs` should remain absent until explicitly added/enabled.
 
-- diameter
+Connected parameter ports are never allowed to disappear merely because the node collapses. A collapsed node must remain expanded far enough to show every currently used connection and the semantic parameter/component it supplies. During connection dragging, hovering a compatible compact node should reveal the additional compatible target ports needed to make a new connection. Existing connector anchors must remain stable while this disclosure occurs.
 
-- different bottom/top radii
+### Geometry children and variadic inputs
 
-Only fields/ports relevant to the selected mode should be shown.
+OpenSCAD child blocks are not inherently binary. Do not permanently model variadic operations as binary trees merely because the MVP used two inputs. `union()` and `intersection()` should evolve from the current fixed `A`/`B` inputs to an ordered variadic child list.
 
-Optional advanced parameters such as `$fn`, `$fa`, and `$fs` should be hidden until enabled.
+Prefer a simple dynamic-slot interaction: connected child slots remain visible and another empty child slot is available for extending the operation. Dynamic slots must have stable, language-independent identities suitable for Rete connections and `.scadlet` persistence; removing/reordering slots must not silently retarget existing connections. Difference remains semantically asymmetric (`base` / `subtract`) and need not be forced into the same variadic abstraction.
+
+Do not generalize this into an abstract signature/DSL framework beyond what the current OpenSCAD node vocabulary demonstrates. Prefer a few explicit reusable mechanisms for optional parameters, alternative value editors, typed parameter inputs, and ordered variadic children.
 
 ### Code node
 
@@ -438,7 +448,9 @@ Current behavior:
 
 - expanding/collapsing must not move nodes, disturb the canvas viewport, change graph semantics, or move existing connector anchors. Structural ports live in a stable main/header row; expandable controls grow separately below it
 
-Node layout is normalized as inputs on the far left, a stable title/port row in the middle, and outputs on the far right, with expandable controls in a separate row below. Current nodes use a stable minimum width so opening controls does not shift sockets horizontally. Geometry socket type is communicated visually by its existing blue socket treatment rather than by repeating a visible `Geometry` label on every port. Semantic socket typing and accessible names must remain intact. Future value/socket types may use distinct visual colors, but do not build a generalized type system prematurely.
+Node layout is normalized as inputs on the far left, a stable title/port row in the middle, and outputs on the far right, with expandable controls in a separate row below. Current nodes use a stable minimum width so opening controls does not shift sockets horizontally. Geometry socket type is communicated visually by its existing blue socket treatment rather than by repeating a visible `Geometry` label on every port. Semantic socket typing and accessible names must remain intact. Number, Vector3, and later genuinely distinct value types should use consistent, distinguishable socket/connection visuals without splitting Number into int/float.
+
+As parameter sockets are introduced, compactness becomes **connection-aware**: every connected input must remain visible in the collapsed state, with the corresponding inline editor disabled while the connection is authoritative. Hover during a compatible connection drag may expand the node further to reveal currently unused target ports. Expansion for this purpose must preserve the established stable-anchor invariant so the socket a user is aiming for does not jump.
 
 Editable controls inside nodes own their normal browser interactions. Canvas gestures such as double-click zoom or wheel handling must not override editing/selecting values in inputs, textareas, selects, buttons, or other editable controls.
 
@@ -534,7 +546,7 @@ Do not add a full i18n framework or language switcher unless the project has gro
 
 ## Persistence
 
-Project persistence is the next milestone and must remain fully client-side. Treat **project representation**, **file access**, and **browser-local storage** as separate concerns that share the same canonical project model.
+Project persistence (Milestone 5) is implemented and remains fully client-side. Treat **project representation**, **file access**, and **browser-local storage** as separate concerns that share the same canonical project model.
 
 ### Canonical `.scadlet` project format
 
@@ -580,11 +592,13 @@ Connections must address **specific stable ports**, not merely pairs of nodes. C
 }
 ```
 
-This is required for current multi-input geometry nodes and future parameter/value sockets. Port IDs such as `geometry`, `base`, `subtract`, `a`, `b`, `x`, etc. must be stable semantic IDs independent of localized labels and renderer details.
+This is required for current multi-input geometry nodes and future parameter/value sockets. Port IDs such as `geometry`, `base`, `subtract`, `a`, `b`, `x`, etc. must be stable semantic IDs independent of localized labels and renderer details. Dynamic variadic child slots introduced later must likewise have persistent slot identities rather than display-index-derived connections that silently retarget when the UI changes.
 
-Do not store transient interaction state as normal project data. In particular, ordinary selection, marquee rectangles, hover timers, temporary compact expansion, drag state, and temporary Inspect root should not be serialized. Pinned presentation state should also remain excluded unless a later deliberate product decision makes it project-relevant.
+Do not store transient interaction state as normal project data. In particular, ordinary selection, marquee rectangles, hover timers, temporary compact expansion, drag state, and temporary Inspect root should not be serialized. Explicit pinning is the deliberate exception: it is user-chosen, reproducible presentation state and is persisted in v1; temporary hover/selection-driven expansion remains excluded.
 
 The format must be explicitly versioned from the beginning. Prefer small migrations between known older versions over speculative future-proof schemas. A newer unsupported format version, unknown semantic node type, or incompatible port/state must produce an understandable load error rather than silently dropping data. Additive evolution should preserve old projects through explicit migration/normalization code.
+
+From this milestone onward, every new persistent language/editor feature must be reviewed against `.scadlet`: update the canonical types, serializer, validator, restore path, fixtures/tests, and `docs/scadlet-format.md` whenever the persisted representation changes. Changing existing parameter shapes or stable port IDs is a format-compatibility event; either preserve backward-compatible identities/adapters or introduce a new format version with a tested migration. Never silently make existing saved projects unloadable.
 
 `.scad` and `.stl` remain export formats, not SCADlet project formats.
 
@@ -777,6 +791,8 @@ Use pnpm for package operations unless the repository explicitly changes package
 
 Do not require developers to install project-specific Node packages globally.
 
+Browser persistence integration tests use Playwright (`pnpm test:e2e`). Chromium is provided by the Nix devShell and exposed through `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`; keep browser-test output directories ignored rather than committing generated reports.
+
 ---
 
 ## Code quality
@@ -968,7 +984,7 @@ Current implementation follows the established architecture:
 - inline numeric controls and progressive disclosure where appropriate
 - Sphere supports radius/diameter and optional `$fn`
 - Translate/Rotate/Scale share their genuine vector-transform implementation pattern
-- Union/Intersection currently use two explicit geometry inputs (`A`/`B`) rather than a premature variadic-port UI
+- Union/Intersection currently use two explicit geometry inputs (`A`/`B`) as an MVP implementation; Milestone 6 deliberately replaces this binary limitation with ordered variadic children
 - catalog registration and localization keys for all current nodes
 
 Render performance was also profiled at this stage. The current OpenSCAD WASM path uses Manifold plus binary STL because Boolean operations with tessellated geometry such as Sphere `$fn=50` were orders of magnitude slower with the previous CGAL/Nef backend. Do not revert that backend/output choice without measured evidence and correctness verification.
@@ -977,50 +993,71 @@ The editor also supports **Inspect Node** as a temporary preview root: an interm
 
 ### Milestone 5 — Project persistence / save and load (complete)
 
-Implement persistence in three layers, in this order:
+Persistence is implemented in three layers:
 
 1. **Canonical `.scadlet` format**
-   - define version 1 of the SCADlet-owned JSON schema
-   - serialize semantic graph state through stable node/type/port IDs
-   - include editor representation (node positions, canvas viewport) and viewer camera/view state in separate sections
-   - add validation plus a migration boundary from day one; do not serialize library internals
+   - version 1 defines the SCADlet-owned JSON schema
+   - semantic graph state is serialized through stable node/type/port IDs
+   - editor representation (node positions, canvas viewport) and viewer camera/view state are included in distinct sections
+   - validation and a migration boundary are present; library internals are not serialized
 
 2. **Project file Open / Save / Save As**
-   - import and export the same `.scadlet` representation
-   - require a meaningful project name before the first explicit file save/export and derive the default filename from it
-   - use File System Access APIs as progressive enhancement where supported, with file-input/download fallback elsewhere
-   - keep browser file handles outside the portable project JSON
+   - imports and exports use the same `.scadlet` representation
+   - a meaningful project name is required before the first explicit file save/export and supplies the default filename
+   - File System Access APIs are a progressive enhancement, with file-input/download fallback elsewhere
+   - browser file handles remain outside the portable project JSON
 
 3. **Browser-local project library**
-   - store multiple projects in IndexedDB so work survives reloads and closed windows
-   - keep each tab's current `activeProjectId` tab-scoped, e.g. in `sessionStorage`
-   - use revision-based optimistic concurrency so two tabs editing the same project cannot silently overwrite one another
-   - use `BroadcastChannel` for lightweight cross-tab project-library notifications
-   - optionally use short per-project Web Locks where supported, while keeping revision checks authoritative
+   - multiple projects are stored in IndexedDB so work survives reloads and closed windows
+   - each tab's current `activeProjectId` is tab-scoped in `sessionStorage`
+   - revision-based optimistic concurrency prevents two tabs editing the same project from silently overwriting one another
+   - `BroadcastChannel` provides lightweight cross-tab project-library notifications
+   - atomic IndexedDB revision checks are authoritative; Web Locks are intentionally not used
 
-All three layers are implemented. The local-library implementation intentionally relies on atomic IndexedDB revision checks rather than Web Locks.
+All three layers are implemented.
 
 Do not serialize transient hover, marquee, ordinary selection, drag state, or temporary Inspect state. Do not add collaborative merging, accounts, cloud sync, GitHub storage, or an application backend in this milestone.
 
 The resulting serializer/project fixtures should also make deterministic examples, regression tests, and repeatable render benchmarks straightforward without constructing graphs through fragile UI automation.
 
-### Milestone 6 — Parameters and simple dataflow
+### Milestone 6 — OpenSCAD-semantic node signatures and extensible inputs
 
-Add value-driven parameters and a small supporting math layer.
+Refine the current MVP node surfaces before adding a broad value/math graph. The goal is to make nodes represent OpenSCAD calls progressively: start with the smallest valid signature, add optional arguments only when needed, and expose the same semantic parameter through convenient literal/value representations.
 
-Likely initial value nodes:
+Core requirements:
+
+- New nodes start with the smallest useful/valid OpenSCAD signature. For example, Cube should be able to progress from `cube()` to `cube(20)` to `cube([20, 10, 10])` to `cube([20, 10, 10], center = true)` through explicit parameter addition rather than permanently showing every field.
+- Add/remove optional parameters through a compact explicit affordance such as `+`; do not hide a permanently complete form and call that the final model.
+- Preserve convenient inline literals. A semantic parameter may offer different editors, e.g. Cube `size` as one Number or as a Vector3 edited through X/Y/Z. X/Y/Z are components of `size`, not separate Cube parameters.
+- Establish typed parameter-input behavior needed by the next milestone. A compatible connection overrides/disables its inline literal while preserving that literal for later disconnection. Whole-Vector3 input takes precedence over component Number inputs while preserving the inactive component state.
+- Make compact-node disclosure connection-aware: all currently connected parameter/child ports remain visible; hovering a compatible target while dragging a connection reveals additional usable ports without moving existing anchors.
+- Replace Union/Intersection's fixed `A`/`B` limitation with ordered variadic geometry children and stable dynamic child-slot identities. Difference remains asymmetric and may keep its semantic `base`/`subtract` inputs.
+- Keep Geometry as the existing blue type and establish a clear typed-socket basis for Number and Vector3. Do not split OpenSCAD Number into int/float. Boolean and String remain distinct future types when needed.
+- Apply the new signature/parameter model coherently to the current node vocabulary where it is relevant rather than special-casing Cube only. Do not add unsupported OpenSCAD features merely to fill menus.
+
+Persistence is part of this milestone. Existing `.scadlet` v1 projects must not silently break when parameter representations or Boolean child ports change. Before changing persisted parameter shapes/port IDs, choose and test either a backward-compatible adapter/identity strategy or a new format version plus migration. Update `docs/scadlet-format.md`, fixtures, serializer/validator/restore code, and round-trip tests accordingly.
+
+This milestone is about the **node/signature model and extensible inputs**, not yet about a large catalog of Number/math nodes. It should leave Milestone 7 straightforward rather than forcing value dataflow onto the current MVP parameter forms.
+
+### Milestone 7 — Typed values and simple dataflow
+
+Add value-driven parameters and a small supporting math layer on top of the Milestone 6 input model.
+
+Initial value vocabulary should focus on what the existing geometry nodes actually need:
 
 - Number
 - Add
 - Subtract
 - Multiply
 - Divide
-- Vector2
 - Vector3
+- Vector2 only when a current/forthcoming OpenSCAD operation gives it a clear use
 
-Geometry-node parameters should still support convenient inline literal values. Parameter/value connectors should follow the established stable-anchor and type-color conventions rather than causing node layout to jump.
+Use a single Number type for ordinary OpenSCAD numeric values; do not introduce int/float conversion nodes. Vector3 is a useful SCADlet semantic socket type even though OpenSCAD emits it as a three-element list. Add Boolean and String only when concrete node parameters/operations require them.
 
-### Milestone 7 — Modules / reusable subgraphs
+Geometry-node parameters must continue to support convenient inline literals. Connecting a value should make dataflow explicit without forcing literal-only beginners to construct trivial Number nodes. Parameter/value connectors must follow the established type-color, stable-anchor, connection-aware disclosure, dirty-state, and `.scadlet` persistence rules.
+
+### Milestone 8 — Modules / reusable subgraphs
 
 Support reusable, parameterized graph structures corresponding to OpenSCAD modules.
 
@@ -1031,13 +1068,13 @@ Focus on teaching:
 - reuse
 - composition
 
-### Milestone 8 — Iteration
+### Milestone 9 — Iteration
 
 Add a visual representation of repetition / OpenSCAD `for`.
 
 The precise UX is intentionally undecided. Do not assume the OpenSCAD syntax should be mapped literally to nodes.
 
-### Milestone 9 — Geometry code node
+### Milestone 10 — Geometry code node
 
 Add an OpenSCAD code escape hatch that:
 
@@ -1047,7 +1084,7 @@ Add an OpenSCAD code escape hatch that:
 
 Keep it secondary to normal visual nodes.
 
-### Milestone 10 — Teaching features and UX refinement
+### Milestone 11 — Teaching features and UX refinement
 
 Possible later features include:
 
@@ -1091,7 +1128,7 @@ editable Rete graph
 
 This end-to-end MVP now exists and is the stable baseline for subsequent work.
 
-Project persistence (Milestone 5) is the next practical step now that graphs are useful enough to preserve, exchange, reopen, and use as deterministic examples/benchmarks. Parameter dataflow/value nodes follow in Milestone 6 rather than being required for the proof of concept.
+Project persistence (Milestone 5) now preserves and exchanges useful graphs and supplies deterministic examples/regression fixtures. The next planned language milestone is Milestone 6's OpenSCAD-semantic signature/input refactor; typed value/dataflow nodes follow in Milestone 7 rather than being bolted directly onto the earlier MVP parameter forms.
 
 When extending the MVP, preserve the working end-to-end path and resist
 
