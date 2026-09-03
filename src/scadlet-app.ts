@@ -24,6 +24,7 @@ import { LocalProjectEvents, type LocalProjectEvent } from './persistence/projec
 import { restoreProject } from './persistence/restore'
 import { serializeProject } from './persistence/serialize'
 import { RenderController } from './render/render-controller'
+import { ExecutionGeneration } from './render/execution-generation'
 import { scadBlob, stlBlob, triggerDownload } from './render/download'
 import { t } from './i18n/translate'
 
@@ -244,6 +245,8 @@ export class ScadletApp extends LitElement {
   private sideEl!: HTMLElement
 
   private readonly renderController = new RenderController()
+  private readonly executionGeneration = new ExecutionGeneration()
+  private activeExecution: 'render' | 'inspect' | null = null
   private mainResizeObserver?: ResizeObserver
   private sideResizeObserver?: ResizeObserver
 
@@ -254,6 +257,8 @@ export class ScadletApp extends LitElement {
       triggerDownload(new Blob([content], { type: 'application/json' }), filename),
   })
   private unsubscribeDirty?: () => void
+  private unsubscribeSemantic?: () => void
+  private unsubscribeInspect?: () => void
   private unsubscribeCameraDirty?: () => void
   private localStore: LocalProjectStore | null = null
   private activeProjectSession: ActiveProjectSession | null = null
@@ -366,7 +371,7 @@ export class ScadletApp extends LitElement {
         <button type="button" @click=${this._open} ?disabled=${this.localInitializing}>${t('toolbar.open')}</button>
         <button type="button" @click=${this._save} ?disabled=${this.localInitializing}>${t('toolbar.save')}</button>
         <button type="button" @click=${this._saveAs} ?disabled=${this.localInitializing}>${t('toolbar.saveAs')}</button>
-        <button type="button" @click=${this._render} ?disabled=${this.localInitializing || this.rendering}>
+        <button type="button" @click=${this._render} ?disabled=${this.localInitializing}>
           ${this.rendering ? t('toolbar.rendering') : t('toolbar.render')}
         </button>
         <button type="button" @click=${this._stop} ?disabled=${!this.rendering}>${t('toolbar.stop')}</button>
@@ -451,6 +456,8 @@ export class ScadletApp extends LitElement {
       this.persistenceMessage = `Local project storage is unavailable. You can still use Open and Save: ${this._errorMessage(error)}`
     } finally {
       this.unsubscribeDirty = instance.onDirty(() => this._markDirty())
+      this.unsubscribeSemantic = instance.onSemanticChange(() => this._invalidateStaleInspect())
+      this.unsubscribeInspect = instance.onInspect((nodeId) => void this._inspect(nodeId))
       this.unsubscribeCameraDirty = this.viewer.onCameraChange(() => this._markDirty())
       this.localInitializing = false
     }
@@ -851,71 +858,104 @@ export class ScadletApp extends LitElement {
     void this._save()
   }
 
-  private async _render() {
-    if (this.rendering) return
-
-    const tStart = performance.now()
-    // Render always evaluates the current graph first, so it's the one
-    // action that keeps the SCAD output, the `.scad` download, and the
-    // WASM render in sync with each other - there is no separate
-    // "Evaluate" action/code path to fall out of sync with this one.
-    //
-    // The full-model evaluation always happens and is what ".scad" export
-    // uses, regardless of Inspect Node state. When a node is being
-    // inspected (Inspect Node - see `editor/inspect.ts`), the preview
-    // actually rendered/displayed instead evaluates just that node's
-    // subtree, reusing the exact same evaluation path with an explicit
-    // root rather than a second evaluator (`evaluateOpenSCAD`'s optional
-    // `rootNodeId`). With nothing inspected the two are identical, so
-    // normal Render behaves exactly as it did before Inspect Node existed.
-    const fullSource = await this.nodeEditor.evaluate()
-    this.exportSource = fullSource
-
-    const inspectedNodeId = this.nodeEditor.getInspectedNodeId()
-    const inspected = inspectedNodeId ? await this.nodeEditor.evaluateInspect(inspectedNodeId) : null
-    if (inspected?.kind === 'value') this.editorInstance?.clearInspectedValueResult()
-    const previewSource = inspected?.kind === 'geometry' ? inspected.source : fullSource
-    this.scadSource = inspected?.kind === 'value'
-      ? `echo("__SCADLET_VALUE__:", ${inspected.expression});`
-      : previewSource
-    const tEval = performance.now()
-
-    if ((!inspected || inspected.kind !== 'value') && !previewSource.trim()) {
-      this.renderError = 'Nothing to render - add at least one node.'
-      return
-    }
-
+  private _beginExecution(kind: 'render' | 'inspect'): number {
+    const generation = this.executionGeneration.begin()
+    if (this.renderController.isRendering) this.renderController.stop()
+    this.activeExecution = kind
     this.rendering = true
     this.renderError = null
+    return generation
+  }
+
+  private _finishExecution(generation: number): void {
+    if (!this.executionGeneration.isCurrent(generation)) return
+    this.activeExecution = null
+    this.rendering = false
+  }
+
+  /** A semantic edit makes an in-flight Inspect obsolete. The existing last
+   * successful geometry preview stays in the viewer; only its pending worker
+   * request is cancelled, and no automatic re-evaluation is started. */
+  private _invalidateStaleInspect(): void {
+    if (this.activeExecution !== 'inspect') return
+    this.executionGeneration.invalidate()
+    this.activeExecution = null
+    this.rendering = false
+    this.renderController.stop()
+  }
+
+  private async _render() {
+    const generation = this._beginExecution('render')
+    const tStart = performance.now()
     try {
-      if (inspected?.kind === 'value' && inspectedNodeId) {
-        const value = await this.renderController.inspectValue(this.scadSource)
-        this.editorInstance?.setInspectedValueResult(inspectedNodeId, value)
+      // Toolbar Render always evaluates the complete project. A temporary
+      // Inspect root never changes normal preview or `.scad` export scope.
+      const source = await this.nodeEditor.evaluate()
+      if (!this.executionGeneration.isCurrent(generation)) return
+      this.exportSource = source
+      this.scadSource = source
+      if (!source.trim()) {
+        this.renderError = 'Nothing to render - add at least one node.'
         return
       }
-      const stl = await this.renderController.render(previewSource)
-      const tRendered = performance.now()
+      const stl = await this.renderController.render(source)
+      if (!this.executionGeneration.isCurrent(generation)) return
       this.stl = stl
       this.viewer.showSTL(stl)
-      const tViewer = performance.now()
-      console.log(
-        `[scadlet-app] eval=${(tEval - tStart).toFixed(1)}ms ` +
-          `render=${(tRendered - tEval).toFixed(1)}ms ` +
-          `viewer=${(tViewer - tRendered).toFixed(1)}ms ` +
-          `total=${(tViewer - tStart).toFixed(1)}ms`,
-      )
+      console.log(`[scadlet-app] render total=${(performance.now() - tStart).toFixed(1)}ms`)
     } catch (error) {
-      // A user-initiated Stop rejects the in-flight render; that's an
-      // expected transition back to idle, not an error worth surfacing.
+      if (!this.executionGeneration.isCurrent(generation)) return
       const message = error instanceof Error ? error.message : String(error)
-      if (inspected?.kind === 'value') this.editorInstance?.clearInspectedValueResult()
       if (message !== 'Render stopped') this.renderError = message
     } finally {
-      this.rendering = false
+      this._finishExecution(generation)
+    }
+  }
+
+  /** Executes exactly one OpenSCAD-backed evaluation for the node selected
+   * by an Inspect double-click. It never starts live/background evaluation. */
+  private async _inspect(nodeId: string): Promise<void> {
+    const generation = this._beginExecution('inspect')
+    try {
+      const inspected = await this.nodeEditor.evaluateInspect(nodeId)
+      if (!this.executionGeneration.isCurrent(generation) || inspected.kind === 'missing') return
+
+      // Retain a complete `.scad` export while rendering/evaluating only the
+      // temporary Inspect root. This is evaluation only, never a second render.
+      const fullSource = await this.nodeEditor.evaluate()
+      if (!this.executionGeneration.isCurrent(generation)) return
+      this.exportSource = fullSource
+
+      if (inspected.kind === 'value') {
+        const source = `echo("__SCADLET_VALUE__:", ${inspected.expression});`
+        this.scadSource = source
+        const value = await this.renderController.inspectValue(source)
+        if (!this.executionGeneration.isCurrent(generation)) return
+        this.editorInstance?.setInspectedValueResult(nodeId, value)
+        return
+      }
+
+      if (!inspected.source.trim()) {
+        this.renderError = 'Nothing to render - add at least one node.'
+        return
+      }
+      this.scadSource = inspected.source
+      const stl = await this.renderController.render(inspected.source)
+      if (!this.executionGeneration.isCurrent(generation)) return
+      this.stl = stl
+      this.viewer.showSTL(stl)
+    } catch (error) {
+      if (!this.executionGeneration.isCurrent(generation)) return
+      const message = error instanceof Error ? error.message : String(error)
+      if (message !== 'Render stopped') this.renderError = message
+    } finally {
+      this._finishExecution(generation)
     }
   }
 
   private _stop() {
+    this.executionGeneration.invalidate()
+    this.activeExecution = null
     this.renderController.stop()
     this.rendering = false
   }
@@ -934,6 +974,8 @@ export class ScadletApp extends LitElement {
     super.disconnectedCallback()
     window.removeEventListener('keydown', this._onKeyDown)
     this.unsubscribeDirty?.()
+    this.unsubscribeSemantic?.()
+    this.unsubscribeInspect?.()
     this.unsubscribeCameraDirty?.()
     this.unsubscribeLocalEvents?.()
     this.localEvents?.close()

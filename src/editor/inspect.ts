@@ -60,17 +60,14 @@ export class InspectManager {
   }
 
   /**
-   * Double-click toggle behavior: inspecting the already-inspected node
-   * clears inspection (back to normal full-graph rendering); inspecting
-   * any other node replaces the previous inspect root with it. Notifies
-   * `onChange` for every node whose rendered state actually changed (the
-   * previous inspect root, if any, and the new one), so callers can
-   * re-render just those - never the whole graph.
+   * Selects a node as the temporary Inspect root. Re-selecting the same
+   * node is intentionally a fresh explicit Inspect request, not a toggle
+   * back to normal rendering. The app owns evaluation; this manager only
+   * updates the transient visual/result state.
    */
-  toggle(nodeId: string): void {
+  inspect(nodeId: string): void {
     const previous = this.inspectedId
     if (previous === nodeId) {
-      this.inspectedId = null
       this.valueResult = null
       this.onChange(nodeId)
       return
@@ -97,8 +94,10 @@ export class InspectManager {
 
   /**
    * Registers a `pointerdown` on `nodeId` as one half of a possible
-   * double-click, toggling inspection if it's the second pointerdown on
-   * the SAME node within `doubleClickThresholdMs`.
+   * double-click, selecting inspection if it's the second pointerdown on
+   * the SAME node within `doubleClickThresholdMs`. Returns whether this
+   * pointerdown completed the gesture, so the caller can immediately run
+   * the one-shot OpenSCAD evaluation.
    *
    * Native `dblclick` is deliberately not used to detect this gesture on
    * a node. Rete's own built-in `AreaExtensions.simpleNodesOrder` moves a
@@ -115,14 +114,16 @@ export class InspectManager {
    * double-click detection instead of depending on a browser event that
    * never reaches a node.
    */
-  registerPointerDown(nodeId: string): void {
+  registerPointerDown(nodeId: string): boolean {
     const time = this.now()
     const previous = this.lastPointerDown
     this.lastPointerDown = { nodeId, time }
 
     if (previous && previous.nodeId === nodeId && time - previous.time <= this.doubleClickThresholdMs) {
       this.lastPointerDown = null
-      this.toggle(nodeId)
+      this.inspect(nodeId)
+      return true
     }
+    return false
   }
 }

@@ -156,9 +156,10 @@ test('source names persist and value Inspect evaluates Add headlessly through Op
   const restoredNumber = page.locator('node-editor .node').filter({ has: page.locator('.node-header input.node-title') })
   await expect(restoredNumber.locator('.node-header input.node-title')).toHaveValue('Width')
   // The title input itself is editable and protected from Inspect; a
-  // double-click elsewhere in the source node still selects the value root.
+  // double-click elsewhere in the source node starts a one-shot value Inspect.
+  await restoredNumber.locator('.node-header input.node-title').dblclick()
+  await expect(restoredNumber.locator('.node-inspect-value')).toHaveCount(0)
   await restoredNumber.locator('.node-controls--primary').dblclick({ position: { x: 2, y: 2 } })
-  await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(restoredNumber.locator('.node-inspect-value')).toHaveText('= 10', { timeout: 15_000 })
 
   await page.getByRole('button', { name: 'Add', exact: true }).click()
@@ -167,9 +168,36 @@ test('source names persist and value Inspect evaluates Add headlessly through Op
   await add.locator('[data-param-key="a"] input').fill('5')
   await add.locator('[data-param-key="b"] input').fill('7')
   await add.locator('.node-header').dblclick()
-  await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(add.locator('.node-inspect-value')).toHaveText('= 12', { timeout: 15_000 })
+  await add.locator('[data-param-key="a"] input').fill('10')
+  await expect(add.locator('.node-inspect-value')).toHaveCount(0)
+  await page.waitForTimeout(500)
+  await expect(add.locator('.node-inspect-value')).toHaveCount(0)
+  await add.locator('.node-header').dblclick()
+  await expect(add.locator('.node-inspect-value')).toHaveText('= 17', { timeout: 15_000 })
   await expect(page.locator('scadlet-app .render-error')).toHaveCount(0)
+})
+
+test('Geometry Inspect renders the selected subtree immediately and Render returns to the full project', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
+  const cubeHeader = await cube.locator('.node-header').boundingBox()
+  if (!cubeHeader) throw new Error('Expected Cube node header')
+  await page.mouse.move(cubeHeader.x + 20, cubeHeader.y + cubeHeader.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(cubeHeader.x - 180, cubeHeader.y + cubeHeader.height / 2, { steps: 6 })
+  await page.mouse.up()
+  await page.getByRole('button', { name: 'Sphere', exact: true }).click()
+
+  await cube.locator('.node-header').dblclick()
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(', { timeout: 15_000 })
+  await expect(page.locator('scadlet-app .scad-output')).not.toContainText('sphere(')
+
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(', { timeout: 15_000 })
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('sphere(')
 })
 
 test('Boolean and Vector3 use editable source titles without redundant body labels', async ({ page }) => {

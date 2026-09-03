@@ -61,6 +61,10 @@ export interface SCADletEditor {
    * function.
    */
   onDirty(callback: () => void): () => void
+  /** Subscribes to graph-semantic changes, excluding layout and presentation changes. */
+  onSemanticChange(callback: () => void): () => void
+  /** Subscribes to one-shot Inspect actions initiated by node double-clicks. */
+  onInspect(callback: (nodeId: string) => void): () => void
   /**
    * Runs `fn`, suppressing all `onDirty` notifications for its duration -
    * used by `.scadlet` project restore, which necessarily performs
@@ -193,18 +197,28 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // viewport operations that would otherwise look like user edits
   // without leaving the freshly loaded project dirty.
   const dirtyListeners = new Set<() => void>()
+  const semanticListeners = new Set<() => void>()
+  const inspectListeners = new Set<(nodeId: string) => void>()
   let dirtySuspended = false
   function notifyDirty(): void {
     if (dirtySuspended) return
-    // A displayed inspected value is only valid for the exact graph state
-    // OpenSCAD evaluated. Any semantic edit clears it rather than presenting
-    // a stale result as current.
-    inspect.clearValueResult()
     for (const listener of dirtyListeners) listener()
+  }
+  function notifySemanticChange(): void {
+    if (dirtySuspended) return
+    // A displayed inspected value is only valid for the exact graph state
+    // OpenSCAD evaluated. Layout and presentation-only dirty events do not
+    // reach this path, so hovering, pinning, and canvas movement retain it.
+    inspect.clearValueResult()
+    for (const listener of semanticListeners) listener()
+  }
+  function notifySemanticDirty(): void {
+    notifyDirty()
+    notifySemanticChange()
   }
 
   editor.addPipe((context) => {
-    if (isDirtyEditorSignal(context.type)) notifyDirty()
+    if (isDirtyEditorSignal(context.type)) notifySemanticDirty()
     return context
   })
 
@@ -239,7 +253,18 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return context
   })
 
-  const detachRenderer = attachRenderer(editor, area, connection, presentation, inspect, connectionGesture, notifyDirty)
+  const detachRenderer = attachRenderer(
+    editor,
+    area,
+    connection,
+    presentation,
+    inspect,
+    connectionGesture,
+    notifyDirty,
+    (nodeId) => {
+      for (const listener of inspectListeners) listener(nodeId)
+    },
+  )
 
   AreaExtensions.simpleNodesOrder(area)
 
@@ -287,8 +312,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // pointless once nodes get real positions instead of all stacking at
   // (0, 0)). The current pan/zoom must survive node creation unchanged.
   const creationContext: NodeCreationContext = {
-    onControlsChanged: (id) => { void area.update('node', id); notifyDirty() },
-    notifyDirty,
+    onControlsChanged: (id) => { void area.update('node', id); notifySemanticDirty() },
+    notifyDirty: notifySemanticDirty,
     canSwitchRepresentation: (nodeId) => !editor.getConnections().some((connection) =>
       connection.target === nodeId && editor.getNode(nodeId)?.inputs[connection.targetInput]?.socket.name !== 'geometry',
     ),
@@ -331,6 +356,14 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     onDirty: (callback: () => void) => {
       dirtyListeners.add(callback)
       return () => dirtyListeners.delete(callback)
+    },
+    onSemanticChange: (callback: () => void) => {
+      semanticListeners.add(callback)
+      return () => semanticListeners.delete(callback)
+    },
+    onInspect: (callback: (nodeId: string) => void) => {
+      inspectListeners.add(callback)
+      return () => inspectListeners.delete(callback)
     },
     withDirtyTrackingSuspended: async <T>(fn: () => Promise<T>): Promise<T> => {
       dirtySuspended = true

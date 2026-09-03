@@ -456,15 +456,17 @@ Editable controls inside nodes own their normal browser interactions. Canvas ges
 
 ### Inspect / temporary preview root
 
-SCADlet supports inspecting intermediate geometry without modifying the program graph.
+SCADlet supports one-shot inspection of intermediate geometry and values without modifying the program graph.
 
 Current behavior:
 
-- double-clicking a geometry-producing node makes it the temporary preview/render root; double-clicking the currently inspected node again clears inspect mode
+- double-clicking a geometry-producing node immediately performs a one-shot Inspect evaluation of that node and its upstream geometry subtree; double-clicking the same or another node performs a fresh explicit Inspect evaluation
+
+- double-clicking a value-producing node immediately evaluates it through OpenSCAD's headless echo path and shows the resulting value
 
 - at most one node is inspected at a time and it has a visual state distinct from ordinary selection
 
-- Render while inspecting evaluates that node and its upstream dependency subtree only; downstream nodes remain present and connected but are ignored for that preview
+- normal Render always evaluates the complete project, even when a node is inspected
 
 - inspect state is editor/presentation state only. It must not mutate Rete connections, node parameters, graph identity, or normal project semantics
 
@@ -472,7 +474,9 @@ Current behavior:
 
 - node controls, sockets, connection paths, and editable fields must retain their own double-click behavior; blank-canvas double-click behavior remains separate
 
-- inspect selection is manual: choosing an inspect root does not automatically start an OpenSCAD render
+- a value Inspect result is cleared immediately by a later semantic graph change and is not automatically recomputed; presentation-only changes such as selection, hover, pinning, panning, or zooming retain it
+
+- the last successful Geometry preview remains visible until another successful Geometry Inspect or normal Render replaces it
 
 The development source display may show the source actually rendered for the inspected subtree. Normal `.scad` export must continue to represent the complete model rather than silently exporting only the inspected subtree. STL download may represent the currently rendered mesh.
 

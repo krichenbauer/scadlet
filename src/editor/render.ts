@@ -92,6 +92,7 @@ export function attachRenderer(
   inspect: InspectManager,
   connectionGesture: ConnectionGestureManager,
   notifyDirty: () => void,
+  onInspect: (nodeId: string) => void,
 ): () => void {
   const socketPosition = getDOMSocketPosition<Schemes, AreaExtra>()
   // `attach()` only uses `connection` to walk up to its parent `area` via
@@ -185,7 +186,7 @@ export function attachRenderer(
       const { data } = context
 
       if (data.type === 'node') {
-        renderNode(area, data.element, data.payload, presentation, inspect, nodeListenersWired, notifyDirty)
+        renderNode(area, data.element, data.payload, presentation, inspect, connectionGesture, nodeListenersWired, notifyDirty, onInspect)
       } else if (data.type === 'connection') {
         updateConnection(
           area,
@@ -234,8 +235,10 @@ function renderNode(
   node: Schemes['Node'],
   presentation: NodePresentationManager,
   inspect: InspectManager,
+  connectionGesture: ConnectionGestureManager,
   nodeListenersWired: WeakSet<HTMLElement>,
   notifyDirty: () => void,
+  onInspect: (nodeId: string) => void,
 ): void {
   element.classList.add('node')
   element.dataset.nodeId = node.id
@@ -315,7 +318,8 @@ function renderNode(
       if (event.target instanceof Element && event.target.closest<HTMLElement>('.node-socket')) {
         return
       }
-      inspect.registerPointerDown(node.id)
+      if (connectionGesture.active) return
+      if (inspect.registerPointerDown(node.id)) onInspect(node.id)
     })
   }
 
