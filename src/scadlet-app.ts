@@ -68,6 +68,19 @@ export class ScadletApp extends LitElement {
       margin: 0;
     }
 
+    .github-link {
+      color: inherit;
+      font-size: 12px;
+      opacity: 0.75;
+      text-decoration: none;
+    }
+
+    .github-link:hover,
+    .github-link:focus-visible {
+      opacity: 1;
+      text-decoration: underline;
+    }
+
     button {
       font: inherit;
       padding: 4px 10px;
@@ -308,6 +321,13 @@ export class ScadletApp extends LitElement {
     return html`
       <header>
         <h1>SCADlet</h1>
+        <a
+          class="github-link"
+          href="https://github.com/krichenbauer/scadlet"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label=${t('toolbar.github')}
+        >GitHub</a>
         <button type="button" @click=${this._newProject} ?disabled=${this.localInitializing || !this.localStore}>
           ${t('toolbar.new')}
         </button>

@@ -12,6 +12,7 @@ describe('translation helper', () => {
     expect(t('input.subtract')).toBe('Subtract')
     expect(t('input.geometryChild')).toBe('Geometry child')
     expect(t('input.addGeometryChild')).toBe('Add geometry child')
+    expect(t('toolbar.github')).toBe('SCADlet on GitHub')
   })
 
   it('falls back to the key for a missing translation', () => {

@@ -37,6 +37,14 @@ test.beforeEach(async ({ context }) => {
   })
 })
 
+test('header exposes the SCADlet GitHub link', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  const link = page.getByRole('link', { name: 'SCADlet on GitHub' })
+  await expect(link).toHaveAttribute('href', 'https://github.com/krichenbauer/scadlet')
+  await expect(link).toHaveAttribute('target', '_blank')
+  await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+})
+
 test('Cube Size add menu exposes one selected representation at a time', async ({ page }) => {
   await waitForLocalLibrary(page)
   await page.getByRole('button', { name: 'Cube', exact: true }).click()

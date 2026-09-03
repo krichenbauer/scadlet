@@ -88,6 +88,7 @@ const dictionaries: Record<LocaleId, Record<string, string>> = {
     'toolbar.downloadScad': 'Download .scad',
     'toolbar.downloadStl': 'Download .stl',
     'toolbar.localProject': 'Local project',
+    'toolbar.github': 'SCADlet on GitHub',
     'toolbar.projectName': 'Project name',
     'toolbar.autosavePending': 'Changes waiting for local autosave',
     'toolbar.renderHint': 'Click “Render” to see the generated source',
