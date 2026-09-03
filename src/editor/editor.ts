@@ -15,7 +15,8 @@ import { attachRenderer } from './render'
 import type { AreaExtra, Schemes } from './schemes'
 import { attachNodeSelection } from './selection'
 import { BooleanOpNode } from './nodes/boolean-op-node'
-import { areSocketTypesCompatible } from './sockets'
+import { ConnectionGestureManager } from './connection-gesture'
+import { areSocketTypesCompatible, socketType, type SocketType } from './sockets'
 
 export interface SCADletEditor {
   editor: NodeEditor<Schemes>
@@ -110,6 +111,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   const editor = new NodeEditor<Schemes>()
   const area = new AreaPlugin<Schemes, AreaExtra>(container)
   const connection = new ConnectionPlugin<Schemes, AreaExtra>()
+  const connectionGesture = new ConnectionGestureManager()
   const engine = new DataflowEngine<Schemes>((node) => ({
     inputs: () => Object.keys(node.inputs),
     outputs: () => Object.keys(node.outputs),
@@ -130,9 +132,34 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     canMakeConnection: (from, to) => canConnectSocketData(editor, from, to),
   }))
 
+  // Rete emits these signals for both drag and click connection flows. They
+  // reconcile temporary disclosure with its actual completion; the capture
+  // bridge below establishes a gesture before Rete stops the socket event.
+  const syncConnectionGesture = (context: { type: string, data?: unknown }) => {
+    if (context.type === 'connectionpick') {
+      const { socket } = context.data as { socket: SocketData }
+      const node = editor.getNode(socket.nodeId)
+      const reteSocket = socket.side === 'output'
+        ? node?.outputs[socket.key]?.socket
+        : node?.inputs[socket.key]?.socket
+      const type = socketType(reteSocket)
+      if (type) connectionGesture.begin({ nodeId: socket.nodeId, socketKey: socket.key, side: socket.side, socketType: type })
+    } else if (context.type === 'connectiondrop') {
+      connectionGesture.complete()
+    }
+  }
+
   editor.use(area)
   editor.use(engine)
   area.use(connection)
+  // `connectionpick`/`connectiondrop` are emitted by the child connection
+  // scope and received by its parent Area scope, rather than re-entering the
+  // child plugin's own pipe.
+  area.addPipe((context) => {
+    syncConnectionGesture(context)
+    return context
+  })
+  const detachConnectionGestureEvents = attachConnectionGestureEvents(container, connectionGesture)
 
   // This is the authoritative live-graph gate. It runs before Rete mutates
   // its connection list, so even callers that construct a
@@ -212,7 +239,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return context
   })
 
-  attachRenderer(area, connection, presentation, inspect, notifyDirty)
+  const detachRenderer = attachRenderer(editor, area, connection, presentation, inspect, connectionGesture, notifyDirty)
 
   AreaExtensions.simpleNodesOrder(area)
 
@@ -235,11 +262,19 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // up and zooms the whole canvas (AGENTS.md section 3).
   isolateControlGestures(container)
 
+  const cancelConnectionOnEscape = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || !connectionGesture.active) return
+    connection.drop()
+    connectionGesture.cancel()
+  }
+  container.addEventListener('keydown', cancelConnectionOnEscape)
+
   // Clears presentation timers/state whenever a node is removed, so no
   // stale timer can ever fire and try to update a node that no longer
   // exists (AGENTS.md section 3/15).
   editor.addPipe((context) => {
     if (context.type === 'noderemoved') {
+      connectionGesture.removeNode(context.data.id)
       presentation.remove(context.data.id)
       inspect.remove(context.data.id)
     }
@@ -308,8 +343,82 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     destroy: () => {
       detachMarquee()
       nodeSelection.destroy()
+      container.removeEventListener('keydown', cancelConnectionOnEscape)
+      detachConnectionGestureEvents()
+      connectionGesture.reset()
+      detachRenderer()
       area.destroy()
     },
+  }
+}
+
+/**
+ * Rete's socket handler stops the original DOM event before it reaches a
+ * node root. Capture it at the editor boundary to establish the same
+ * explicit gesture state for both connection flows; `connectiondrop`
+ * signals above remain the normal completion path. A released click has no
+ * movement and intentionally stays active, whereas a drag release clears
+ * the temporary presentation state.
+ */
+function attachConnectionGestureEvents(container: HTMLElement, gesture: ConnectionGestureManager): () => void {
+  let initiatingPointerId: number | null = null
+  let movedSincePick = false
+
+  const findSocket = (target: EventTarget | null): HTMLElement | null =>
+    target instanceof Element ? target.closest<HTMLElement>('.node-socket') : null
+  const isSocketType = (value: string | undefined): value is SocketType =>
+    value === 'geometry' || value === 'number' || value === 'vector3' || value === 'boolean'
+
+  const onPointerDown = (event: PointerEvent): void => {
+    const socket = findSocket(event.target)
+    if (gesture.active) {
+      // Let Rete's socket listener receive this second click before clearing
+      // our presentation state: clearing synchronously re-renders the
+      // candidate and would unmount the very socket Rete is about to use.
+      // A blank-canvas click has no socket listener to preserve and cancels
+      // immediately. Rete still decides whether a semantic connection is
+      // actually created or rejected.
+      if (socket) {
+        const completingGesture = gesture.active
+        window.setTimeout(() => {
+          if (gesture.active === completingGesture) gesture.complete()
+        })
+      } else gesture.cancel()
+      return
+    }
+    if (!socket || !isSocketType(socket.dataset.socketType)) return
+    const root = socket.closest<HTMLElement>('.node')
+    const socketKey = socket.dataset.socketKey
+    const side = socket.dataset.socketSide
+    const nodeId = root?.dataset.nodeId
+    if (!nodeId || !socketKey || (side !== 'input' && side !== 'output')) return
+    gesture.begin({ nodeId, socketKey, side, socketType: socket.dataset.socketType })
+    initiatingPointerId = event.pointerId
+    movedSincePick = false
+  }
+  const onPointerMove = (event: PointerEvent): void => {
+    if (event.pointerId === initiatingPointerId && event.buttons !== 0) movedSincePick = true
+  }
+  const onPointerUp = (event: PointerEvent): void => {
+    if (event.pointerId === initiatingPointerId && movedSincePick) gesture.complete()
+    if (event.pointerId === initiatingPointerId) initiatingPointerId = null
+  }
+  const onPointerCancel = (event: PointerEvent): void => {
+    if (event.pointerId === initiatingPointerId) {
+      initiatingPointerId = null
+      gesture.cancel()
+    }
+  }
+
+  container.addEventListener('pointerdown', onPointerDown, { capture: true })
+  container.addEventListener('pointermove', onPointerMove, { capture: true })
+  container.addEventListener('pointerup', onPointerUp, { capture: true })
+  container.addEventListener('pointercancel', onPointerCancel, { capture: true })
+  return () => {
+    container.removeEventListener('pointerdown', onPointerDown, { capture: true })
+    container.removeEventListener('pointermove', onPointerMove, { capture: true })
+    container.removeEventListener('pointerup', onPointerUp, { capture: true })
+    container.removeEventListener('pointercancel', onPointerCancel, { capture: true })
   }
 }
 

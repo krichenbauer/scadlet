@@ -1120,6 +1120,11 @@ headless CLI mode with a temporary CSG output target, captures its marked
 `echo()` result, and displays it transiently on the inspected node. Compact
 nodes retain focus while controls are edited and temporarily reveal only
 compatible existing parameter rows while a connection wire hovers them.
+During an active connection gesture, this disclosure is driven by explicit
+transient gesture state and must work for both drag-to-connect and
+click-to-connect. It reveals only currently compatible existing target ports,
+clears on leave/completion/cancellation, and never affects persistence,
+parameters, representations, pin state, or dirty tracking.
 
 Source-node cleanup: a Number, Boolean, or Vector3's persisted descriptive
 name is rendered as its directly editable node title, with the localized node

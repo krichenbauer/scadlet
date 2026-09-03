@@ -91,7 +91,7 @@ export class NodePresentationManager {
 
   isExpanded(nodeId: string): boolean {
     const state = this.stateFor(nodeId)
-    return state.pinned || state.expanded || state.connectedInputKeys.size > 0
+    return state.pinned || state.expanded || state.connectedInputKeys.size > 0 || state.disclosedInputKeys.size > 0
   }
 
   /** True only when the node is expanded via hover or explicit pin - not due to connected parameter inputs.

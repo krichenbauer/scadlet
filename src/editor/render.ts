@@ -1,4 +1,4 @@
-import { ClassicPreset } from 'rete'
+import { ClassicPreset, type NodeEditor } from 'rete'
 import type { Scope } from 'rete'
 import type { AreaPlugin } from 'rete-area-plugin'
 import type { ConnectionPlugin } from 'rete-connection-plugin'
@@ -13,6 +13,7 @@ import { bringNodeToFront } from './order'
 import { isRedundantTypeLabel } from './ports'
 import type { NodePresentationManager } from './presentation'
 import type { AreaExtra, Schemes } from './schemes'
+import { compatiblePortKeys, type ConnectionGestureManager } from './connection-gesture'
 
 type Position = { x: number; y: number }
 type Side = 'input' | 'output'
@@ -49,12 +50,6 @@ interface ConnectionState {
   unlistenTarget?: () => void
 }
 
-interface ConnectionDisclosure {
-  begin(socketType: string): void
-  enter(node: Schemes['Node']): void
-  leave(nodeId: string): void
-}
-
 /**
  * Minimal hand-written replacement for `rete-lit-plugin`. That package's
  * published dist bundle is compiled with legacy Babel decorators, which
@@ -66,12 +61,14 @@ interface ConnectionDisclosure {
  * for socket-position tracking and connection path math.
  */
 export function attachRenderer(
+  editor: NodeEditor<Schemes>,
   area: AreaPlugin<Schemes, AreaExtra>,
   connection: ConnectionPlugin<Schemes, AreaExtra>,
   presentation: NodePresentationManager,
   inspect: InspectManager,
+  connectionGesture: ConnectionGestureManager,
   notifyDirty: () => void,
-): void {
+): () => void {
   const socketPosition = getDOMSocketPosition<Schemes, AreaExtra>()
   // `attach()` only uses `connection` to walk up to its parent `area` via
   // `parentScope()`; its `Scope<never, ...>` parameter type doesn't reflect
@@ -86,37 +83,85 @@ export function attachRenderer(
   // listeners must only be wired the first time a given element is seen,
   // not on every re-render.
   const nodeListenersWired = new WeakSet<HTMLElement>()
-  let draggedSocketType: string | null = null
-  const disclosedNodeIds = new Set<string>()
-  const clearDisclosure = () => {
-    draggedSocketType = null
-    for (const nodeId of disclosedNodeIds) presentation.setConnectionDisclosure(nodeId, new Set())
-    disclosedNodeIds.clear()
+  let disclosedNodeId: string | null = null
+  const clearDisclosure = (): void => {
+    if (!disclosedNodeId) return
+    presentation.setConnectionDisclosure(disclosedNodeId, new Set())
+    disclosedNodeId = null
   }
-  const disclosure: ConnectionDisclosure = {
-    begin: (socketType) => { draggedSocketType = socketType },
-    enter: (node) => {
-      if (!draggedSocketType) return
-      const keys = new Set(Object.entries(node.inputs)
-        .filter(([, input]) => input?.socket.name !== 'geometry' && input?.socket.name === draggedSocketType)
-        .map(([key]) => key))
-      presentation.setConnectionDisclosure(node.id, keys)
-      if (keys.size > 0) disclosedNodeIds.add(node.id)
-    },
-    leave: (nodeId) => {
-      presentation.setConnectionDisclosure(nodeId, new Set())
-      disclosedNodeIds.delete(nodeId)
-    },
+  const setCandidate = (node: Schemes['Node'] | undefined): void => {
+    const active = connectionGesture.active
+    if (!active || !node) {
+      clearDisclosure()
+      connectionGesture.setCandidate(null)
+      return
+    }
+
+    if (active.origin.side === 'output') {
+      const matchingInputs = compatiblePortKeys(node.inputs, active.origin.socketType)
+      if (matchingInputs.length === 0) {
+        clearDisclosure()
+        connectionGesture.setCandidate(null)
+        return
+      }
+      if (disclosedNodeId !== node.id) clearDisclosure()
+      // Geometry inputs are structural and always visible. Only compatible
+      // parameter rows need temporary disclosure below the stable header.
+      const parameterKeys = new Set(matchingInputs.filter((key) => node.inputs[key]?.socket.name !== 'geometry'))
+      presentation.setConnectionDisclosure(node.id, parameterKeys)
+      disclosedNodeId = parameterKeys.size > 0 ? node.id : null
+      connectionGesture.setCandidate(node.id)
+      return
+    }
+
+    // Starting from an input is still a valid Rete gesture. Outputs are
+    // structurally visible already, so it records a compatible candidate
+    // without manufacturing a second disclosure UI.
+    if (compatiblePortKeys(node.outputs, active.origin.socketType).length === 0) {
+      clearDisclosure()
+      connectionGesture.setCandidate(null)
+      return
+    }
+    clearDisclosure()
+    connectionGesture.setCandidate(node.id)
   }
-  area.container.addEventListener('pointerup', clearDisclosure, { capture: true })
-  area.container.addEventListener('pointercancel', clearDisclosure, { capture: true })
+  const nodeAtPointer = (event: PointerEvent): Schemes['Node'] | undefined => {
+    const elements = event.composedPath().filter((item): item is Element => item instanceof Element)
+    // Pointer events observed inside the node-editor Shadow DOM carry their
+    // real target in the composed path. The fallback stays within that same
+    // root as `document.elementsFromPoint()` cannot see through a shadow
+    // boundary.
+    const rootNode = area.container.getRootNode()
+    const fallback = rootNode instanceof ShadowRoot
+      ? rootNode.elementsFromPoint(event.clientX, event.clientY)
+      : document.elementsFromPoint(event.clientX, event.clientY)
+    for (const element of [...elements, ...fallback]) {
+      const root = element instanceof HTMLElement
+        ? element.closest<HTMLElement>('.node')
+        : element.parentElement?.closest<HTMLElement>('.node')
+      if (!root || !area.container.contains(root)) continue
+      const nodeId = root.dataset.nodeId
+      if (nodeId) return editor.getNode(nodeId)
+    }
+    return undefined
+  }
+  const handlePointerMove = (event: PointerEvent): void => {
+    if (connectionGesture.active) setCandidate(nodeAtPointer(event))
+  }
+  area.container.addEventListener('pointermove', handlePointerMove, { capture: true })
+  const unsubscribeGesture = connectionGesture.subscribe((previous, current) => {
+    // Beginning a fresh gesture, completing/cancelling one, or resetting the
+    // editor must never leave an old target row temporarily visible.
+    if (!current || !previous || previous.origin !== current.origin ||
+      (previous.candidateNodeId !== null && current.candidateNodeId === null)) clearDisclosure()
+  })
 
   area.addPipe((context) => {
     if (context.type === 'render') {
       const { data } = context
 
       if (data.type === 'node') {
-        renderNode(area, data.element, data.payload, presentation, inspect, nodeListenersWired, disclosure, notifyDirty)
+        renderNode(area, data.element, data.payload, presentation, inspect, nodeListenersWired, notifyDirty)
       } else if (data.type === 'connection') {
         updateConnection(
           area,
@@ -151,6 +196,12 @@ export function attachRenderer(
 
     return context
   })
+
+  return () => {
+    area.container.removeEventListener('pointermove', handlePointerMove, { capture: true })
+    unsubscribeGesture()
+    clearDisclosure()
+  }
 }
 
 function renderNode(
@@ -160,10 +211,10 @@ function renderNode(
   presentation: NodePresentationManager,
   inspect: InspectManager,
   nodeListenersWired: WeakSet<HTMLElement>,
-  disclosure: ConnectionDisclosure,
   notifyDirty: () => void,
 ): void {
   element.classList.add('node')
+  element.dataset.nodeId = node.id
   element.classList.toggle('node--selected', Boolean(node.selected))
 
   const inspected = inspect.isInspected(node.id)
@@ -218,18 +269,16 @@ function renderNode(
   // Distinguished from connection-forced expansion (which only shows specific connected rows)
   // so that an unconnected Translate with Z connected doesn't show X/Y/Vector rows.
   const expanded = hasCollapsibleContent && presentation.isInteractivelyExpanded(node.id)
-  element.classList.toggle('node--expanded', expanded || connectedInputKeys.size > 0)
+  element.classList.toggle('node--expanded', presentation.isExpanded(node.id))
 
   if (!nodeListenersWired.has(element)) {
     nodeListenersWired.add(element)
     element.addEventListener('pointerenter', () => {
       bringNodeToFront(area, node.id)
       presentation.handlePointerEnter(node.id)
-      disclosure.enter(node)
     })
     element.addEventListener('pointerleave', () => {
       presentation.handlePointerLeave(node.id)
-      disclosure.leave(node.id)
     })
     element.addEventListener('focusin', () => presentation.handleFocusEnter(node.id))
     element.addEventListener('focusout', () => {
@@ -240,8 +289,6 @@ function renderNode(
     element.addEventListener('pointerdown', (event) => {
       if (isEditableTarget(event.target)) return
       if (event.target instanceof Element && event.target.closest<HTMLElement>('.node-socket')) {
-        const socket = event.target.closest<HTMLElement>('.node-socket')!
-        if (socket.dataset.socketSide === 'output' && socket.dataset.socketType) disclosure.begin(socket.dataset.socketType)
         return
       }
       inspect.registerPointerDown(node.id)
@@ -501,6 +548,8 @@ function renderParamRow(
   const socket = document.createElement('div')
   socket.className = 'node-socket'
   socket.dataset.socketType = socketName
+  socket.dataset.socketSide = 'input'
+  socket.dataset.socketKey = key
   socket.title = label
   socket.setAttribute('aria-label', label)
   row.appendChild(socket)

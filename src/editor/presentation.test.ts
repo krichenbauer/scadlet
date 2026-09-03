@@ -101,6 +101,7 @@ describe('NodePresentationManager - desktop hover', () => {
     const { manager } = createManager(true)
     manager.setConnectionDisclosure('a', new Set(['x', 'z']))
     expect([...manager.getDisclosedInputKeys('a')].sort()).toEqual(['x', 'z'])
+    expect(manager.isExpanded('a')).toBe(true)
     expect(manager.isPinned('a')).toBe(false)
     expect(manager.getConnectedInputKeys('a')).toEqual(new Set())
     manager.setConnectionDisclosure('a', new Set())

@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 
@@ -225,6 +225,86 @@ test('focused controls stay expanded and compatible wire hover temporarily revea
   await page.mouse.up()
   await page.mouse.move(5, 200)
   await expect(cube.locator('[data-param-key="size"]')).toBeHidden({ timeout: 2_000 })
+})
+
+test('connection gestures disclose one compatible compact target repeatedly for drag and click wiring', async ({ page }) => {
+  await waitForLocalLibrary(page)
+
+  // Separate two otherwise centrally-created candidates before placing the
+  // source above them, so each real pointer move has an unambiguous target.
+  const moveNode = async (node: Locator, dx: number, dy: number) => {
+    const header = await node.locator('.node-header').boundingBox()
+    if (!header) throw new Error('Expected node header')
+    await page.mouse.move(header.x + 20, header.y + header.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(header.x + 20 + dx, header.y + header.height / 2 + dy, { steps: 6 })
+    await page.mouse.up()
+  }
+  const configureScalarCube = async (cube: Locator) => {
+    await cube.locator('.node-pin').click()
+    await cube.getByText('+ Size', { exact: true }).click()
+    await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
+    await cube.locator('.node-pin').click()
+  }
+  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  const cubes = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
+  const cubeA = cubes.nth(0)
+  await configureScalarCube(cubeA)
+  await moveNode(cubeA, 140, -90)
+  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  const cubeB = cubes.nth(1)
+  await configureScalarCube(cubeB)
+  await moveNode(cubeB, 160, 110)
+
+  await page.getByRole('button', { name: 'Number', exact: true }).click()
+  const number = page.locator('node-editor .node').filter({ has: page.locator('.node-header input.node-title') })
+
+  const source = await number.locator('.node-port--output .node-socket').boundingBox()
+  const headerA = await cubeA.locator('.node-header').boundingBox()
+  const headerB = await cubeB.locator('.node-header').boundingBox()
+  if (!source || !headerA || !headerB) throw new Error('Expected Number output and Cube headers')
+  const sourceCenter = { x: source.x + source.width / 2, y: source.y + source.height / 2 }
+
+  // Drag mode: reveal A, move directly to B (which clears A), then cancel.
+  await page.mouse.move(sourceCenter.x, sourceCenter.y)
+  await page.mouse.down()
+  await page.mouse.move(headerA.x + 20, headerA.y + headerA.height / 2, { steps: 8 })
+  await expect(cubeA.locator('[data-param-key="size"]')).toBeVisible()
+  await page.mouse.move(headerB.x + 20, headerB.y + headerB.height / 2, { steps: 8 })
+  await expect(cubeA.locator('[data-param-key="size"]')).toBeHidden()
+  await expect(cubeB.locator('[data-param-key="size"]')).toBeVisible()
+  await page.mouse.up()
+  await page.mouse.move(5, 200)
+  await expect(cubeB.locator('[data-param-key="size"]')).toBeHidden({ timeout: 2_000 })
+
+  // Click mode keeps the same gesture active after release. A second click
+  // on the real input completes it; the row then remains for the real graph
+  // connection rather than for the temporary disclosure state.
+  await page.mouse.click(sourceCenter.x, sourceCenter.y)
+  await page.mouse.move(headerB.x + 20, headerB.y + headerB.height / 2, { steps: 8 })
+  await expect(cubeB.locator('[data-param-key="size"]')).toBeVisible()
+  const target = await cubeB.locator('[data-param-key="size"] .node-socket').boundingBox()
+  if (!target) throw new Error('Expected disclosed Cube Size socket')
+  await page.mouse.click(target.x + target.width / 2, target.y + target.height / 2)
+  await expect(cubeB.locator('[data-param-key="size"] input')).toBeDisabled()
+  await page.mouse.move(5, 200)
+  await expect(cubeB.locator('[data-param-key="size"]')).toBeVisible()
+
+  // A Vector3-only Cube representation is incompatible with this Number
+  // wire and must not be exposed as a false target.
+  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  const cube = cubes.nth(2)
+  await cube.locator('.node-pin').click()
+  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.getByRole('button', { name: 'Vector', exact: true }).click()
+  await cube.locator('.node-pin').click()
+  await expect(cube.locator('[data-param-key="sizeVector"]')).toBeHidden()
+  const cubeHeader = await cube.locator('.node-header').boundingBox()
+  if (!cubeHeader) throw new Error('Expected compact Vector Cube header')
+  await page.mouse.click(sourceCenter.x, sourceCenter.y)
+  await page.mouse.move(cubeHeader.x + 20, cubeHeader.y + cubeHeader.height / 2, { steps: 8 })
+  await expect(cube.locator('[data-param-key="sizeVector"]')).toBeHidden()
+  await page.mouse.click(5, 200)
 })
 
 test('autosaves canonical graph state and restores it after reload', async ({ page }) => {
