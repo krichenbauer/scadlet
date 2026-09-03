@@ -23,6 +23,30 @@ interface PortPresentation {
   accessibleLabel?: string
 }
 
+export interface ParameterRowPresentation {
+  key: string
+  visible: boolean
+  connected: boolean
+}
+
+/**
+ * Keeps the node-defined active input order authoritative. Connection and
+ * gesture state only determine which rows are visible while compact; they
+ * must never sort a connected row ahead of an earlier semantic parameter.
+ */
+export function parameterRowPresentation(
+  canonicalKeys: readonly string[],
+  expanded: boolean,
+  connectedKeys: ReadonlySet<string>,
+  disclosedKeys: ReadonlySet<string>,
+): ParameterRowPresentation[] {
+  return canonicalKeys.map((key) => ({
+    key,
+    connected: connectedKeys.has(key),
+    visible: expanded || connectedKeys.has(key) || disclosedKeys.has(key),
+  }))
+}
+
 /** Dynamic child slots keep their stable semantic ids while this supplies
  * the compact, localized visual/accessibility distinction. */
 export function geometryInputPresentation(node: Schemes['Node'], key: string): PortPresentation | undefined {
@@ -342,13 +366,17 @@ function renderNode(
   }
 
   // Parameter input rows: socket + label + inline value control, rendered below `.node-main`.
-  // Connected rows are always visible (the connection endpoint must not disappear).
-  // Unconnected rows are only visible when the node is expanded (hover/pin).
-  // Connected rows are rendered FIRST so their socket positions are stable during hover
-  // expand/collapse transitions (unconnected rows appear below them, never above).
+  // A connection keeps its row visible while compact, but rendering always
+  // follows the active node-defined input order. Expanded/pinned/focused and
+  // disclosed views therefore retain semantic X/Y/Z, A/B, etc. ordering.
   if (parameterInputs.length > 0) {
-    const connectedRows = parameterInputs.filter(([key]) => connectedInputKeys.has(key))
-    const unconnectedRows = parameterInputs.filter(([key]) => !connectedInputKeys.has(key))
+    const inputsByKey = new Map(parameterInputs)
+    const rows = parameterRowPresentation(
+      parameterInputs.map(([key]) => key),
+      expanded,
+      connectedInputKeys,
+      disclosedInputKeys,
+    )
 
     const paramRows = document.createElement('div')
     paramRows.className = 'node-param-rows'
@@ -359,12 +387,12 @@ function renderNode(
       const visible = expanded || parameterInputs.some(([key]) => connectedInputKeys.has(key))
       if (visible) paramRows.appendChild(renderRepresentationHeader(control, connectedInputKeys.size > 0))
     }
-    for (const [key, input] of [...connectedRows, ...unconnectedRows]) {
-      const isConnected = connectedInputKeys.has(key)
-      const isVisible = expanded || isConnected || disclosedInputKeys.has(key)
+    for (const { key, connected, visible } of rows) {
+      const input = inputsByKey.get(key)
+      if (!input) continue
       const control = node.controls[key] as ClassicPreset.Control | undefined
       paramRows.appendChild(
-        renderParamRow(area, node.id, key, input.label ?? key, input.socket.name, isVisible, isConnected, control),
+        renderParamRow(area, node.id, key, input.label ?? key, input.socket.name, visible, connected, control),
       )
     }
     element.appendChild(paramRows)

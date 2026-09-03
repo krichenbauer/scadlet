@@ -1125,6 +1125,10 @@ transient gesture state and must work for both drag-to-connect and
 click-to-connect. It reveals only currently compatible existing target ports,
 clears on leave/completion/cancellation, and never affects persistence,
 parameters, representations, pin state, or dirty tracking.
+Connected parameter rows remain visible as needed in compact mode, but
+connection state never changes canonical semantic row ordering.
+Expanded, pinned, focused, and connection-disclosed nodes always render their
+active controls in the semantic order defined by the node's active inputs.
 
 Source-node cleanup: a Number, Boolean, or Vector3's persisted descriptive
 name is rendered as its directly editable node title, with the localized node

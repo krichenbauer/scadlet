@@ -307,6 +307,179 @@ test('connection gestures disclose one compatible compact target repeatedly for 
   await page.mouse.click(5, 200)
 })
 
+test('connected compact rows preserve canonical order when expanded', async ({ page }) => {
+  await waitForLocalLibrary(page)
+
+  const moveNode = async (node: Locator, dx: number, dy: number) => {
+    const header = await node.locator('.node-header').boundingBox()
+    if (!header) throw new Error('Expected node header')
+    await page.mouse.move(header.x + 20, header.y + header.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(header.x + 20 + dx, header.y + header.height / 2, { steps: 6 })
+    await page.mouse.up()
+  }
+  const visibleRowKeys = (node: Locator) => node.locator('.node-param-row').evaluateAll((rows) =>
+    rows.filter((row) => !row.hidden).map((row) => row.getAttribute('data-param-key')),
+  )
+  const numberSources = page.locator('node-editor .node').filter({ has: page.locator('.node-header input[aria-label="Number Name"]') })
+  let numberIndex = 0
+  const connectNumber = async (node: Locator, key: string, throughDisclosure = false) => {
+    if (!throughDisclosure) await node.locator('.node-pin').click()
+    await page.getByRole('button', { name: 'Number', exact: true }).click()
+    const number = numberSources.nth(numberIndex++)
+    const source = await number.locator('.node-port--output .node-socket').boundingBox()
+    const header = await node.locator('.node-header').boundingBox()
+    if (!source || !header) throw new Error('Expected Number output and target header')
+    await page.mouse.click(source.x + source.width / 2, source.y + source.height / 2)
+    if (throughDisclosure) {
+      await page.mouse.move(header.x + 20, header.y + header.height / 2, { steps: 8 })
+      await expect(node.locator(`[data-param-key="${key}"]`)).toBeVisible()
+    } else {
+      await page.waitForTimeout(50)
+    }
+    const target = await node.locator(`[data-param-key="${key}"] .node-socket`).boundingBox()
+    if (!target) throw new Error(`Expected disclosed ${key} socket`)
+    await page.mouse.click(target.x + target.width / 2, target.y + target.height / 2)
+    await expect(node.locator(`[data-param-key="${key}"] input`)).toBeDisabled()
+    if (!throughDisclosure) await node.locator('.node-pin').click()
+    await page.mouse.move(5, 200)
+  }
+  const hoverAndExpectOrder = async (node: Locator, expected: string[]) => {
+    await node.locator('.node-header').hover()
+    await expect.poll(() => visibleRowKeys(node), { timeout: 2_000 }).toEqual(expected)
+  }
+
+  await page.getByRole('button', { name: 'Translate', exact: true }).click()
+  const translate = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Translate' }) })
+  await moveNode(translate, 190, -120)
+  await connectNumber(translate, 'z', true)
+  await expect.poll(() => visibleRowKeys(translate), { timeout: 2_000 }).toEqual(['z'])
+  await hoverAndExpectOrder(translate, ['x', 'y', 'z'])
+  await connectNumber(translate, 'x')
+  await expect.poll(() => visibleRowKeys(translate), { timeout: 2_000 }).toEqual(['x', 'z'])
+  await hoverAndExpectOrder(translate, ['x', 'y', 'z'])
+  await translate.locator('[data-param-key="y"] input').focus()
+  await page.mouse.move(5, 200)
+  await page.waitForTimeout(1_000)
+  await expect.poll(() => visibleRowKeys(translate)).toEqual(['x', 'y', 'z'])
+
+  // Phase 1 disclosure combines with the connected compact row, but still
+  // uses Translate's canonical X/Y/Z order rather than connected-first.
+  await page.getByRole('button', { name: 'Number', exact: true }).click()
+  const disclosureSource = numberSources.nth(numberIndex++)
+  const disclosureSocket = await disclosureSource.locator('.node-port--output .node-socket').boundingBox()
+  const translateHeader = await translate.locator('.node-header').boundingBox()
+  if (!disclosureSocket || !translateHeader) throw new Error('Expected disclosure source and Translate header')
+  await page.mouse.move(disclosureSocket.x + disclosureSocket.width / 2, disclosureSocket.y + disclosureSocket.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(translateHeader.x + 20, translateHeader.y + translateHeader.height / 2, { steps: 8 })
+  await expect.poll(() => visibleRowKeys(translate)).toEqual(['x', 'y', 'z'])
+  await page.mouse.up()
+  await page.mouse.move(5, 200)
+  await expect.poll(() => visibleRowKeys(translate), { timeout: 2_000 }).toEqual(['x', 'z'])
+
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  const add = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Add' }) })
+  await moveNode(add, 190, 0)
+  await connectNumber(add, 'b')
+  await expect.poll(() => visibleRowKeys(add), { timeout: 2_000 }).toEqual(['b'])
+  await hoverAndExpectOrder(add, ['a', 'b'])
+  await connectNumber(add, 'a')
+  await expect.poll(() => visibleRowKeys(add), { timeout: 2_000 }).toEqual(['a', 'b'])
+  await hoverAndExpectOrder(add, ['a', 'b'])
+})
+
+test('Vector3 connected rows retain canonical order', async ({ page }) => {
+  await waitForLocalLibrary(page)
+
+  const moveNode = async (node: Locator, dx: number, dy: number) => {
+    const header = await node.locator('.node-header').boundingBox()
+    if (!header) throw new Error('Expected node header')
+    await page.mouse.move(header.x + 20, header.y + header.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(header.x + 20 + dx, header.y + header.height / 2, { steps: 6 })
+    await page.mouse.up()
+  }
+  const visibleRowKeys = (node: Locator) => node.locator('.node-param-row').evaluateAll((rows) =>
+    rows.filter((row) => !row.hidden).map((row) => row.getAttribute('data-param-key')),
+  )
+  const numberSources = page.locator('node-editor .node').filter({ has: page.locator('.node-header input[aria-label="Number Name"]') })
+  let numberIndex = 0
+  const connectNumber = async (node: Locator, key: string) => {
+    if (numberIndex === 0) await node.locator('.node-pin').click()
+    else await node.locator('.node-pin').click({ force: true })
+    await page.getByRole('button', { name: 'Number', exact: true }).click()
+    const number = numberSources.nth(numberIndex++)
+    const source = await number.locator('.node-port--output .node-socket').boundingBox()
+    const target = await node.locator(`[data-param-key="${key}"] .node-socket`).boundingBox()
+    if (!source || !target) throw new Error(`Expected Number output and ${key} socket`)
+    await page.mouse.click(source.x + source.width / 2, source.y + source.height / 2)
+    await page.waitForTimeout(50)
+    await page.mouse.click(target.x + target.width / 2, target.y + target.height / 2)
+    await expect(node.locator(`[data-param-key="${key}"] input`)).toBeDisabled()
+    await moveNode(number, -180, -100)
+    await node.locator('.node-pin').click({ force: true })
+    await page.mouse.move(5, 200)
+  }
+  const hoverAndExpectOrder = async (node: Locator, expected: string[]) => {
+    await node.locator('.node-header').hover({ force: true })
+    await expect.poll(() => visibleRowKeys(node), { timeout: 2_000 }).toEqual(expected)
+  }
+
+  await page.getByRole('button', { name: 'Vector3', exact: true }).click()
+  const vector = page.locator('node-editor .node').filter({ has: page.locator('.node-header input.node-title') }).filter({ has: page.locator('[data-param-key="x"]') })
+  await moveNode(vector, 190, 110)
+  await connectNumber(vector, 'y')
+  await expect.poll(() => visibleRowKeys(vector), { timeout: 2_000 }).toEqual(['y'])
+  await hoverAndExpectOrder(vector, ['x', 'y', 'z'])
+  await connectNumber(vector, 'z')
+  await expect.poll(() => visibleRowKeys(vector), { timeout: 2_000 }).toEqual(['y', 'z'])
+  await hoverAndExpectOrder(vector, ['x', 'y', 'z'])
+  await connectNumber(vector, 'x')
+  await expect.poll(() => visibleRowKeys(vector), { timeout: 2_000 }).toEqual(['x', 'y', 'z'])
+  await hoverAndExpectOrder(vector, ['x', 'y', 'z'])
+})
+
+test('Cube XYZ connected rows retain canonical order', async ({ page }) => {
+  await waitForLocalLibrary(page)
+
+  const moveNode = async (node: Locator, dx: number, dy: number) => {
+    const header = await node.locator('.node-header').boundingBox()
+    if (!header) throw new Error('Expected node header')
+    await page.mouse.move(header.x + 20, header.y + header.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(header.x + 20 + dx, header.y + header.height / 2, { steps: 6 })
+    await page.mouse.up()
+  }
+  const visibleRowKeys = (node: Locator) => node.locator('.node-param-row').evaluateAll((rows) =>
+    rows.filter((row) => !row.hidden).map((row) => row.getAttribute('data-param-key')),
+  )
+
+  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
+  await cube.locator('.node-pin').click()
+  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.getByRole('button', { name: 'XYZ', exact: true }).click()
+  await cube.locator('.node-pin').click()
+  await moveNode(cube, 190, 210)
+  await cube.locator('.node-pin').click()
+  await page.getByRole('button', { name: 'Number', exact: true }).click()
+  const number = page.locator('node-editor .node').filter({ has: page.locator('.node-header input[aria-label="Number Name"]') })
+  const source = await number.locator('.node-port--output .node-socket').boundingBox()
+  const target = await cube.locator('[data-param-key="sizeZ"] .node-socket').boundingBox()
+  if (!source || !target) throw new Error('Expected Number output and Cube Z socket')
+  await page.mouse.click(source.x + source.width / 2, source.y + source.height / 2)
+  await page.waitForTimeout(50)
+  await page.mouse.click(target.x + target.width / 2, target.y + target.height / 2)
+  await expect(cube.locator('[data-param-key="sizeZ"] input')).toBeDisabled()
+  await cube.locator('.node-pin').click()
+  await page.mouse.move(5, 200)
+  await expect.poll(() => visibleRowKeys(cube), { timeout: 2_000 }).toEqual(['sizeZ'])
+  await cube.locator('.node-header').hover()
+  await expect.poll(() => visibleRowKeys(cube), { timeout: 2_000 }).toEqual(['sizeX', 'sizeY', 'sizeZ'])
+  await expect(cube.locator('.node-param-rows').locator('.node-param-header')).toHaveCount(1)
+})
+
 test('autosaves canonical graph state and restores it after reload', async ({ page }) => {
   await waitForLocalLibrary(page)
   await renameProject(page, 'Persistent Cube')
