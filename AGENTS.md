@@ -1353,6 +1353,13 @@ direction, so Main and Module wires cannot cross. The interface nodes are
 protected from ordinary deletion. Calls, parameters, Module body creation,
 Functions, and Module OpenSCAD generation remain Phase 2 work.
 
+Phase 1.1 interaction: `My Modules` follows every built-in palette category.
+Clicking a Module frame header clears ordinary selection and selects every
+semantically owned node; dragging that header moves the selected Module nodes
+through Rete's normal group-translation mechanism. Frame bounds then remain
+derived from those node positions. Header selection/drag state is transient;
+only the normal persisted node-position changes dirty and save the project.
+
 Every definition starts with two protected, non-deletable, non-duplicable interface nodes:
 
 1. **Inputs / Parameters** on the left

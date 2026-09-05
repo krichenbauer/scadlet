@@ -31,6 +31,11 @@ export class DefinitionRegistry {
 
   list(): readonly ModuleDefinition[] { return [...this.definitions.values()] }
   get(id: string): ModuleDefinition | undefined { return this.definitions.get(id) }
+  /** Semantic membership only. Never derive this from a frame's geometry. */
+  nodeIds(id: string): readonly string[] {
+    const definition = this.definitions.get(id)
+    return definition ? [definition.inputsNodeId, definition.outputNodeId] : []
+  }
   scopeOf(nodeId: string): string | null { return this.scopes.get(nodeId) ?? null }
   isProtectedNode(nodeId: string): boolean { return this.scopes.has(nodeId) }
 

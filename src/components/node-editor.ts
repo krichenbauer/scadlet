@@ -50,6 +50,12 @@ export class NodeEditorElement extends LitElement {
       border-radius: 3px;
       background: #202020;
       font-weight: 600;
+      pointer-events: auto;
+      cursor: grab;
+    }
+
+    .definition-frame-title:active {
+      cursor: grabbing;
     }
 
     /*

@@ -9,6 +9,9 @@ export interface NodeSelectionApi {
   select(nodeId: string, accumulate?: boolean): Promise<void>
   /** Removes a single node from the current selection, leaving the rest of it untouched. */
   unselect(nodeId: string): Promise<void>
+  /** Translates the currently selected Rete entities through the same
+   * machinery used when the user drags one selected node. */
+  translate(dx: number, dy: number): Promise<void>
   destroy(): void
 }
 
@@ -114,6 +117,7 @@ export function attachNodeSelection(
   return {
     select: (nodeId, accumulate = false) => nodeSelection.select(nodeId, accumulate),
     unselect: (nodeId) => nodeSelection.unselect(nodeId),
+    translate: (dx, dy) => selector.translate(dx, dy),
     destroy: () => realAccumulating.destroy(),
   }
 }

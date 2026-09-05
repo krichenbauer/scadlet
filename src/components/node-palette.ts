@@ -84,12 +84,12 @@ export class NodePaletteElement extends LitElement {
   render() {
     return html`
       <h2>${t('palette.title')}</h2>
+      ${NODE_CATEGORIES.map((category) => this._renderCategory(category))}
       <div class="category" aria-label=${t('definition.myModules')}>
         <div class="category-title">${t('definition.myModules')}</div>
         ${this.modules.map((module) => html`<div class="node-item module-item" data-definition-id=${module.id}>${module.name}</div>`)}
         <button type="button" class="node-item" @click=${this._onNewModule}>${t('definition.newModule')}</button>
       </div>
-      ${NODE_CATEGORIES.map((category) => this._renderCategory(category))}
     `
   }
 

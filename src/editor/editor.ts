@@ -319,6 +319,15 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     connectionSelection.select(connectionId)
     container.focus({ preventScroll: true })
   }
+  const selectDefinition = async (definitionId: string): Promise<void> => {
+    connectionSelection.clear()
+    clearNodeSelection()
+    const nodeIds = definitions.nodeIds(definitionId).filter((nodeId) => Boolean(editor.getNode(nodeId)))
+    for (const [index, nodeId] of nodeIds.entries()) {
+      await nodeSelection.select(nodeId, index > 0)
+    }
+    container.focus({ preventScroll: true })
+  }
   const detachRenderer = attachRenderer(
     editor,
     area,
@@ -334,7 +343,10 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     () => connectionSelection.clear(),
     selectConnection,
   )
-  const detachDefinitionFrames = attachDefinitionFrames(area, definitions)
+  const detachDefinitionFrames = attachDefinitionFrames(area, definitions, {
+    select: selectDefinition,
+    translateSelected: (dx, dy) => nodeSelection.translate(dx, dy),
+  })
 
   AreaExtensions.simpleNodesOrder(area)
 
