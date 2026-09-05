@@ -1115,6 +1115,18 @@ temporary OpenSCAD `echo()` request and displays its returned value without
 persisting it, marking a project dirty, replacing the current mesh, or
 changing ordinary `.scad` export.
 
+Dynamic input removal is connection-safe: an input/output port may never
+disappear while an attached Rete connection survives. Interactive
+representation changes (including Cube, Cylinder, Sphere, and vector
+transforms) that would hide connected inputs are blocked with localized
+feedback; programmatic port removal must remove attached connections through
+the normal Rete lifecycle first. Existing wires support one transient selected
+connection at a time and Delete/Backspace removes that wire before considering
+node deletion. Wire selection is not persisted or dirty state. While creating
+a wire, nearby compatible opposite-direction sockets are snappy preview
+targets using the same semantic compatibility rule as real creation; the
+preview snaps visually but commits only on an explicit release/click.
+
 Milestone 7 stabilization: connected parameter controls remain present for
 stable layout but visually blank (or indeterminate for Boolean) while their
 stored fallback literals are overridden. Number, Boolean, and Vector3 source

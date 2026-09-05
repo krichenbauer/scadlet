@@ -28,15 +28,15 @@ const SIZE_REPRESENTATIONS: readonly { value: CubeSizeRepresentation; label: str
  * semantics. */
 export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { geometry: ClassicPreset.Socket }, CubeControls> implements DataflowNode {
   private readonly notify?: () => void
-  private readonly canSwitch?: () => boolean
+  private readonly canRemoveInputs?: (keys: readonly string[]) => boolean
   private representation: CubeSizeRepresentation | undefined
   private scalarLiteral: number
   private xyzLiteral: Vector3Params
 
-  constructor(params: Partial<CubeParams> = {}, notify?: () => void, canSwitch?: () => boolean) {
+  constructor(params: Partial<CubeParams> = {}, notify?: () => void, canRemoveInputs?: (keys: readonly string[]) => boolean) {
     super(t('node.cube'))
     this.notify = notify
-    this.canSwitch = canSwitch
+    this.canRemoveInputs = canRemoveInputs
     const legacyDefault = notify === undefined && Object.keys(params).length === 0
     const legacyVector = params.sizeX === undefined ? undefined : { x: params.sizeX, y: params.sizeY ?? params.sizeX, z: params.sizeZ ?? params.sizeX }
     const initialSize = params.size ?? legacyVector
@@ -61,8 +61,8 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
       })
     }
     if (!this.controls.center) actions.push({ id: 'add-center', label: t('action.addCenter'), run: () => { this.addCenter(false); this.changed() } })
-    if (this.representation) actions.push({ id: 'remove-size', label: t('action.removeSize'), run: () => this.removeSize() })
-    if (this.controls.center) actions.push({ id: 'remove-center', label: t('action.removeCenter'), run: () => this.removeCenter() })
+    if (this.representation) actions.push(this.removalAction('remove-size', t('action.removeSize'), this.activeInputKeys(), () => this.removeSize()))
+    if (this.controls.center) actions.push(this.removalAction('remove-center', t('action.removeCenter'), ['center'], () => this.removeCenter()))
     return actions
   }
 
@@ -70,6 +70,7 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
     this.representation = representation
     const mode = new RepresentationSelectControl('size', t('control.size'), SIZE_REPRESENTATIONS, representation)
     mode.onChange = (next) => this.switchRepresentation(next)
+    mode.canChange = () => this.canRemove(this.activeInputKeys())
     this.addControl('sizeMode', mode)
     this.addActiveRepresentation(representation)
   }
@@ -78,7 +79,7 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
    * and ports. The editor prevents UI switches that would hide connections. */
   private switchRepresentation(next: CubeSizeRepresentation): void {
     if (!this.representation || next === this.representation) return
-    if (this.canSwitch && !this.canSwitch()) {
+    if (!this.canRemove(this.activeInputKeys())) {
       this.controls.sizeMode!.value = this.representation
       return
     }
@@ -121,7 +122,17 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
     }
   }
 
+  private activeInputKeys(): string[] {
+    return ['size', 'sizeX', 'sizeY', 'sizeZ', 'sizeVector'].filter((key) => Boolean(this.inputs[key]))
+  }
+  private canRemove(keys: readonly string[]): boolean { return this.canRemoveInputs?.(keys) ?? true }
+  private removalAction(id: string, label: string, keys: readonly string[], run: () => void): ParameterAction {
+    const disabled = !this.canRemove(keys)
+    return { id, label, run, disabled, title: disabled ? t('control.removeConnectionsBeforeSwitch') : undefined }
+  }
+
   private removeSize(): void {
+    if (!this.canRemove(this.activeInputKeys())) return
     this.captureActiveLiteral()
     this.removeActiveRepresentation()
     if (this.controls.sizeMode) this.removeControl('sizeMode')
@@ -136,6 +147,7 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
   }
   private removeCenter(): void {
     if (!this.controls.center) return
+    if (!this.canRemove(['center'])) return
     this.removeControl('center')
     this.removeInput('center')
     this.changed()

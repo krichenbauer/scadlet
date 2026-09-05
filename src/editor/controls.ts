@@ -63,6 +63,10 @@ export class SelectControl<T extends string = string> extends ClassicPreset.Cont
   value: T
   /** Called after `value` changes; used by nodes that need to react structurally (e.g. show/hide other controls). */
   onChange?: (value: T) => void
+  /** Returns false when changing away from the current option would hide a
+   * connected semantic port. Kept on the control so renderer feedback and
+   * the low-level node callback share one rule. */
+  canChange?: (value: T) => boolean
 
   constructor(label: string, options: readonly { value: T; label: string }[], initial: T) {
     super()
@@ -72,6 +76,7 @@ export class SelectControl<T extends string = string> extends ClassicPreset.Cont
   }
 
   setValue(value: T): void {
+    if (value !== this.value && this.canChange && !this.canChange(value)) return
     this.value = value
     this.onChange?.(value)
   }
@@ -102,6 +107,8 @@ export interface ParameterAction {
   label: string
   run?: () => void
   children?: readonly ParameterAction[]
+  disabled?: boolean
+  title?: string
 }
 
 export class ParameterActionsControl extends ClassicPreset.Control {

@@ -133,6 +133,18 @@ describe('Milestone 6 semantic node signatures', () => {
     expect(Object.keys(sphere.inputs)).toEqual(['d'])
   })
 
+  it('blocks Cylinder and Sphere size changes before connected ports can disappear', () => {
+    const cylinder = new CylinderNode({ mode: 'radius', r: 5 }, undefined, () => false)
+    cylinder.controls.mode.setValue('diameter')
+    expect(cylinder.controls.mode.value).toBe('radius')
+    expect(Object.keys(cylinder.inputs)).toEqual(['r'])
+
+    const sphere = new SphereNode({ mode: 'radius', r: 5 }, undefined, () => false)
+    sphere.controls.mode.setValue('diameter')
+    expect(sphere.controls.mode.value).toBe('radius')
+    expect(Object.keys(sphere.inputs)).toEqual(['r'])
+  })
+
   it('gives Center a Boolean socket whose connection overrides its checkbox literal', () => {
     const cube = new CubeNode({ size: 10, center: false }, () => {})
     expect(cube.inputs.center?.socket.name).toBe('boolean')

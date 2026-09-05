@@ -71,7 +71,7 @@ export interface NodeCreationContext {
   /** Whether a representation-changing node may replace its currently
    * active parameter ports. Returning false protects live connections from
    * becoming hidden even if a caller bypasses the disabled DOM selector. */
-  canSwitchRepresentation?(nodeId: string): boolean
+  canRemoveInputs?(nodeId: string, inputKeys: readonly string[]): boolean
 }
 
 export interface NodeCatalogEntry {
@@ -269,7 +269,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
       node = new CubeNode(
         params ? validateCubeParams(params) : undefined,
         () => context.onControlsChanged(node.id),
-        () => context.canSwitchRepresentation?.(node.id) ?? true,
+        (keys) => context.canRemoveInputs?.(node.id, keys) ?? true,
       )
       return node
     },
@@ -295,9 +295,11 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     inputSocketType: (port) => port === 'center' ? 'boolean' : ['h', 'r', 'd', 'r1', 'r2', 'fn'].includes(port) ? 'number' : undefined,
     outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
     create: (context, params) => {
-      const node = new CylinderNode(
+      let node!: CylinderNode
+      node = new CylinderNode(
         params ? validateCylinderParams(params) : {},
         () => context.onControlsChanged(node.id),
+        (keys) => context.canRemoveInputs?.(node.id, keys) ?? true,
       )
       return node
     },
@@ -320,9 +322,11 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     inputSocketType: (port) => ['r', 'd', 'fn'].includes(port) ? 'number' : undefined,
     outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
     create: (context, params) => {
-      const node = new SphereNode(
+      let node!: SphereNode
+      node = new SphereNode(
         params ? validateSphereParams(params) : {},
         () => context.onControlsChanged(node.id),
+        (keys) => context.canRemoveInputs?.(node.id, keys) ?? true,
       )
       return node
     },
@@ -348,7 +352,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
       node = new TranslateNode(
         params ? validateVector3Params(params, 'Translate') : undefined,
         () => context.onControlsChanged(node.id),
-        () => context.canSwitchRepresentation?.(node.id) ?? true,
+        (keys) => context.canRemoveInputs?.(node.id, keys) ?? true,
       )
       return node
     },
@@ -374,7 +378,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
       node = new RotateNode(
         params ? validateVector3Params(params, 'Rotate') : undefined,
         () => context.onControlsChanged(node.id),
-        () => context.canSwitchRepresentation?.(node.id) ?? true,
+        (keys) => context.canRemoveInputs?.(node.id, keys) ?? true,
       )
       return node
     },
@@ -400,7 +404,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
       node = new ScaleNode(
         params ? validateVector3Params(params, 'Scale') : undefined,
         () => context.onControlsChanged(node.id),
-        () => context.canSwitchRepresentation?.(node.id) ?? true,
+        (keys) => context.canRemoveInputs?.(node.id, keys) ?? true,
       )
       return node
     },
@@ -468,7 +472,7 @@ export const NODE_CATALOG: readonly NodeCatalogEntry[] = CATALOG_ENTRIES.map((en
         context.onControlsChanged(nodeId)
       },
       notifyDirty: context.notifyDirty,
-      canSwitchRepresentation: context.canSwitchRepresentation,
+      canRemoveInputs: context.canRemoveInputs,
     }
     node = entry.create(wrappedContext, params)
     wireDirtyNotifications(node, context.notifyDirty)

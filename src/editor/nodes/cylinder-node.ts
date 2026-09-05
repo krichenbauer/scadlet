@@ -18,11 +18,13 @@ const MODES: readonly { value: CylinderSizeMode; label: string }[] = [
  * user adds it; literals and typed Number inputs use the same port name. */
 export class CylinderNode extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { geometry: ClassicPreset.Socket }, CylinderControls> implements DataflowNode {
   private readonly notify?: () => void
+  private readonly canRemoveInputs?: (keys: readonly string[]) => boolean
   private values: CylinderParams
 
-  constructor(params: Partial<CylinderParams> = {}, notify?: () => void) {
+  constructor(params: Partial<CylinderParams> = {}, notify?: () => void, canRemoveInputs?: (keys: readonly string[]) => boolean) {
     super(t('node.cylinder'))
     this.notify = notify
+    this.canRemoveInputs = canRemoveInputs
     this.values = Object.keys(params).length === 0 && notify === undefined ? { h: 10, mode: 'radius', r: 5, d: 10, r1: 5, r2: 5, center: false } : { ...params }
     if (params.h !== undefined) this.addNumber('h', t('control.height'), params.h)
     if (params.mode !== undefined) this.addSize(params.mode)
@@ -39,6 +41,10 @@ export class CylinderNode extends ClassicPreset.Node<Record<string, ClassicPrese
     this.addControl(key, new LabeledNumberControl(label, { initial: value, change: (next) => { this.values[key] = next } }))
   }
   private addSize(mode: CylinderSizeMode): void {
+    if (this.controls.mode && !this.canRemove(this.sizeInputKeys())) {
+      this.controls.mode.value = this.values.mode ?? 'radius'
+      return
+    }
     const previous = { ...this.values }
     this.removeSize()
     this.values = { ...this.values, ...previous }
@@ -46,6 +52,7 @@ export class CylinderNode extends ClassicPreset.Node<Record<string, ClassicPrese
     this.addControl('mode', new SelectControl(t('control.size'), MODES, mode))
     const select = this.controls.mode as SelectControl<CylinderSizeMode>
     select.onChange = (next) => { this.addSize(next); this.changed() }
+    select.canChange = () => this.canRemove(this.sizeInputKeys())
     if (mode === 'radius') this.addNumber('r', t('control.radius'), this.values.r ?? 5)
     if (mode === 'diameter') this.addNumber('d', t('control.diameter'), this.values.d ?? 10)
     if (mode === 'tapered') { this.addNumber('r1', t('control.radiusBottom'), this.values.r1 ?? 5); this.addNumber('r2', t('control.radiusTop'), this.values.r2 ?? 5) }
@@ -57,6 +64,8 @@ export class CylinderNode extends ClassicPreset.Node<Record<string, ClassicPrese
     }
     delete this.values.mode; delete this.values.r; delete this.values.d; delete this.values.r1; delete this.values.r2
   }
+  private sizeInputKeys(): string[] { return ['r', 'd', 'r1', 'r2'].filter((key) => Boolean(this.inputs[key])) }
+  private canRemove(keys: readonly string[]): boolean { return this.canRemoveInputs?.(keys) ?? true }
   private addCenter(value: boolean): void {
     this.values.center = value
     this.addInput('center', new ClassicPreset.Input(booleanSocket, t('control.center')))

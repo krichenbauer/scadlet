@@ -1,4 +1,4 @@
-import { NodeEditor } from 'rete'
+import { ClassicPreset, NodeEditor } from 'rete'
 import { AreaExtensions, AreaPlugin, Zoom } from 'rete-area-plugin'
 import { ClassicFlow, ConnectionPlugin, type SocketData } from 'rete-connection-plugin'
 import { DataflowEngine } from 'rete-engine'
@@ -17,6 +17,9 @@ import { attachNodeSelection } from './selection'
 import { BooleanOpNode } from './nodes/boolean-op-node'
 import { ConnectionGestureManager } from './connection-gesture'
 import { areSocketTypesCompatible, socketType, type SocketType } from './sockets'
+import { guardPortRemoval, hasConnectedInputs, removeInputSafely, removeOutputSafely } from './port-lifecycle'
+import { ConnectionSelectionManager } from './connection-selection'
+import { canConnectSocketData } from './connection-compatibility'
 
 export interface SCADletEditor {
   editor: NodeEditor<Schemes>
@@ -48,6 +51,9 @@ export interface SCADletEditor {
   clearInspectedValueResult(): void
   /** The node id currently selected as the Inspect Node preview root, or `null` if inspection is inactive. */
   getInspectedNodeId(): string | null
+  /** Safely removes a dynamic port and all of its attached connections. */
+  removeInputSafely(nodeId: string, inputKey: string): Promise<boolean>
+  removeOutputSafely(nodeId: string, outputKey: string): Promise<boolean>
   /** Whether `nodeId` is currently explicitly pinned open (editor presentation state - see `presentation.ts`). */
   isPinned(nodeId: string): boolean
   /** Sets a node's pinned state directly (used by `.scadlet` project restore) rather than toggling. */
@@ -74,19 +80,6 @@ export interface SCADletEditor {
    */
   withDirtyTrackingSuspended<T>(fn: () => Promise<T>): Promise<T>
   destroy(): void
-}
-
-function canConnectSocketData(
-  editor: NodeEditor<Schemes>,
-  first: SocketData,
-  second: SocketData,
-): boolean {
-  const sourceData = first.side === 'output' ? first : second.side === 'output' ? second : undefined
-  const targetData = first.side === 'input' ? first : second.side === 'input' ? second : undefined
-  if (!sourceData || !targetData) return false
-  const sourceSocket = editor.getNode(sourceData.nodeId)?.outputs[sourceData.key]?.socket
-  const targetSocket = editor.getNode(targetData.nodeId)?.inputs[targetData.key]?.socket
-  return areSocketTypesCompatible(sourceSocket, targetSocket)
 }
 
 /** Installs the same semantic connection gate used by the browser editor.
@@ -116,6 +109,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   const area = new AreaPlugin<Schemes, AreaExtra>(container)
   const connection = new ConnectionPlugin<Schemes, AreaExtra>()
   const connectionGesture = new ConnectionGestureManager()
+  const connectionSelection = new ConnectionSelectionManager()
   const engine = new DataflowEngine<Schemes>((node) => ({
     inputs: () => Object.keys(node.inputs),
     outputs: () => Object.keys(node.outputs),
@@ -127,6 +121,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // couple of small multi-selection behaviors on top of it (see
   // `selection.ts`), it does not replace it.
   const nodeSelection = attachNodeSelection(editor, area)
+  const clearNodeSelection = (): void => {
+    for (const node of editor.getNodes().filter((node) => node.selected)) void nodeSelection.unselect(node.id)
+  }
 
   // Rete's classic preset intentionally treats socket names as display
   // metadata. SCADlet has a closed semantic socket vocabulary, so enforce
@@ -149,7 +146,12 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       const type = socketType(reteSocket)
       if (type) connectionGesture.begin({ nodeId: socket.nodeId, socketKey: socket.key, side: socket.side, socketType: type })
     } else if (context.type === 'connectiondrop') {
-      connectionGesture.complete()
+      const { created, socket } = context.data as { created?: boolean; socket?: SocketData | null }
+      // Rete drops a drag that ended beside (rather than directly on) a
+      // socket before our bridge can commit its snap target. Keep that
+      // transient target for the same pointerup; exact Rete completions and
+      // ordinary cancellations still clear immediately.
+      if (created || socket || !connectionGesture.active?.snapTarget) connectionGesture.complete()
     }
   }
 
@@ -163,13 +165,50 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     syncConnectionGesture(context)
     return context
   })
-  const detachConnectionGestureEvents = attachConnectionGestureEvents(container, connectionGesture)
+  const commitSnappedConnection = (): boolean => {
+    const active = connectionGesture.active
+    const snap = active?.snapTarget
+    if (!active || !snap) return false
+    const source = active.origin.side === 'output'
+      ? { nodeId: active.origin.nodeId, key: active.origin.socketKey }
+      : { nodeId: snap.nodeId, key: snap.socketKey }
+    const target = active.origin.side === 'input'
+      ? { nodeId: active.origin.nodeId, key: active.origin.socketKey }
+      : { nodeId: snap.nodeId, key: snap.socketKey }
+    if (editor.getConnections().some((connection) => connection.target === target.nodeId && connection.targetInput === target.key)) return false
+    const from = editor.getNode(source.nodeId)
+    const to = editor.getNode(target.nodeId)
+    if (!from || !to || !canConnectSocketData(editor,
+      { nodeId: source.nodeId, key: source.key, side: 'output' },
+      { nodeId: target.nodeId, key: target.key, side: 'input' },
+    )) return false
+    connection.drop()
+    connectionGesture.complete()
+    // Let Rete finish its pointerup/drop bookkeeping before inserting the
+    // explicit snapped connection. Otherwise its still-running pseudo-flow
+    // can race a just-created real connection on the same release.
+    window.setTimeout(() => {
+      void editor.addConnection(new ClassicPreset.Connection(from, source.key, to, target.key) as Schemes['Connection'])
+        .then((created) => {
+        if (created) void area.update('node', target.nodeId)
+        })
+    })
+    return true
+  }
+  const detachConnectionGestureEvents = attachConnectionGestureEvents(container, connectionGesture, commitSnappedConnection)
 
   // This is the authoritative live-graph gate. It runs before Rete mutates
   // its connection list, so even callers that construct a
   // `ClassicPreset.Connection` directly cannot insert Geometry→Number,
   // Geometry→Vector3, Geometry→Boolean, or any other implicit conversion.
   attachSocketCompatibilityGuard(editor)
+  editor.addPipe((context) => {
+    if (context.type === 'nodecreated') {
+      const node = editor.getNode(context.data.id)
+      if (node) guardPortRemoval(editor, node)
+    }
+    return context
+  })
 
   // Presentation state (collapsed / temporarily expanded / pinned - see
   // `presentation.ts`) is intentionally kept outside the Rete graph model,
@@ -186,6 +225,10 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // concept from expanded/pinned, not another boolean on the same class.
   const inspect = new InspectManager({
     onChange: (id) => void area.update('node', id),
+  })
+  const unsubscribeConnectionSelection = connectionSelection.subscribe((previous, current) => {
+    if (previous) void area.update('connection', previous)
+    if (current) void area.update('connection', current)
   })
 
   // "Unsaved changes" tracking (Milestone 5 persistence). Signal->dirty
@@ -227,6 +270,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // connection list and never reindexes an existing slot/connection.
   editor.addPipe((context) => {
     if (context.type === 'connectioncreated' || context.type === 'connectionremoved') {
+      if (context.type === 'connectionremoved') connectionSelection.remove(context.data.id)
       // Recompute which parameter inputs (non-geometry) are connected for each node.
       // Only parameter sockets (number, vector3) force a partial expansion; geometry
       // connections never do - that was the bug that prevented Translate/Rotate/Scale
@@ -253,6 +297,15 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return context
   })
 
+  const selectConnection = (connectionId: string): void => {
+    if (connectionGesture.active) {
+      connection.drop()
+      connectionGesture.cancel()
+    }
+    clearNodeSelection()
+    connectionSelection.select(connectionId)
+    container.focus({ preventScroll: true })
+  }
   const detachRenderer = attachRenderer(
     editor,
     area,
@@ -260,15 +313,38 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     presentation,
     inspect,
     connectionGesture,
+    connectionSelection,
     notifyDirty,
     (nodeId) => {
       for (const listener of inspectListeners) listener(nodeId)
     },
+    () => connectionSelection.clear(),
+    selectConnection,
   )
 
   AreaExtensions.simpleNodesOrder(area)
 
-  attachDeletion(editor, area, container)
+  attachDeletion(editor, area, container, connectionSelection)
+  const selectConnectionOnPointerDown = (event: PointerEvent): void => {
+    if (event.button !== 0) return
+    const wire = event.composedPath().find((item): item is Element =>
+      item instanceof Element && item.matches('svg.connection[data-real-connection="true"][data-connection-id]'),
+    )
+    const connectionId = wire?.getAttribute('data-connection-id')
+    if (!connectionId) return
+    event.preventDefault()
+    event.stopPropagation()
+    selectConnection(connectionId)
+  }
+  // Rete intercepts pointer events on the canvas before a connection SVG's
+  // target listener gets them. Capture one level earlier so an existing wire
+  // is an interaction target in its own right, rather than a canvas gesture.
+  window.addEventListener('pointerdown', selectConnectionOnPointerDown, { capture: true })
+  const clearConnectionOnBlankCanvas = (event: PointerEvent): void => {
+    if (!(event.target instanceof Element) || event.target.closest('.node, .connection')) return
+    connectionSelection.clear()
+  }
+  container.addEventListener('pointerdown', clearConnectionOnBlankCanvas, { capture: true })
 
   // Shift+drag rectangle selection on empty canvas (AGENTS.md-adjacent
   // task: multi-selection). Selects through the same `nodeSelection` API
@@ -314,9 +390,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   const creationContext: NodeCreationContext = {
     onControlsChanged: (id) => { void area.update('node', id); notifySemanticDirty() },
     notifyDirty: notifySemanticDirty,
-    canSwitchRepresentation: (nodeId) => !editor.getConnections().some((connection) =>
-      connection.target === nodeId && editor.getNode(nodeId)?.inputs[connection.targetInput]?.socket.name !== 'geometry',
-    ),
+    canRemoveInputs: (nodeId, keys) => !hasConnectedInputs(editor, nodeId, keys),
   }
 
   async function addNodeAt(type: string, clientPosition: Position): Promise<void> {
@@ -347,6 +421,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     setInspectedValueResult: (nodeId, value) => inspect.setValueResult(nodeId, value),
     clearInspectedValueResult: () => inspect.clearValueResult(),
     getInspectedNodeId: () => inspect.id,
+    removeInputSafely: (nodeId, inputKey) => removeInputSafely(editor, nodeId, inputKey),
+    removeOutputSafely: (nodeId, outputKey) => removeOutputSafely(editor, nodeId, outputKey),
     isPinned: (nodeId: string) => presentation.isPinned(nodeId),
     setPinned: (nodeId: string, pinned: boolean) => {
       if (presentation.isPinned(nodeId) === pinned) return
@@ -376,6 +452,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     destroy: () => {
       detachMarquee()
       nodeSelection.destroy()
+      unsubscribeConnectionSelection()
+      container.removeEventListener('pointerdown', clearConnectionOnBlankCanvas, { capture: true })
+      window.removeEventListener('pointerdown', selectConnectionOnPointerDown, { capture: true })
       container.removeEventListener('keydown', cancelConnectionOnEscape)
       detachConnectionGestureEvents()
       connectionGesture.reset()
@@ -393,7 +472,11 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
  * movement and intentionally stays active, whereas a drag release clears
  * the temporary presentation state.
  */
-function attachConnectionGestureEvents(container: HTMLElement, gesture: ConnectionGestureManager): () => void {
+function attachConnectionGestureEvents(
+  container: HTMLElement,
+  gesture: ConnectionGestureManager,
+  commitSnap: () => boolean,
+): () => void {
   let initiatingPointerId: number | null = null
   let movedSincePick = false
 
@@ -411,10 +494,17 @@ function attachConnectionGestureEvents(container: HTMLElement, gesture: Connecti
       // A blank-canvas click has no socket listener to preserve and cancels
       // immediately. Rete still decides whether a semantic connection is
       // actually created or rejected.
+      if (!socket && commitSnap()) {
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
       if (socket) {
-        const completingGesture = gesture.active
         window.setTimeout(() => {
-          if (gesture.active === completingGesture) gesture.complete()
+          // Rete may replace its internal pick object while completing an
+          // exact socket click. The second socket click is still terminal
+          // for SCADlet's presentation gesture either way.
+          gesture.complete()
         })
       } else gesture.cancel()
       return
@@ -433,8 +523,17 @@ function attachConnectionGestureEvents(container: HTMLElement, gesture: Connecti
     if (event.pointerId === initiatingPointerId && event.buttons !== 0) movedSincePick = true
   }
   const onPointerUp = (event: PointerEvent): void => {
-    if (event.pointerId === initiatingPointerId && movedSincePick) gesture.complete()
-    if (event.pointerId === initiatingPointerId) initiatingPointerId = null
+    // Some browsers retarget the final pointerup after Rete's drag capture;
+    // `movedSincePick` belongs to this one active gesture and is the stable
+    // drag-mode discriminator, not the retargeted pointer id.
+    if (movedSincePick) {
+      if (commitSnap()) {
+        event.preventDefault()
+        event.stopPropagation()
+      } else gesture.complete()
+    }
+    if (event.pointerId === initiatingPointerId || movedSincePick) initiatingPointerId = null
+    movedSincePick = false
   }
   const onPointerCancel = (event: PointerEvent): void => {
     if (event.pointerId === initiatingPointerId) {
@@ -445,13 +544,16 @@ function attachConnectionGestureEvents(container: HTMLElement, gesture: Connecti
 
   container.addEventListener('pointerdown', onPointerDown, { capture: true })
   container.addEventListener('pointermove', onPointerMove, { capture: true })
-  container.addEventListener('pointerup', onPointerUp, { capture: true })
-  container.addEventListener('pointercancel', onPointerCancel, { capture: true })
+  // Window capture runs before Rete's area-level pointerup listener. This
+  // preserves the active snap candidate long enough to commit a drag that
+  // ended near (rather than directly on) its destination socket.
+  window.addEventListener('pointerup', onPointerUp, { capture: true })
+  window.addEventListener('pointercancel', onPointerCancel, { capture: true })
   return () => {
     container.removeEventListener('pointerdown', onPointerDown, { capture: true })
     container.removeEventListener('pointermove', onPointerMove, { capture: true })
-    container.removeEventListener('pointerup', onPointerUp, { capture: true })
-    container.removeEventListener('pointercancel', onPointerCancel, { capture: true })
+    window.removeEventListener('pointerup', onPointerUp, { capture: true })
+    window.removeEventListener('pointercancel', onPointerCancel, { capture: true })
   }
 }
 
@@ -465,6 +567,7 @@ function attachDeletion(
   editor: NodeEditor<Schemes>,
   area: AreaPlugin<Schemes, AreaExtra>,
   container: HTMLElement,
+  connectionSelection: ConnectionSelectionManager,
 ): void {
   // Not part of the tab order (a big pan/zoom canvas isn't a meaningful
   // tab stop) but focusable programmatically, so a following
@@ -482,6 +585,14 @@ function attachDeletion(
   container.addEventListener('keydown', (event) => {
     if (event.key !== 'Delete' && event.key !== 'Backspace') return
     if (isEditableTarget(event.target)) return
+
+    const selectedConnection = connectionSelection.id
+    if (selectedConnection) {
+      event.preventDefault()
+      connectionSelection.clear()
+      void editor.removeConnection(selectedConnection)
+      return
+    }
 
     const selected = editor.getNodes().filter((node) => node.selected)
     if (selected.length === 0) return

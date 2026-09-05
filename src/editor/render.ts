@@ -14,6 +14,9 @@ import { isRedundantTypeLabel } from './ports'
 import type { NodePresentationManager } from './presentation'
 import type { AreaExtra, Schemes } from './schemes'
 import { compatiblePortKeys, type ConnectionGestureManager } from './connection-gesture'
+import { nearestSnapTarget, type SnapCandidate } from './connection-gesture'
+import type { ConnectionSelectionManager } from './connection-selection'
+import { canConnectSocketData } from './connection-compatibility'
 
 type Position = { x: number; y: number }
 type Side = 'input' | 'output'
@@ -68,6 +71,7 @@ const CONNECTION_PADDING = 20
 interface ConnectionState {
   svg: SVGSVGElement
   path: SVGPathElement
+  hitPath: SVGPathElement
   start?: Position
   end?: Position
   unlistenSource?: () => void
@@ -91,8 +95,11 @@ export function attachRenderer(
   presentation: NodePresentationManager,
   inspect: InspectManager,
   connectionGesture: ConnectionGestureManager,
+  connectionSelection: ConnectionSelectionManager,
   notifyDirty: () => void,
   onInspect: (nodeId: string) => void,
+  onNodeInteraction: () => void,
+  onConnectionInteraction: (connectionId: string) => void,
 ): () => void {
   const socketPosition = getDOMSocketPosition<Schemes, AreaExtra>()
   // `attach()` only uses `connection` to walk up to its parent `area` via
@@ -109,6 +116,7 @@ export function attachRenderer(
   // not on every re-render.
   const nodeListenersWired = new WeakSet<HTMLElement>()
   let disclosedNodeId: string | null = null
+  let snapFrame: number | null = null
   const clearDisclosure = (): void => {
     if (!disclosedNodeId) return
     presentation.setConnectionDisclosure(disclosedNodeId, new Set())
@@ -170,15 +178,67 @@ export function attachRenderer(
     }
     return undefined
   }
+  const updateSnapTarget = (clientX: number, clientY: number): void => {
+    const active = connectionGesture.active
+    if (!active) return
+    const candidates: SnapCandidate[] = []
+    for (const socket of area.container.querySelectorAll<HTMLElement>('.node-socket')) {
+      if (socket.getClientRects().length === 0) continue
+      const root = socket.closest<HTMLElement>('.node')
+      const nodeId = root?.dataset.nodeId
+      const socketKey = socket.dataset.socketKey
+      const side = socket.dataset.socketSide
+      const socketType = socket.dataset.socketType
+      if (!nodeId || !socketKey || (side !== 'input' && side !== 'output') ||
+        (socketType !== 'geometry' && socketType !== 'number' && socketType !== 'vector3' && socketType !== 'boolean')) continue
+      if (nodeId === active.origin.nodeId && socketKey === active.origin.socketKey && side === active.origin.side) continue
+      const endpoint: { nodeId: string; key: string; side: 'input' | 'output' } = { nodeId, key: socketKey, side }
+      // Do not advertise a target that the current single-input interaction
+      // would replace rather than add to.
+      const occupied = side === 'input' && editor.getConnections().some((connection) => connection.target === nodeId && connection.targetInput === socketKey)
+      const rect = socket.getBoundingClientRect()
+      candidates.push({
+        nodeId, socketKey, side, socketType,
+        x: rect.left + rect.width / 2, y: rect.top + rect.height / 2,
+        canConnect: !occupied && canConnectSocketData(editor, {
+          nodeId: active.origin.nodeId, key: active.origin.socketKey, side: active.origin.side,
+        }, endpoint),
+      })
+    }
+    connectionGesture.setSnapTarget(nearestSnapTarget(active.origin, candidates, { x: clientX, y: clientY }))
+  }
   const handlePointerMove = (event: PointerEvent): void => {
-    if (connectionGesture.active) setCandidate(nodeAtPointer(event))
+    if (!connectionGesture.active) return
+    setCandidate(nodeAtPointer(event))
+    updateSnapTarget(event.clientX, event.clientY)
+    // Disclosure can mount an input row during this same movement. Re-scan
+    // after layout so the newly visible port is immediately eligible.
+    if (snapFrame !== null) cancelAnimationFrame(snapFrame)
+    snapFrame = requestAnimationFrame(() => {
+      snapFrame = null
+      updateSnapTarget(event.clientX, event.clientY)
+    })
   }
   area.container.addEventListener('pointermove', handlePointerMove, { capture: true })
+  const syncSnapPresentation = (): void => {
+    for (const socket of area.container.querySelectorAll<HTMLElement>('.node-socket--snap-target')) socket.classList.remove('node-socket--snap-target')
+    const snap = connectionGesture.active?.snapTarget
+    if (!snap) {
+      area.container.classList.remove('connection-gesture--snapped')
+      return
+    }
+    const socket = area.nodeViews.get(snap.nodeId)?.element.querySelector<HTMLElement>(
+      `.node-socket[data-socket-side="${snap.side}"][data-socket-key="${CSS.escape(snap.socketKey)}"]`,
+    )
+    socket?.classList.add('node-socket--snap-target')
+    area.container.classList.add('connection-gesture--snapped')
+  }
   const unsubscribeGesture = connectionGesture.subscribe((previous, current) => {
     // Beginning a fresh gesture, completing/cancelling one, or resetting the
     // editor must never leave an old target row temporarily visible.
     if (!current || !previous || previous.origin !== current.origin ||
       (previous.candidateNodeId !== null && current.candidateNodeId === null)) clearDisclosure()
+    syncSnapPresentation()
   })
 
   area.addPipe((context) => {
@@ -186,7 +246,7 @@ export function attachRenderer(
       const { data } = context
 
       if (data.type === 'node') {
-        renderNode(area, data.element, data.payload, presentation, inspect, connectionGesture, nodeListenersWired, notifyDirty, onInspect)
+        renderNode(editor, area, data.element, data.payload, presentation, inspect, connectionGesture, nodeListenersWired, notifyDirty, onInspect, onNodeInteraction)
       } else if (data.type === 'connection') {
         updateConnection(
           area,
@@ -196,6 +256,9 @@ export function attachRenderer(
           data.payload,
           data.start,
           data.end,
+          connectionGesture,
+          connectionSelection,
+          onConnectionInteraction,
         )
       }
     } else if (context.type === 'unmount') {
@@ -224,12 +287,15 @@ export function attachRenderer(
 
   return () => {
     area.container.removeEventListener('pointermove', handlePointerMove, { capture: true })
+    if (snapFrame !== null) cancelAnimationFrame(snapFrame)
     unsubscribeGesture()
+    area.container.classList.remove('connection-gesture--snapped')
     clearDisclosure()
   }
 }
 
 function renderNode(
+  editor: NodeEditor<Schemes>,
   area: AreaPlugin<Schemes, AreaExtra>,
   element: HTMLElement,
   node: Schemes['Node'],
@@ -239,6 +305,7 @@ function renderNode(
   nodeListenersWired: WeakSet<HTMLElement>,
   notifyDirty: () => void,
   onInspect: (nodeId: string) => void,
+  onNodeInteraction: () => void,
 ): void {
   element.classList.add('node')
   element.dataset.nodeId = node.id
@@ -290,7 +357,16 @@ function renderNode(
   // A node has collapsible content if it has parameter inputs (whose rows can be shown/hidden)
   // or standalone controls (shown only when expanded). This drives pin-button visibility.
   const hasCollapsibleContent = parameterInputs.length > 0 || expandableStandaloneControls.length > 0 || representationControls.length > 0
-  const connectedInputKeys = presentation.getConnectedInputKeys(node.id)
+  // Rete remains authoritative for the semantic endpoint. Presentation keeps
+  // compact expansion state, while this direct read ensures a freshly
+  // committed snapped wire immediately disables its fallback literal even if
+  // an area re-render races the connection-created presentation update.
+  const connectedInputKeys = new Set([
+    ...presentation.getConnectedInputKeys(node.id),
+    ...editor.getConnections()
+      .filter((connection) => connection.target === node.id && parameterInputs.some(([key]) => key === connection.targetInput))
+      .map((connection) => connection.targetInput),
+  ])
   const disclosedInputKeys = presentation.getDisclosedInputKeys(node.id)
   // Hover/pin expansion: shows ALL parameter rows and standalone controls.
   // Distinguished from connection-forced expansion (which only shows specific connected rows)
@@ -319,6 +395,7 @@ function renderNode(
         return
       }
       if (connectionGesture.active) return
+      onNodeInteraction()
       if (inspect.registerPointerDown(node.id)) onInspect(node.id)
     })
   }
@@ -667,11 +744,14 @@ function renderControl(key: string, control: ClassicPreset.Control, hideLabel = 
     wrapper.appendChild(text)
 
     const select = document.createElement('select')
+    const changeBlocked = control.options.some((option) => option.value !== control.value && control.canChange && !control.canChange(option.value))
+    if (changeBlocked) select.title = t('control.removeConnectionsBeforeSwitch')
     for (const option of control.options) {
       const optionElement = document.createElement('option')
       optionElement.value = option.value
       optionElement.textContent = option.label
       optionElement.selected = option.value === control.value
+      optionElement.disabled = option.value !== control.value && Boolean(control.canChange && !control.canChange(option.value))
       select.appendChild(optionElement)
     }
     select.addEventListener('pointerdown', (event) => event.stopPropagation())
@@ -738,8 +818,10 @@ function renderParameterAction(action: ParameterAction): HTMLElement {
   const button = document.createElement('button')
   button.type = 'button'
   button.textContent = action.label
+  button.disabled = Boolean(action.disabled)
+  if (action.title) button.title = action.title
   button.addEventListener('pointerdown', (event) => event.stopPropagation())
-  if (action.run) button.addEventListener('click', action.run)
+  if (action.run && !action.disabled) button.addEventListener('click', action.run)
   return button
 }
 
@@ -754,13 +836,16 @@ function renderRepresentationHeader(
   header.appendChild(label)
   const select = document.createElement('select')
   select.setAttribute('aria-label', t('control.representation'))
-  if (hasActiveConnections) select.title = t('control.removeConnectionsBeforeSwitch')
+  const changeBlocked = control.options.some((option) => option.value !== control.value && control.canChange && !control.canChange(option.value))
+  if (hasActiveConnections || changeBlocked) select.title = t('control.removeConnectionsBeforeSwitch')
   for (const option of control.options) {
     const item = document.createElement('option')
     item.value = option.value
     item.textContent = option.label
     item.selected = option.value === control.value
-    item.disabled = hasActiveConnections && option.value !== control.value
+    item.disabled = option.value !== control.value && Boolean(
+      hasActiveConnections || (control.canChange && !control.canChange(option.value)),
+    )
     select.appendChild(item)
   }
   select.addEventListener('pointerdown', (event) => event.stopPropagation())
@@ -777,6 +862,9 @@ function updateConnection(
   payload: Schemes['Connection'],
   explicitStart: Position | undefined,
   explicitEnd: Position | undefined,
+  connectionGesture: ConnectionGestureManager,
+  connectionSelection: ConnectionSelectionManager,
+  onConnectionInteraction: (connectionId: string) => void,
 ): void {
   let state = connections.get(element)
 
@@ -786,15 +874,34 @@ function updateConnection(
 
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
     path.classList.add('connection-path')
+    const hitPath = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    hitPath.classList.add('connection-hit-path')
     const sourceNode = payload.source ? area.nodeViews.get(payload.source) : undefined
     const sourceSocket = sourceNode?.element?.querySelector<HTMLElement>(
       `.node-socket[data-socket-side="output"][data-socket-key="${String(payload.sourceOutput)}"]`,
     )
     if (sourceSocket?.dataset.socketType) path.dataset.socketType = sourceSocket.dataset.socketType
-    svg.appendChild(path)
+    if (sourceSocket?.dataset.socketType) hitPath.dataset.socketType = sourceSocket.dataset.socketType
+    const selectConnection = (event: Event): void => {
+      if (!payload.source || !payload.target) return
+      event.preventDefault()
+      event.stopPropagation()
+      onConnectionInteraction(payload.id)
+      // The manager also requests an Area re-render so a later selection
+      // change is reflected consistently. Apply this immediate class for
+      // the current hit event as well; Area's asynchronous update should
+      // not make a wire click appear to do nothing for a frame.
+      state?.svg.classList.add('connection--selected')
+    }
+    hitPath.addEventListener('pointerdown', selectConnection)
+    hitPath.addEventListener('click', selectConnection)
+    svg.addEventListener('pointerdown', selectConnection)
+    svg.append(path, hitPath)
+    svg.dataset.realConnection = String(Boolean(payload.source && payload.target))
+    svg.dataset.connectionId = payload.id
     element.replaceChildren(svg)
 
-    state = { svg, path }
+    state = { svg, path, hitPath }
     connections.set(element, state)
   }
 
@@ -817,6 +924,8 @@ function updateConnection(
     const start = { x: state.start.x - minX, y: state.start.y - minY }
     const end = { x: state.end.x - minX, y: state.end.y - minY }
     state.path.setAttribute('d', classicConnectionPath([start, end], CONNECTION_CURVATURE))
+    state.hitPath.setAttribute('d', classicConnectionPath([start, end], CONNECTION_CURVATURE))
+    state.svg.classList.toggle('connection--selected', Boolean(payload.source && payload.target && connectionSelection.isSelected(payload.id)))
   }
 
   // Real (non-pseudo) endpoints are tracked live via the socket position
@@ -846,6 +955,20 @@ function updateConnection(
   }
   if (explicitStart) state.start = explicitStart
   if (explicitEnd) state.end = explicitEnd
+
+  // The Rete pseudo-connection normally terminates at the raw pointer. A
+  // real snap candidate replaces only that presentation endpoint; no graph
+  // mutation happens until the user releases/clicks.
+  const snap = connectionGesture.active?.snapTarget
+  if (snap && (!payload.target || !payload.source)) {
+    const local = socketPosition.sockets.getPosition({ nodeId: snap.nodeId, side: snap.side, key: snap.socketKey })
+    const view = area.nodeViews.get(snap.nodeId)
+    if (local && view) {
+      const anchor = { x: local.x + view.position.x + (snap.side === 'input' ? -12 : 12), y: local.y + view.position.y }
+      if (payload.source) state.end = anchor
+      else state.start = anchor
+    }
+  }
 
   redraw()
 }

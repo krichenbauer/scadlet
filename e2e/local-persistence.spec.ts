@@ -284,11 +284,17 @@ test('connection gestures disclose one compatible compact target repeatedly for 
   }
   await page.getByRole('button', { name: 'Cube', exact: true }).click()
   const cubes = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
-  const cubeA = cubes.nth(0)
+  const cubeAInitial = cubes.nth(0)
+  const cubeAId = await cubeAInitial.getAttribute('data-node-id')
+  if (!cubeAId) throw new Error('Expected Cube A id')
+  const cubeA = page.locator(`node-editor .node[data-node-id="${cubeAId}"]`)
   await configureScalarCube(cubeA)
   await moveNode(cubeA, 140, -90)
   await page.getByRole('button', { name: 'Cube', exact: true }).click()
-  const cubeB = cubes.nth(1)
+  const cubeBInitial = cubes.nth(1)
+  const cubeBId = await cubeBInitial.getAttribute('data-node-id')
+  if (!cubeBId) throw new Error('Expected Cube B id')
+  const cubeB = page.locator(`node-editor .node[data-node-id="${cubeBId}"]`)
   await configureScalarCube(cubeB)
   await moveNode(cubeB, 160, 110)
 
@@ -301,27 +307,30 @@ test('connection gestures disclose one compatible compact target repeatedly for 
   if (!source || !headerA || !headerB) throw new Error('Expected Number output and Cube headers')
   const sourceCenter = { x: source.x + source.width / 2, y: source.y + source.height / 2 }
 
-  // Drag mode: reveal A, move directly to B (which clears A), then cancel.
+  // Drag mode: move near rather than onto A's tiny socket. The preview
+  // acquires the same compatible target that the eventual Rete connection
+  // uses, then releases to commit it.
   await page.mouse.move(sourceCenter.x, sourceCenter.y)
   await page.mouse.down()
   await page.mouse.move(headerA.x + 20, headerA.y + headerA.height / 2, { steps: 8 })
   await expect(cubeA.locator('[data-param-key="size"]')).toBeVisible()
-  await page.mouse.move(headerB.x + 20, headerB.y + headerB.height / 2, { steps: 8 })
-  await expect(cubeA.locator('[data-param-key="size"]')).toBeHidden()
-  await expect(cubeB.locator('[data-param-key="size"]')).toBeVisible()
+  const targetA = await cubeA.locator('[data-param-key="size"] .node-socket').boundingBox()
+  if (!targetA) throw new Error('Expected disclosed Cube A Size socket')
+  await page.mouse.move(targetA.x + targetA.width / 2 + 18, targetA.y + targetA.height / 2, { steps: 4 })
+  await expect(cubeA.locator('[data-param-key="size"] .node-socket')).toHaveClass(/node-socket--snap-target/)
   await page.mouse.up()
-  await page.mouse.move(5, 200)
-  await expect(cubeB.locator('[data-param-key="size"]')).toBeHidden({ timeout: 2_000 })
+  await expect(cubeA.locator('[data-param-key="size"] input')).toBeDisabled()
 
   // Click mode keeps the same gesture active after release. A second click
-  // on the real input completes it; the row then remains for the real graph
-  // connection rather than for the temporary disclosure state.
+  // near B's snapped input completes it without pixel-perfect placement.
   await page.mouse.click(sourceCenter.x, sourceCenter.y)
   await page.mouse.move(headerB.x + 20, headerB.y + headerB.height / 2, { steps: 8 })
   await expect(cubeB.locator('[data-param-key="size"]')).toBeVisible()
   const target = await cubeB.locator('[data-param-key="size"] .node-socket').boundingBox()
   if (!target) throw new Error('Expected disclosed Cube Size socket')
-  await page.mouse.click(target.x + target.width / 2, target.y + target.height / 2)
+  await page.mouse.move(target.x + target.width / 2 + 18, target.y + target.height / 2, { steps: 3 })
+  await expect(cubeB.locator('[data-param-key="size"] .node-socket')).toHaveClass(/node-socket--snap-target/)
+  await page.mouse.click(target.x + target.width / 2 + 18, target.y + target.height / 2)
   await expect(cubeB.locator('[data-param-key="size"] input')).toBeDisabled()
   await page.mouse.move(5, 200)
   await expect(cubeB.locator('[data-param-key="size"]')).toBeVisible()
@@ -329,7 +338,10 @@ test('connection gestures disclose one compatible compact target repeatedly for 
   // A Vector3-only Cube representation is incompatible with this Number
   // wire and must not be exposed as a false target.
   await page.getByRole('button', { name: 'Cube', exact: true }).click()
-  const cube = cubes.nth(2)
+  const cubeInitial = cubes.last()
+  const cubeId = await cubeInitial.getAttribute('data-node-id')
+  if (!cubeId) throw new Error('Expected Vector Cube id')
+  const cube = page.locator(`node-editor .node[data-node-id="${cubeId}"]`)
   await cube.locator('.node-pin').click()
   await cube.getByText('+ Size', { exact: true }).click()
   await cube.getByRole('button', { name: 'Vector', exact: true }).click()
@@ -341,6 +353,33 @@ test('connection gestures disclose one compatible compact target repeatedly for 
   await page.mouse.move(cubeHeader.x + 20, cubeHeader.y + cubeHeader.height / 2, { steps: 8 })
   await expect(cube.locator('[data-param-key="sizeVector"]')).toBeHidden()
   await page.mouse.click(5, 200)
+})
+
+test('a selected wire is transient and Delete removes only that connection', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  await page.getByRole('button', { name: 'Number', exact: true }).click()
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  const number = page.locator('node-editor .node').filter({ has: page.locator('.node-header input.node-title') })
+  const add = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Add' }) })
+  await add.locator('.node-pin').click()
+  const numberHeader = await number.locator('.node-header').boundingBox()
+  if (!numberHeader) throw new Error('Expected Number header')
+  await page.mouse.move(numberHeader.x + 20, numberHeader.y + numberHeader.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(numberHeader.x - 180, numberHeader.y + numberHeader.height / 2, { steps: 6 })
+  await page.mouse.up()
+  const source = await number.locator('.node-port--output .node-socket').boundingBox()
+  const target = await add.locator('[data-param-key="a"] .node-socket').boundingBox()
+  if (!source || !target) throw new Error('Expected Number output and Add A input')
+  await page.mouse.click(source.x + source.width / 2, source.y + source.height / 2)
+  await page.mouse.click(target.x + target.width / 2, target.y + target.height / 2)
+  await expect(add.locator('[data-param-key="a"] input')).toBeDisabled()
+  const hit = page.locator('node-editor .connection[data-real-connection="true"] .connection-hit-path')
+  await hit.dispatchEvent('pointerdown', { button: 0 })
+  await expect(page.locator('node-editor .connection--selected')).toHaveCount(1)
+  await page.keyboard.press('Delete')
+  await expect(hit).toHaveCount(0)
+  await expect(add.locator('[data-param-key="a"] input')).toBeEnabled()
 })
 
 test('connected compact rows preserve canonical order when expanded', async ({ page }) => {

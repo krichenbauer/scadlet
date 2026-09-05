@@ -238,6 +238,16 @@ export class NodeEditorElement extends LitElement {
       border-color: #2f8240;
     }
 
+    .node-socket--snap-target {
+      outline: 3px solid rgb(255 255 255 / 0.8);
+      outline-offset: 2px;
+      transform: scale(1.25);
+    }
+
+    #canvas.connection-gesture--snapped .node-socket--snap-target {
+      cursor: copy;
+    }
+
     /* Pulls just the socket circle to straddle the node's outer border, keeping the label anchored beside it. */
     .node-port--input .node-socket {
       margin-left: -6px;
@@ -403,6 +413,19 @@ export class NodeEditorElement extends LitElement {
     .connection-path[data-socket-type='number'] { stroke: #f2b84b; }
     .connection-path[data-socket-type='vector3'] { stroke: #b07cff; }
     .connection-path[data-socket-type='boolean'] { stroke: #63c174; }
+
+    .connection-hit-path {
+      fill: none;
+      stroke: transparent;
+      stroke-width: 16px;
+      pointer-events: stroke;
+      cursor: pointer;
+    }
+
+    .connection--selected .connection-path {
+      stroke-width: 4px;
+      filter: drop-shadow(0 0 3px currentColor);
+    }
 
     /*
      * Shift-drag marquee selection rectangle (see editor/marquee.ts).

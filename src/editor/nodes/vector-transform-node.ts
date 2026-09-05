@@ -31,7 +31,7 @@ export class VectorTransformNode
 {
   private readonly toOpenSCAD: (params: Vector3Params, input: string | undefined) => TransformResult
   private readonly notify?: () => void
-  private readonly canSwitch?: () => boolean
+  private readonly canRemoveInputs?: (keys: readonly string[]) => boolean
   private representation: Vector3Representation
   private xyzLiteral: Pick<Vector3Params, 'x' | 'y' | 'z'>
 
@@ -40,12 +40,12 @@ export class VectorTransformNode
     defaults: Vector3Params,
     toOpenSCAD: (params: Vector3Params, input: string | undefined) => TransformResult,
     notify?: () => void,
-    canSwitch?: () => boolean,
+    canRemoveInputs?: (keys: readonly string[]) => boolean,
   ) {
     super(label)
     this.toOpenSCAD = toOpenSCAD
     this.notify = notify
-    this.canSwitch = canSwitch
+    this.canRemoveInputs = canRemoveInputs
     this.representation = defaults.representation ?? 'xyz'
     this.xyzLiteral = { x: defaults.x, y: defaults.y, z: defaults.z }
 
@@ -55,6 +55,7 @@ export class VectorTransformNode
       { value: 'vector', label: t('mode.vector') },
     ], this.representation)
     mode.onChange = (next) => this.switchRepresentation(next)
+    mode.canChange = () => this.canRemove(this.activeRepresentationKeys())
     this.addControl('vectorMode', mode)
     this.addActiveRepresentation(this.representation)
     this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, t('input.geometry')))
@@ -106,7 +107,7 @@ export class VectorTransformNode
 
   private switchRepresentation(next: Vector3Representation): void {
     if (next === this.representation) return
-    if (this.canSwitch && !this.canSwitch()) {
+    if (!this.canRemove(this.activeRepresentationKeys())) {
       this.controls.vectorMode.value = this.representation
       return
     }
@@ -128,6 +129,11 @@ export class VectorTransformNode
       z: this.controls.z?.value ?? this.xyzLiteral.z,
     }
   }
+
+  private activeRepresentationKeys(): string[] {
+    return ['vector', 'x', 'y', 'z'].filter((key) => Boolean(this.inputs[key]))
+  }
+  private canRemove(keys: readonly string[]): boolean { return this.canRemoveInputs?.(keys) ?? true }
 
   private toOpenSCADExpression(vector: string, input: string | undefined): TransformResult {
     // The current generator accepts literal Vector3Params. Passing an
