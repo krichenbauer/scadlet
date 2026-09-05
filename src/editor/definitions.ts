@@ -27,22 +27,37 @@ export function moduleNameProblem(name: string, existingNames: Iterable<string>)
 export class DefinitionRegistry {
   private readonly definitions = new Map<string, ModuleDefinition>()
   private readonly scopes = new Map<string, string>()
+  private readonly protectedNodeIds = new Set<string>()
   private readonly listeners = new Set<() => void>()
 
   list(): readonly ModuleDefinition[] { return [...this.definitions.values()] }
   get(id: string): ModuleDefinition | undefined { return this.definitions.get(id) }
   /** Semantic membership only. Never derive this from a frame's geometry. */
   nodeIds(id: string): readonly string[] {
-    const definition = this.definitions.get(id)
-    return definition ? [definition.inputsNodeId, definition.outputNodeId] : []
+    return [...this.scopes.entries()]
+      .filter(([, scope]) => scope === id)
+      .map(([nodeId]) => nodeId)
   }
   scopeOf(nodeId: string): string | null { return this.scopes.get(nodeId) ?? null }
-  isProtectedNode(nodeId: string): boolean { return this.scopes.has(nodeId) }
+  /** Only permanent interface nodes are protected. Ordinary body nodes are
+   * scoped too, but remain normal removable graph nodes. */
+  isProtectedNode(nodeId: string): boolean { return this.protectedNodeIds.has(nodeId) }
+
+  /** Assigns explicit, persistent semantic ownership. A frame's geometry is
+   * never consulted after this creation/restore-time assignment. */
+  assignNode(definitionId: string, nodeId: string): void {
+    if (!this.definitions.has(definitionId)) throw new Error(`Unknown Module definition "${definitionId}".`)
+    if (this.scopes.get(nodeId) === definitionId) return
+    this.scopes.set(nodeId, definitionId)
+    this.emit()
+  }
 
   add(definition: ModuleDefinition): void {
     this.definitions.set(definition.id, definition)
     this.scopes.set(definition.inputsNodeId, definition.id)
     this.scopes.set(definition.outputNodeId, definition.id)
+    this.protectedNodeIds.add(definition.inputsNodeId)
+    this.protectedNodeIds.add(definition.outputNodeId)
     this.emit()
   }
 
@@ -50,6 +65,7 @@ export class DefinitionRegistry {
     if (this.definitions.size === 0) return
     this.definitions.clear()
     this.scopes.clear()
+    this.protectedNodeIds.clear()
     this.emit()
   }
 

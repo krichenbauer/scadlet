@@ -1,7 +1,7 @@
 import { LitElement, css, html, nothing } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 
-import { NODE_CATALOG, NODE_CATEGORIES, NODE_DRAG_MIME_TYPE, type NodeCategory } from '../editor/node-catalog'
+import { MODULE_CALL_DRAG_MIME_TYPE, NODE_CATALOG, NODE_CATEGORIES, NODE_DRAG_MIME_TYPE, type NodeCategory } from '../editor/node-catalog'
 import { t } from '../i18n/translate'
 
 /**
@@ -23,9 +23,9 @@ import { t } from '../i18n/translate'
  */
 @customElement('node-palette')
 export class NodePaletteElement extends LitElement {
-  /** Project-owned definitions deliberately live beside, rather than in,
-   * the static built-in catalog. Calls are a later phase; entries are list
-   * items only for now. */
+  /** Project-owned definitions deliberately live beside the static catalog.
+   * Their entry creates a generic Call node; it is never a static type named
+   * after the Module's display name. */
   @property({ attribute: false })
   modules: readonly { id: string; name: string }[] = []
   static styles = css`
@@ -87,7 +87,16 @@ export class NodePaletteElement extends LitElement {
       ${NODE_CATEGORIES.map((category) => this._renderCategory(category))}
       <div class="category" aria-label=${t('definition.myModules')}>
         <div class="category-title">${t('definition.myModules')}</div>
-        ${this.modules.map((module) => html`<div class="node-item module-item" data-definition-id=${module.id}>${module.name}</div>`)}
+        ${this.modules.map((module) => html`
+          <button
+            type="button"
+            class="node-item module-item"
+            data-definition-id=${module.id}
+            draggable="true"
+            @dragstart=${(event: DragEvent) => this._onModuleDragStart(event, module.id)}
+            @click=${() => this._onModulePick(module.id)}
+          >${module.name}</button>
+        `)}
         <button type="button" class="node-item" @click=${this._onNewModule}>${t('definition.newModule')}</button>
       </div>
     `
@@ -126,6 +135,18 @@ export class NodePaletteElement extends LitElement {
   private _onPick(type: string): void {
     this.dispatchEvent(
       new CustomEvent('node-palette-pick', { detail: { type }, bubbles: true, composed: true }),
+    )
+  }
+
+  private _onModuleDragStart(event: DragEvent, definitionId: string): void {
+    if (!event.dataTransfer) return
+    event.dataTransfer.effectAllowed = 'copy'
+    event.dataTransfer.setData(MODULE_CALL_DRAG_MIME_TYPE, definitionId)
+  }
+
+  private _onModulePick(definitionId: string): void {
+    this.dispatchEvent(
+      new CustomEvent('module-palette-pick', { detail: { definitionId }, bubbles: true, composed: true }),
     )
   }
 

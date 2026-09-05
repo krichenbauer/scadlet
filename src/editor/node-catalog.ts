@@ -23,9 +23,13 @@ import type { Vector3Params } from '../openscad/transform'
 import type { SocketType } from './sockets'
 import { t } from '../i18n/translate'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
+import { ModuleCallNode } from './nodes/module-call-node'
 
 /** MIME type used to carry a node-catalog `type` id through native HTML drag-and-drop (see `node-palette.ts`/`node-editor.ts`). */
 export const NODE_DRAG_MIME_TYPE = 'application/x-scadlet-node-type'
+/** Carries a stable project definition ID for dynamic Module Call palette
+ * entries. This intentionally differs from static catalog node types. */
+export const MODULE_CALL_DRAG_MIME_TYPE = 'application/x-scadlet-module-call'
 
 /**
  * Stable, language-independent category ids. Display text lives in
@@ -54,6 +58,7 @@ export type NodeTypeId =
   | 'divide'
   | 'module-inputs'
   | 'module-output'
+  | 'module-call'
 
 export interface NodeCategory {
   readonly id: NodeCategoryId
@@ -75,6 +80,9 @@ export interface NodeCreationContext {
    * active parameter ports. Returning false protects live connections from
    * becoming hidden even if a caller bypasses the disabled DOM selector. */
   canRemoveInputs?(nodeId: string, inputKeys: readonly string[]): boolean
+  /** Resolves a project-owned Module by its stable ID while constructing a
+   * generic `module-call`; absent in DOM-free tests that never create calls. */
+  getModuleDefinition?(definitionId: string): { name: string } | undefined
 }
 
 export interface NodeCatalogEntry {
@@ -122,6 +130,13 @@ function validateEmptyParams(value: unknown): Record<string, never> {
     throw new Error('Invalid parameters: expected an object (or none) for this node type')
   }
   return {}
+}
+
+function validateModuleCallParams(value: unknown): { definitionId: string } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value) || typeof (value as Record<string, unknown>).definitionId !== 'string' || !(value as Record<string, unknown>).definitionId) {
+    throw new Error('Invalid parameters: expected a non-empty "definitionId"')
+  }
+  return { definitionId: (value as Record<string, unknown>).definitionId as string }
 }
 
 function validateVariadicBooleanParams(value: unknown): VariadicBooleanParams {
@@ -216,6 +231,19 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
  * comment for why this is done here rather than per node class.
  */
 const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
+  {
+    type: 'module-call', category: 'values', labelKey: 'node.moduleCall', palette: false, inputs: [], outputs: ['geometry'],
+    inputSocketType: () => undefined, outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
+    create: (context, params) => {
+      const call = validateModuleCallParams(params)
+      const definition = context.getModuleDefinition?.(call.definitionId)
+      if (!definition) throw new Error(`Unknown Module definition "${call.definitionId}".`)
+      return new ModuleCallNode(call.definitionId, definition.name)
+    },
+    matches: (node) => node instanceof ModuleCallNode,
+    serializeParams: (node) => ({ definitionId: (node as ModuleCallNode).definitionId }),
+    validateParams: validateModuleCallParams,
+  },
   {
     type: 'module-inputs', category: 'values', labelKey: 'node.moduleInputs', palette: false, inputs: [], outputs: [],
     inputSocketType: () => undefined, outputSocketType: () => undefined,
@@ -496,6 +524,7 @@ export const NODE_CATALOG: readonly NodeCatalogEntry[] = CATALOG_ENTRIES.map((en
       },
       notifyDirty: context.notifyDirty,
       canRemoveInputs: context.canRemoveInputs,
+      getModuleDefinition: context.getModuleDefinition,
     }
     node = entry.create(wrappedContext, params)
     wireDirtyNotifications(node, context.notifyDirty)

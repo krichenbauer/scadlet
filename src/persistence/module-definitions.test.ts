@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest'
 
 import { DefinitionRegistry } from '../editor/definitions'
 import { ModuleInputsNode, ModuleOutputNode } from '../editor/nodes/module-interface-nodes'
+import { CubeNode } from '../editor/nodes/cube-node'
+import { ModuleCallNode } from '../editor/nodes/module-call-node'
+import { ClassicPreset } from 'rete'
 import type { Schemes } from '../editor/schemes'
 import { restoreProject } from './restore'
 import { serializeProject } from './serialize'
@@ -61,6 +64,60 @@ describe('v3 Module definition persistence', () => {
     expect(project.version).toBe(3)
     expect(project.definitions).toEqual([])
     expect(project.editor.viewport).toEqual({ x: 12, y: -4, zoom: 1.3 })
+  })
+
+  it('round-trips ordinary Module-owned nodes, their body connection, and a stable-ID Main call', async () => {
+    const source = new NodeEditor<Schemes>()
+    const registry = new DefinitionRegistry()
+    registry.add(definition)
+    const inputs = new ModuleInputsNode(); inputs.id = definition.inputsNodeId
+    const output = new ModuleOutputNode(); output.id = definition.outputNodeId
+    const cube = new CubeNode(); cube.id = 'wheel-cube'
+    const call = new ModuleCallNode(definition.id, definition.name); call.id = 'main-wheel-call'
+    for (const node of [inputs, output, cube, call]) await source.addNode(node)
+    registry.assignNode(definition.id, cube.id)
+    await source.addConnection(new ClassicPreset.Connection(cube, 'geometry', output, 'geometry') as Schemes['Connection'])
+
+    const project = parseScadletProject(serializeProject({
+      editor: source, metadata: { name: 'Wheel' }, getNodePosition: () => ({ x: 0, y: 0 }),
+      viewport: { x: 0, y: 0, k: 1 }, viewerCamera: camera, definitions: [definition], getNodeScope: (id) => registry.scopeOf(id),
+    }))
+    expect(project.graph.nodes).toMatchObject([{ id: call.id, type: 'module-call', parameters: { definitionId: definition.id } }])
+    expect(project.definitions[0]?.graph.nodes.map((node) => node.id)).toEqual([inputs.id, output.id, cube.id])
+    expect(project.definitions[0]?.graph.connections).toMatchObject([{ source: cube.id, target: output.id, targetInput: 'geometry' }])
+
+    const target = new NodeEditor<Schemes>()
+    const restored = new DefinitionRegistry()
+    await restoreProject(project, {
+      editor: target,
+      creationContext: { onControlsChanged: () => {}, getModuleDefinition: (id) => restored.get(id) },
+      setNodePosition: () => {}, clearDefinitions: () => restored.clear(), registerDefinition: (item) => restored.add(item),
+      assignNodeToDefinition: (definitionId, nodeId) => restored.assignNode(definitionId, nodeId),
+    })
+    expect(restored.scopeOf(cube.id)).toBe(definition.id)
+    expect(target.getNode(call.id)).toBeInstanceOf(ModuleCallNode)
+  })
+
+  it('rejects a dangling Main Call and a nested Module Call in persisted graphs', () => {
+    const base = {
+      format: 'scadlet', version: 3, metadata: { name: 'Broken' },
+      graph: { nodes: [{ id: 'call', type: 'module-call', position: { x: 0, y: 0 }, parameters: { definitionId: 'missing' } }], connections: [] },
+      definitions: [{
+        id: definition.id, kind: definition.kind, name: definition.name,
+        interface: { inputs: definition.inputsNodeId, output: definition.outputNodeId },
+        graph: {
+          nodes: [
+            { id: definition.inputsNodeId, type: 'module-inputs', position: { x: 0, y: 0 }, parameters: {} },
+            { id: definition.outputNodeId, type: 'module-output', position: { x: 200, y: 0 }, parameters: {} },
+          ], connections: [],
+        },
+      }], editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera },
+    }
+    expect(() => parseScadletProject(base)).toThrow('references unknown Module definition')
+    const nested = structuredClone(base)
+    nested.graph.nodes = []
+    nested.definitions[0].graph.nodes.push({ id: 'nested', type: 'module-call', position: { x: 30, y: 0 }, parameters: { definitionId: definition.id } })
+    expect(() => parseScadletProject(nested)).toThrow('belongs in Main')
   })
 
   it.each([

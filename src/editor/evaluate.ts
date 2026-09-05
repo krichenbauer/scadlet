@@ -3,6 +3,7 @@ import type { DataflowEngine } from 'rete-engine'
 
 import type { BooleanValue, GeometryValue, NumberValue, Vector3Value } from './sockets'
 import type { Schemes } from './schemes'
+import type { DefinitionRegistry, ModuleDefinition } from './definitions'
 
 /**
  * Evaluates the graph into a single OpenSCAD source string: one statement
@@ -23,25 +24,60 @@ export async function evaluateOpenSCAD(
   editor: NodeEditor<Schemes>,
   engine: DataflowEngine<Schemes>,
   rootNodeId?: string,
+  definitions?: DefinitionRegistry,
 ): Promise<string> {
-  engine.reset()
-
   if (rootNodeId !== undefined) {
     if (!editor.getNode(rootNodeId)) return ''
-    const output = (await engine.fetch(rootNodeId)) as { geometry?: GeometryValue }
-    return output.geometry?.code ?? ''
+    const source = await evaluateGeometryRoot(engine, rootNodeId)
+    return definitions ? joinDefinitions(await evaluateDefinitions(editor, engine, definitions), source) : source
   }
 
-  const consumedNodeIds = new Set(editor.getConnections().map((connection) => connection.source))
-  const roots = editor.getNodes().filter((node) => !consumedNodeIds.has(node.id))
+  const mainNodeIds = new Set(editor.getNodes()
+    .filter((node) => (definitions?.scopeOf(node.id) ?? null) === null)
+    .map((node) => node.id))
+  const consumedNodeIds = new Set(editor.getConnections()
+    .filter((connection) => mainNodeIds.has(connection.source) && mainNodeIds.has(connection.target))
+    .map((connection) => connection.source))
+  const roots = editor.getNodes().filter((node) => mainNodeIds.has(node.id) && !consumedNodeIds.has(node.id))
 
   const fragments: string[] = []
   for (const node of roots) {
+    engine.reset()
     const output = (await engine.fetch(node.id)) as { geometry?: GeometryValue }
     if (output.geometry) fragments.push(output.geometry.code)
   }
 
-  return fragments.join('\n')
+  const main = fragments.join('\n')
+  return definitions ? joinDefinitions(await evaluateDefinitions(editor, engine, definitions), main) : main
+}
+
+async function evaluateGeometryRoot(engine: DataflowEngine<Schemes>, nodeId: string): Promise<string> {
+  engine.reset()
+  const output = (await engine.fetch(nodeId)) as { geometry?: GeometryValue }
+  return output.geometry?.code ?? ''
+}
+
+/** Module bodies reuse ordinary upstream Geometry evaluation. Output is a
+ * sink/root marker, not an OpenSCAD-producing node, so follow its one input
+ * to the existing Geometry producer. */
+async function evaluateModuleBody(editor: NodeEditor<Schemes>, engine: DataflowEngine<Schemes>, definition: ModuleDefinition): Promise<string> {
+  const connection = editor.getConnections().find((item) => item.target === definition.outputNodeId && item.targetInput === 'geometry')
+  return connection ? evaluateGeometryRoot(engine, connection.source) : ''
+}
+
+async function evaluateDefinitions(editor: NodeEditor<Schemes>, engine: DataflowEngine<Schemes>, definitions: DefinitionRegistry): Promise<string> {
+  const fragments: string[] = []
+  for (const definition of definitions.list()) {
+    const body = await evaluateModuleBody(editor, engine, definition)
+    const indented = body ? `\n${body.split('\n').map((line) => `  ${line}`).join('\n')}\n` : '\n'
+    fragments.push(`module ${definition.name}() {${indented}}`)
+  }
+  return fragments.join('\n\n')
+}
+
+function joinDefinitions(definitions: string, main: string): string {
+  if (!definitions) return main
+  return main ? `${definitions}\n\n${main}` : definitions
 }
 
 export type InspectEvaluation =
@@ -57,11 +93,12 @@ export async function evaluateInspectNode(
   editor: NodeEditor<Schemes>,
   engine: DataflowEngine<Schemes>,
   nodeId: string,
+  definitions?: DefinitionRegistry,
 ): Promise<InspectEvaluation> {
   const node = editor.getNode(nodeId)
   if (!node) return { kind: 'missing' }
   engine.reset()
-  if (node.outputs.geometry) return { kind: 'geometry', source: await evaluateOpenSCAD(editor, engine, nodeId) }
+  if (node.outputs.geometry) return { kind: 'geometry', source: await evaluateOpenSCAD(editor, engine, nodeId, definitions) }
   const output = (await engine.fetch(nodeId)) as { value?: NumberValue | BooleanValue | Vector3Value }
   return output.value ? { kind: 'value', expression: output.value.code } : { kind: 'missing' }
 }

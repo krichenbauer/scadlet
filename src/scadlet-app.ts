@@ -426,6 +426,7 @@ export class ScadletApp extends LitElement {
           .inert=${this.localInitializing}
           .modules=${this.moduleDefinitions}
           @node-palette-pick=${this._onPalettePick}
+          @module-palette-pick=${this._onModulePalettePick}
           @new-module=${this._openModuleDialog}
         ></node-palette>
         <main style=${styleMap({ '--editor-width': this.editorWidth ? `${this.editorWidth}px` : undefined })}>
@@ -606,6 +607,7 @@ export class ScadletApp extends LitElement {
         setViewerCamera: (camera) => this.viewer.setCameraState(camera),
         clearDefinitions: () => instance.clearDefinitions(),
         registerDefinition: (definition) => instance.registerDefinition(definition),
+        assignNodeToDefinition: (definitionId, nodeId) => instance.assignNodeToDefinition(definitionId, nodeId),
       }),
     )
   }
@@ -797,6 +799,10 @@ export class ScadletApp extends LitElement {
 
   private _onPalettePick(event: CustomEvent<{ type: string }>): void {
     void this.nodeEditor.addNodeAtCenter(event.detail.type)
+  }
+
+  private _onModulePalettePick(event: CustomEvent<{ definitionId: string }>): void {
+    void this.nodeEditor.addModuleCallAtCenter(event.detail.definitionId)
   }
 
   private readonly _openModuleDialog = (): void => {

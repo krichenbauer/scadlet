@@ -36,6 +36,7 @@ const dictionaries: Record<LocaleId, Record<string, string>> = {
     'node.divide': 'Divide',
     'node.moduleInputs': 'Inputs',
     'node.moduleOutput': 'Output',
+    'node.moduleCall': 'Module call',
     'node.pin': 'Pin node expanded',
     'node.unpin': 'Unpin node',
     'node.inspected': 'Inspecting this node\u2019s output',

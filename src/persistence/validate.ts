@@ -128,6 +128,7 @@ function validateV1(raw: Record<string, unknown>): ScadletProjectV1 {
       }
     }
   }
+  validateModuleCalls(graph, definitions)
   const editorState = validateEditorState(raw.editor)
   const viewer = validateViewerState(raw.viewer)
   return { format: SCADLET_FORMAT, version: SCADLET_VERSION, metadata, graph, definitions, editor: editorState, viewer }
@@ -170,8 +171,11 @@ function validateNode(raw: unknown, index: number, seenIds: Set<string>, graphKi
   if (typeof raw.type !== 'string') throw new ScadletProjectError(`Node "${raw.id}" is missing a "type".`)
   const entry = findCatalogEntry(raw.type)
   if (!entry) throw new ScadletProjectError(`Unknown node type: "${raw.type}"`)
-  if (graphKind === 'main' && entry.palette === false) {
+  if (graphKind === 'main' && entry.palette === false && entry.type !== 'module-call') {
     throw new ScadletProjectError(`Interface node "${raw.id}" belongs inside a Module definition, not Main.`)
+  }
+  if (graphKind === 'definition' && entry.type === 'module-call') {
+    throw new ScadletProjectError(`Module Call node "${raw.id}" belongs in Main, not inside a Module definition.`)
   }
 
   const position = validatePosition(raw.position, raw.id)
@@ -298,6 +302,20 @@ function validateDefinitions(raw: unknown): ScadletModuleDefinition[] {
     })
   }
   return definitions
+}
+
+/** Calls are normal Main Geometry nodes, but their durable target is a
+ * project definition ID rather than a copied display name. Resolve this only
+ * after all definitions have been fully validated. */
+function validateModuleCalls(graph: ScadletGraph, definitions: readonly ScadletModuleDefinition[]): void {
+  const definitionIds = new Set(definitions.filter((definition) => definition.kind === 'module').map((definition) => definition.id))
+  for (const node of graph.nodes) {
+    if (node.type !== 'module-call') continue
+    const definitionId = node.parameters.definitionId
+    if (typeof definitionId !== 'string' || !definitionIds.has(definitionId)) {
+      throw new ScadletProjectError(`Module Call node "${node.id}" references unknown Module definition "${String(definitionId)}".`)
+    }
+  }
 }
 
 function validateEditorState(raw: unknown): ScadletEditorState {

@@ -10,7 +10,7 @@ import { t } from '../i18n/translate'
 const noopContext = { onControlsChanged: () => {} }
 
 describe('NODE_CATALOG', () => {
-  it('contains all Milestone 7 node types with stable, language-independent type ids', () => {
+  it('contains all implemented node types with stable, language-independent type ids', () => {
     const types = NODE_CATALOG.map((entry) => entry.type).sort()
     expect(types).toEqual(
       [
@@ -25,6 +25,7 @@ describe('NODE_CATALOG', () => {
         'intersection',
         'module-inputs',
         'module-output',
+        'module-call',
         'number',
         'boolean',
         'vector3',

@@ -3,7 +3,7 @@ import { customElement, query } from 'lit/decorators.js'
 
 import { createEditor, type SCADletEditor } from '../editor/editor'
 import type { InspectEvaluation } from '../editor/evaluate'
-import { NODE_DRAG_MIME_TYPE } from '../editor/node-catalog'
+import { MODULE_CALL_DRAG_MIME_TYPE, NODE_DRAG_MIME_TYPE } from '../editor/node-catalog'
 
 /**
  * Hosts the Rete node graph. Owns the lifecycle of the underlying
@@ -503,9 +503,9 @@ export class NodeEditorElement extends LitElement {
     this.instance?.destroy()
   }
 
-  /** Allows a palette drag to be dropped on the canvas, but only for the node-type payload the palette produces. */
+  /** Allows static-node or Module-Call palette drags on the canvas. */
   private readonly _onDragOver = (event: DragEvent): void => {
-    if (!event.dataTransfer?.types.includes(NODE_DRAG_MIME_TYPE)) return
+    if (!event.dataTransfer?.types.some((type) => type === NODE_DRAG_MIME_TYPE || type === MODULE_CALL_DRAG_MIME_TYPE)) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
   }
@@ -513,9 +513,11 @@ export class NodeEditorElement extends LitElement {
   /** Reads the dropped node type and places it under the pointer, converted to graph coordinates by the editor. */
   private readonly _onDrop = (event: DragEvent): void => {
     const type = event.dataTransfer?.getData(NODE_DRAG_MIME_TYPE)
-    if (!type) return
+    const definitionId = event.dataTransfer?.getData(MODULE_CALL_DRAG_MIME_TYPE)
+    if (!type && !definitionId) return
     event.preventDefault()
-    void this.addNodeAt(type, { x: event.clientX, y: event.clientY })
+    if (type) void this.addNodeAt(type, { x: event.clientX, y: event.clientY })
+    else if (definitionId) void this.addModuleCallAt(definitionId, { x: event.clientX, y: event.clientY })
   }
 
   async addNodeAt(type: string, clientPosition: { x: number; y: number }): Promise<void> {
@@ -524,6 +526,14 @@ export class NodeEditorElement extends LitElement {
 
   async addNodeAtCenter(type: string): Promise<void> {
     await this.instance?.addNodeAtCenter(type)
+  }
+
+  async addModuleCallAt(definitionId: string, clientPosition: { x: number; y: number }): Promise<boolean> {
+    return (await this.instance?.addModuleCallAt(definitionId, clientPosition)) ?? false
+  }
+
+  async addModuleCallAtCenter(definitionId: string): Promise<boolean> {
+    return (await this.instance?.addModuleCallAtCenter(definitionId)) ?? false
   }
 
   async evaluate(rootNodeId?: string): Promise<string> {

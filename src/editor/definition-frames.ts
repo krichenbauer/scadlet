@@ -13,6 +13,33 @@ export interface DefinitionFrameInteractions {
   translateSelected(dx: number, dy: number): Promise<void>
 }
 
+export interface DefinitionFrameBounds {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+}
+
+/** Uses explicit registry ownership and graph positions only. Kept shared by
+ * drawing and creation-time drop targeting so both describe the same visible
+ * frame without ever turning geometry into ongoing scope inference. */
+export function definitionFrameBounds(
+  registry: DefinitionRegistry,
+  definitionId: string,
+  getPosition: (nodeId: string) => { x: number; y: number } | undefined,
+): DefinitionFrameBounds | null {
+  const positions = registry.nodeIds(definitionId)
+    .map(getPosition)
+    .filter((position): position is { x: number; y: number } => Boolean(position))
+  if (positions.length === 0) return null
+  return {
+    minX: Math.min(...positions.map((position) => position.x)) - PADDING.left,
+    minY: Math.min(...positions.map((position) => position.y)) - PADDING.top,
+    maxX: Math.max(...positions.map((position) => position.x + NODE_WIDTH)) + PADDING.right,
+    maxY: Math.max(...positions.map((position) => position.y + NODE_HEIGHT)) + PADDING.bottom,
+  }
+}
+
 /** A lightweight same-canvas projection of definition ownership. Frames never
  * decide scope membership: their bounds are recomputed from registry-owned
  * interface-node positions whenever the area changes. */
@@ -31,23 +58,17 @@ export function attachDefinitionFrames(
     layer.replaceChildren()
     const transform = area.area.transform
     for (const definition of registry.list()) {
-      const positions = [definition.inputsNodeId, definition.outputNodeId]
-        .map((id) => area.nodeViews.get(id)?.position)
-        .filter((position): position is { x: number; y: number } => Boolean(position))
-      if (positions.length === 0) continue
-      const minX = Math.min(...positions.map((position) => position.x)) - PADDING.left
-      const minY = Math.min(...positions.map((position) => position.y)) - PADDING.top
-      const maxX = Math.max(...positions.map((position) => position.x + NODE_WIDTH)) + PADDING.right
-      const maxY = Math.max(...positions.map((position) => position.y + NODE_HEIGHT)) + PADDING.bottom
+      const bounds = definitionFrameBounds(registry, definition.id, (id) => area.nodeViews.get(id)?.position)
+      if (!bounds) continue
       const frame = document.createElement('section')
       frame.className = 'definition-frame'
       frame.dataset.definitionId = definition.id
       frame.setAttribute('role', 'group')
       frame.setAttribute('aria-label', `${t('definition.moduleFrame')} ${definition.name}`)
-      frame.style.left = `${minX * transform.k + transform.x}px`
-      frame.style.top = `${minY * transform.k + transform.y}px`
-      frame.style.width = `${(maxX - minX) * transform.k}px`
-      frame.style.height = `${(maxY - minY) * transform.k}px`
+      frame.style.left = `${bounds.minX * transform.k + transform.x}px`
+      frame.style.top = `${bounds.minY * transform.k + transform.y}px`
+      frame.style.width = `${(bounds.maxX - bounds.minX) * transform.k}px`
+      frame.style.height = `${(bounds.maxY - bounds.minY) * transform.k}px`
       const heading = document.createElement('div')
       heading.className = 'definition-frame-title'
       heading.textContent = `module ${definition.name}`

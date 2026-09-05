@@ -35,6 +35,15 @@ describe('Module definitions', () => {
     expect(output.inputs.geometry?.socket.name).toBe('geometry')
   })
 
+  it('keeps ordinary body ownership separate from protected interface roles', () => {
+    const registry = new DefinitionRegistry()
+    registry.add(definition())
+    registry.assignNode('definition-wheel', 'wheel-cube')
+    expect(registry.nodeIds('definition-wheel')).toEqual(['wheel-inputs', 'wheel-output', 'wheel-cube'])
+    expect(registry.scopeOf('wheel-cube')).toBe('definition-wheel')
+    expect(registry.isProtectedNode('wheel-cube')).toBe(false)
+  })
+
   it('protects both interface nodes through the generic deletion helper', async () => {
     const editor = new NodeEditor<Schemes>()
     const registry = new DefinitionRegistry()

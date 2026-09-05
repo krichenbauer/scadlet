@@ -76,6 +76,7 @@ describe('docs/scadlet-format.md documented node types stay in sync with the cat
     'divide',
     'module-inputs',
     'module-output',
+    'module-call',
   ]
 
   it('documents exactly the node types the catalog currently implements', () => {

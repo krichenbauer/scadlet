@@ -30,6 +30,9 @@ export interface RestoreProjectDeps {
    * rebuilt, establishing scope ownership atomically during restore. */
   clearDefinitions?: () => void
   registerDefinition?: (definition: ModuleDefinition) => void
+  /** Restores explicit ownership of ordinary Module-body nodes after their
+   * definition has been registered. */
+  assignNodeToDefinition?: (definitionId: string, nodeId: string) => void
 }
 
 /**
@@ -50,6 +53,19 @@ export interface RestoreProjectDeps {
 export async function restoreProject(project: ScadletProjectV1, deps: RestoreProjectDeps): Promise<void> {
   await clearGraph(deps.editor)
   deps.clearDefinitions?.()
+
+  // Calls in Main resolve their stable definition IDs during catalog
+  // construction, so establish every definition before rebuilding either
+  // graph. Nodes/connections themselves still restore in project order.
+  for (const definitionDto of project.definitions) {
+    deps.registerDefinition?.({
+      id: definitionDto.id,
+      kind: definitionDto.kind,
+      name: definitionDto.name,
+      inputsNodeId: definitionDto.interface.inputs,
+      outputNodeId: definitionDto.interface.output,
+    })
+  }
 
   for (const nodeDto of project.graph.nodes) {
     const entry = findCatalogEntry(nodeDto.type)
@@ -80,18 +96,12 @@ export async function restoreProject(project: ScadletProjectV1, deps: RestorePro
   }
 
   for (const definitionDto of project.definitions) {
-    deps.registerDefinition?.({
-      id: definitionDto.id,
-      kind: definitionDto.kind,
-      name: definitionDto.name,
-      inputsNodeId: definitionDto.interface.inputs,
-      outputNodeId: definitionDto.interface.output,
-    })
     for (const nodeDto of definitionDto.graph.nodes) {
       const entry = findCatalogEntry(nodeDto.type)
       if (!entry) throw new Error(`Cannot restore definition node "${nodeDto.id}": unknown type "${nodeDto.type}"`)
       const node = entry.create(deps.creationContext, nodeDto.parameters)
       node.id = nodeDto.id
+      deps.assignNodeToDefinition?.(definitionDto.id, nodeDto.id)
       await deps.editor.addNode(node)
       await deps.setNodePosition(nodeDto.id, nodeDto.position)
       if (nodeDto.pinned) deps.setPinned?.(nodeDto.id, true)

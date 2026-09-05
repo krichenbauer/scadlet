@@ -21,7 +21,7 @@ import { guardPortRemoval, hasConnectedInputs, removeInputSafely, removeOutputSa
 import { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData } from './connection-compatibility'
 import { DefinitionRegistry, bindDefinitionRegistry, moduleNameProblem, type ModuleDefinition } from './definitions'
-import { attachDefinitionFrames } from './definition-frames'
+import { attachDefinitionFrames, definitionFrameBounds } from './definition-frames'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
 import { t } from '../i18n/translate'
 
@@ -39,6 +39,10 @@ export interface SCADletEditor {
   addNodeAt(type: string, clientPosition: Position): Promise<void>
   /** Creates a node of the given catalog type near the visible center of the canvas, without changing pan/zoom. */
   addNodeAtCenter(type: string): Promise<void>
+  /** Creates a generic Call node for a project Module in Main only. Drops
+   * inside a definition frame are deliberately refused in Phase 2. */
+  addModuleCallAt(definitionId: string, clientPosition: Position): Promise<boolean>
+  addModuleCallAtCenter(definitionId: string): Promise<boolean>
   /**
    * Evaluates the graph into OpenSCAD source. With no argument this is
    * the normal full-model evaluation (unchanged). Passing `rootNodeId`
@@ -67,6 +71,7 @@ export interface SCADletEditor {
   getNodeScope(nodeId: string): string | null
   clearDefinitions(): void
   registerDefinition(definition: ModuleDefinition): void
+  assignNodeToDefinition(definitionId: string, nodeId: string): void
   onDefinitionsChange(callback: () => void): () => void
   /**
    * Subscribes to "the project has unsaved changes" notifications:
@@ -417,13 +422,32 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     onControlsChanged: (id) => { void area.update('node', id); notifySemanticDirty() },
     notifyDirty: notifySemanticDirty,
     canRemoveInputs: (nodeId, keys) => !hasConnectedInputs(editor, nodeId, keys),
+    getModuleDefinition: (definitionId) => definitions.get(definitionId),
   }
 
-  async function addNodeAt(type: string, clientPosition: Position): Promise<void> {
+  const definitionAt = (clientPosition: Position): string | null => {
+    const rect = area.container.getBoundingClientRect()
+    const graphPosition = clientToGraphPosition(clientPosition, rect, area.area.transform)
+    // Later frames paint on top, so use reverse project ordering for the
+    // equally visible overlapping-frame case.
+    for (const definition of [...definitions.list()].reverse()) {
+      const bounds = definitionFrameBounds(definitions, definition.id, (id) => area.nodeViews.get(id)?.position)
+      if (bounds && graphPosition.x >= bounds.minX && graphPosition.x <= bounds.maxX && graphPosition.y >= bounds.minY && graphPosition.y <= bounds.maxY) {
+        return definition.id
+      }
+    }
+    return null
+  }
+
+  async function addNodeAt(type: string, clientPosition: Position, scope: string | null | undefined = undefined): Promise<void> {
     const entry = findCatalogEntry(type)
     if (!entry) return
 
     const node = entry.create(creationContext)
+    // Palette click supplies Main explicitly; palette drag may assign a
+    // Module scope exactly once from its creation-time frame hit test.
+    const owner = scope === undefined ? definitionAt(clientPosition) : scope
+    if (owner !== null) definitions.assignNode(owner, node.id)
     await editor.addNode(node)
 
     const rect = area.container.getBoundingClientRect()
@@ -433,7 +457,36 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
 
   async function addNodeAtCenter(type: string): Promise<void> {
     const rect = area.container.getBoundingClientRect()
-    await addNodeAt(type, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+    await addNodeAt(type, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, null)
+  }
+
+  async function addModuleCallAt(definitionId: string, clientPosition: Position): Promise<boolean> {
+    if (!definitions.get(definitionId) || definitionAt(clientPosition) !== null) return false
+    const entry = findCatalogEntry('module-call')!
+    const node = entry.create(creationContext, { definitionId })
+    await editor.addNode(node)
+    const rect = area.container.getBoundingClientRect()
+    await area.translate(node.id, clientToGraphPosition(clientPosition, rect, area.area.transform))
+    return true
+  }
+
+  async function addModuleCallAtCenter(definitionId: string): Promise<boolean> {
+    const rect = area.container.getBoundingClientRect()
+    if (!definitions.get(definitionId)) return false
+    // A sidebar click is intentionally an unambiguous Main creation action,
+    // even when the visible center happens to lie inside a definition frame.
+    const node = findCatalogEntry('module-call')!.create(creationContext, { definitionId })
+    await editor.addNode(node)
+    const position = clientToGraphPosition(
+      { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, rect, area.area.transform,
+    )
+    const containingDefinition = definitionAt({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+    if (containingDefinition) {
+      const bounds = definitionFrameBounds(definitions, containingDefinition, (id) => area.nodeViews.get(id)?.position)
+      if (bounds) position.x = bounds.maxX + 40
+    }
+    await area.translate(node.id, position)
+    return true
   }
 
   async function createModule(name: string): Promise<ModuleDefinition> {
@@ -473,8 +526,10 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     creationContext,
     addNodeAt,
     addNodeAtCenter,
-    evaluate: (rootNodeId?: string) => evaluateOpenSCAD(editor, engine, rootNodeId),
-    evaluateInspect: (nodeId) => evaluateInspectNode(editor, engine, nodeId),
+    addModuleCallAt,
+    addModuleCallAtCenter,
+    evaluate: (rootNodeId?: string) => evaluateOpenSCAD(editor, engine, rootNodeId, definitions),
+    evaluateInspect: (nodeId) => evaluateInspectNode(editor, engine, nodeId, definitions),
     setInspectedValueResult: (nodeId, value) => inspect.setValueResult(nodeId, value),
     clearInspectedValueResult: () => inspect.clearValueResult(),
     getInspectedNodeId: () => inspect.id,
@@ -491,6 +546,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     getNodeScope: (nodeId) => definitions.scopeOf(nodeId),
     clearDefinitions: () => definitions.clear(),
     registerDefinition: (definition) => definitions.add(definition),
+    assignNodeToDefinition: (definitionId, nodeId) => definitions.assignNode(definitionId, nodeId),
     onDefinitionsChange: (callback) => definitions.subscribe(callback),
     onDirty: (callback: () => void) => {
       dirtyListeners.add(callback)

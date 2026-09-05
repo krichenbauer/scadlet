@@ -130,6 +130,78 @@ test('creates, displays, protects, and restores a Module definition', async ({ p
   await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Output' }) })).toHaveCount(1)
 })
 
+test('creates, renders, inspects, and restores a parameterless Module Call', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  await page.getByRole('button', { name: '+ New module', exact: true }).click()
+  const dialog = page.getByRole('form', { name: 'Create module' })
+  await dialog.getByLabel('Module name').fill('wheel')
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+
+  const frame = page.locator('node-editor .definition-frame[data-definition-id]')
+  await expect(frame).toHaveCount(1)
+  // A native palette drag is the one creation path that assigns the Module
+  // scope. The later socket wire verifies that same-scope compatibility is
+  // live rather than a visual-only frame.
+  const initialFrameBox = await frame.boundingBox()
+  if (!initialFrameBox) throw new Error('Expected Module frame')
+  // Frames intentionally do not take pointer events, so dispatch the same
+  // native drag payload to the real canvas position beneath the frame.
+  await page.evaluate(({ x, y }) => {
+    const editor = document.querySelector('scadlet-app')?.shadowRoot?.querySelector('node-editor')
+    const canvas = editor?.shadowRoot?.querySelector('#canvas')
+    if (!canvas) throw new Error('Expected node-editor canvas')
+    const dataTransfer = new DataTransfer()
+    dataTransfer.setData('application/x-scadlet-node-type', 'cube')
+    canvas.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientX: x, clientY: y, dataTransfer }))
+    canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX: x, clientY: y, dataTransfer }))
+  }, { x: initialFrameBox.x + initialFrameBox.width / 2, y: initialFrameBox.y + initialFrameBox.height / 2 })
+  const moduleCube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
+  await expect(moduleCube).toHaveCount(1)
+  const frameBox = await frame.boundingBox()
+  const cubeBox = await moduleCube.boundingBox()
+  if (!frameBox || !cubeBox) throw new Error('Expected Module frame and Cube')
+  expect(cubeBox.x).toBeGreaterThanOrEqual(frameBox.x)
+  expect(cubeBox.y).toBeGreaterThanOrEqual(frameBox.y)
+  const output = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Output' }) })
+  const source = await moduleCube.locator('.node-port--output .node-socket[aria-label="Geometry"]').boundingBox()
+  const target = await output.locator('.node-port--input .node-socket[aria-label="Geometry"]').boundingBox()
+  if (!source || !target) throw new Error('Expected Module Cube and Output Geometry sockets')
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 8 })
+  await page.mouse.up()
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(1)
+
+  // Sidebar click remains an explicitly Main-only creation action and does
+  // not create a second definition.
+  await page.locator('node-palette .module-item[data-definition-id]').click()
+  const call = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'wheel' }) })
+  await expect(call).toHaveCount(1)
+  await expect(call.locator('.node-port--output .node-socket[aria-label="Geometry"]')).toHaveCount(1)
+  const callBox = await call.boundingBox()
+  const refreshedFrameBox = await frame.boundingBox()
+  if (!callBox || !refreshedFrameBox) throw new Error('Expected separate Module Call and frame')
+  expect(callBox.x).toBeGreaterThan(refreshedFrameBox.x + refreshedFrameBox.width)
+
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('module wheel()', { timeout: 15_000 })
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('cube();')
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('wheel();')
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+
+  await call.locator('.node-header').dblclick()
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('module wheel()', { timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled()
+
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await page.reload()
+  await expect(page.locator('node-editor .definition-frame')).toHaveCount(1)
+  await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })).toHaveCount(1)
+  await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'wheel' }) })).toHaveCount(1)
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+})
+
 test('Cube Size add menu exposes one selected representation at a time', async ({ page }) => {
   await waitForLocalLibrary(page)
   await page.getByRole('button', { name: 'Cube', exact: true }).click()

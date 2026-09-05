@@ -221,6 +221,7 @@ multiply
 divide
 module-inputs
 module-output
+module-call
 ```
 
 An unrecognized `type` fails with `Unknown node type: "<value>"`. See
@@ -277,9 +278,10 @@ from its user-editable OpenSCAD-style `name`.
   "graph": {
     "nodes": [
       { "id": "wheel-inputs", "type": "module-inputs", "position": { "x": 10, "y": 20 }, "parameters": {} },
+      { "id": "wheel-cube", "type": "cube", "position": { "x": 170, "y": 20 }, "parameters": {} },
       { "id": "wheel-output", "type": "module-output", "position": { "x": 330, "y": 20 }, "parameters": {} }
     ],
-    "connections": []
+    "connections": [{ "id": "wheel-body", "source": "wheel-cube", "sourceOutput": "geometry", "target": "wheel-output", "targetInput": "geometry" }]
   }
 }
 ```
@@ -289,14 +291,37 @@ from its user-editable OpenSCAD-style `name`.
   project. Names are not definition identity.
 - Each Module has exactly one `module-inputs` node and one `module-output`
   node. The latter owns the one stable Geometry input `geometry`.
+- Ordinary catalog nodes may be created in this graph by dropping a static
+  palette node into its frame. Their ownership is explicit in this enclosing
+  graph record, never inferred from their current coordinates; moving one
+  outside a frame does not migrate it to Main.
 - Nodes and connections are contained in exactly one graph scope. A
   connection cannot cross between Main and a definition graph.
 - Definition-frame bounds are derived editor presentation from these member
   node positions; frame geometry is not serialized as semantic membership.
 
-Phase 1 persists and displays definitions only. It does not yet generate
-OpenSCAD declarations or Module call nodes, so unused empty definitions do not
-alter Main rendering/export.
+Definitions are emitted in `definitions` array order as OpenSCAD `module`
+declarations. The `module-output` Geometry connection is the one body root;
+an unconnected Output emits an empty body. A declaration itself is never Main
+geometry, so an unused definition does not render until a Main `module-call`
+uses it.
+
+### `module-call`
+
+`module-call` is a generic Main-only Geometry-producing node, not a generated
+node type named after a Module. Its parameter record contains exactly the
+stable definition reference:
+
+```json
+{ "definitionId": "definition-wheel" }
+```
+
+The referenced definition must exist in the same project's `definitions`
+array and have `kind: "module"`; dangling references are rejected. The
+Module's name is resolved from that definition at load/runtime and generates
+`wheel();`; it is deliberately not duplicated as authoritative call state.
+Calls are not permitted inside definition graphs in this parameterless Phase 2
+slice, so nested calls and recursive dependency ordering are not represented.
 
 ## Per-node parameter schemas
 
@@ -498,6 +523,7 @@ add:           inputs: a, b (Number)        outputs: value (Number)
 subtract:      inputs: a, b (Number)        outputs: value (Number)
 multiply:      inputs: a, b (Number)        outputs: value (Number)
 divide:        inputs: a, b (Number)        outputs: value (Number)
+module-call:   inputs: none                  outputs: geometry (Geometry); parameters: definitionId
 ```
 
 Port-level addressing (rather than plain node-to-node edges) exists

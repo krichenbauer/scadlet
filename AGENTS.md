@@ -1343,15 +1343,22 @@ Core model:
 - The frame represents the expanded form of the reusable definition. A call node elsewhere is the compact invocation of that definition.
 - Definitions may later be opened in a dedicated canvas without changing the underlying semantic model, but dedicated-canvas navigation is not required for the initial implementation.
 
-Phase 1 status: Modules are currently created through `My Modules` and
-persisted in `.scadlet` v3 as their own definition graph records. The
-same-canvas renderer projects their registry-owned `Inputs` and `Output`
-interface nodes inside a derived frame; frame containment is never ownership.
-Interface-node IDs and the Module ID are stable and separate from the Module
-name. The live editor enforces scope equality in addition to socket type and
-direction, so Main and Module wires cannot cross. The interface nodes are
-protected from ordinary deletion. Calls, parameters, Module body creation,
-Functions, and Module OpenSCAD generation remain Phase 2 work.
+Phase 2 status: Modules are persisted in `.scadlet` v3 as their own definition
+graph records. Dragging a built-in palette node into a Module frame assigns
+that node an explicit registry-owned Module scope at creation time; moving it
+later never changes that ownership. Same-Module connections are valid while
+Main/Module and Module/Module cross-scope wires remain invalid. Frames derive
+their bounds and header group selection/movement from every scoped node, while
+only the permanent Inputs/Output interfaces are deletion-protected.
+
+Module Output's one Geometry input is the Module body root. Normal and
+Geometry-Inspect OpenSCAD evaluation emit all definitions in stable project
+order before Main/Inspect geometry; unused definitions are declarations only,
+not top-level rendered geometry. `My Modules` entries create ordinary Main-only
+generic `module-call` nodes. A call persists `type: module-call` plus its
+stable `definitionId`, resolves the definition name for display/codegen, and
+produces ordinary Geometry. Parameters, nested Module Calls, Functions, and
+definition deletion remain later work.
 
 Phase 1.1 interaction: `My Modules` follows every built-in palette category.
 Clicking a Module frame header clears ordinary selection and selects every
