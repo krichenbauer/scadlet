@@ -25,6 +25,33 @@ export class NodeEditorElement extends LitElement {
       outline: none;
     }
 
+    .definition-frame-layer {
+      position: absolute;
+      inset: 0;
+      overflow: visible;
+      pointer-events: none;
+    }
+
+    .definition-frame {
+      position: absolute;
+      box-sizing: border-box;
+      border: 2px solid rgb(113 184 255 / 0.8);
+      border-radius: 10px;
+      background: rgb(54 93 130 / 0.08);
+      color: #b9dcff;
+      font: 12px system-ui, sans-serif;
+    }
+
+    .definition-frame-title {
+      position: absolute;
+      top: -11px;
+      left: 12px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      background: #202020;
+      font-weight: 600;
+    }
+
     /*
      * Connector layout is normalized project-wide (AGENTS.md section 9)
      * AND structurally isolated from the expandable controls body: a

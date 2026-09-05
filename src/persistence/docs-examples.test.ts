@@ -35,7 +35,7 @@ describe('docs/scadlet-format.md examples stay valid', () => {
 
   it('v2-empty-cube.scadlet keeps an omitted Cube signature', () => {
     const project = parseScadletProject(readExample('v2-empty-cube.scadlet'))
-    expect(project.version).toBe(2)
+    expect(project.version).toBe(3)
     expect(project.graph.nodes[0]?.parameters).toEqual({})
   })
 
@@ -74,6 +74,8 @@ describe('docs/scadlet-format.md documented node types stay in sync with the cat
     'subtract',
     'multiply',
     'divide',
+    'module-inputs',
+    'module-output',
   ]
 
   it('documents exactly the node types the catalog currently implements', () => {

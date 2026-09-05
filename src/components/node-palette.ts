@@ -1,5 +1,5 @@
 import { LitElement, css, html, nothing } from 'lit'
-import { customElement } from 'lit/decorators.js'
+import { customElement, property } from 'lit/decorators.js'
 
 import { NODE_CATALOG, NODE_CATEGORIES, NODE_DRAG_MIME_TYPE, type NodeCategory } from '../editor/node-catalog'
 import { t } from '../i18n/translate'
@@ -23,6 +23,11 @@ import { t } from '../i18n/translate'
  */
 @customElement('node-palette')
 export class NodePaletteElement extends LitElement {
+  /** Project-owned definitions deliberately live beside, rather than in,
+   * the static built-in catalog. Calls are a later phase; entries are list
+   * items only for now. */
+  @property({ attribute: false })
+  modules: readonly { id: string; name: string }[] = []
   static styles = css`
     :host {
       display: block;
@@ -79,12 +84,17 @@ export class NodePaletteElement extends LitElement {
   render() {
     return html`
       <h2>${t('palette.title')}</h2>
+      <div class="category" aria-label=${t('definition.myModules')}>
+        <div class="category-title">${t('definition.myModules')}</div>
+        ${this.modules.map((module) => html`<div class="node-item module-item" data-definition-id=${module.id}>${module.name}</div>`)}
+        <button type="button" class="node-item" @click=${this._onNewModule}>${t('definition.newModule')}</button>
+      </div>
       ${NODE_CATEGORIES.map((category) => this._renderCategory(category))}
     `
   }
 
   private _renderCategory(category: NodeCategory) {
-    const entries = NODE_CATALOG.filter((entry) => entry.category === category.id)
+    const entries = NODE_CATALOG.filter((entry) => entry.palette !== false && entry.category === category.id)
     if (entries.length === 0) return nothing
 
     return html`
@@ -117,6 +127,10 @@ export class NodePaletteElement extends LitElement {
     this.dispatchEvent(
       new CustomEvent('node-palette-pick', { detail: { type }, bubbles: true, composed: true }),
     )
+  }
+
+  private _onNewModule(): void {
+    this.dispatchEvent(new CustomEvent('new-module', { bubbles: true, composed: true }))
   }
 }
 

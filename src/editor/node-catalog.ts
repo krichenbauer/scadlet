@@ -22,6 +22,7 @@ import type { SphereParams } from '../openscad/sphere'
 import type { Vector3Params } from '../openscad/transform'
 import type { SocketType } from './sockets'
 import { t } from '../i18n/translate'
+import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
 
 /** MIME type used to carry a node-catalog `type` id through native HTML drag-and-drop (see `node-palette.ts`/`node-editor.ts`). */
 export const NODE_DRAG_MIME_TYPE = 'application/x-scadlet-node-type'
@@ -51,6 +52,8 @@ export type NodeTypeId =
   | 'subtract'
   | 'multiply'
   | 'divide'
+  | 'module-inputs'
+  | 'module-output'
 
 export interface NodeCategory {
   readonly id: NodeCategoryId
@@ -78,6 +81,9 @@ export interface NodeCatalogEntry {
   readonly type: NodeTypeId
   readonly category: NodeCategoryId
   readonly labelKey: string
+  /** Interface nodes are persistent definition infrastructure, never normal
+   * palette choices. */
+  readonly palette?: boolean
   /** Stable input/output port ids, in the order Rete's own port map would report them - used to validate persisted connections without constructing a node. */
   readonly inputs: readonly string[]
   readonly outputs: readonly string[]
@@ -210,6 +216,23 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
  * comment for why this is done here rather than per node class.
  */
 const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
+  {
+    type: 'module-inputs', category: 'values', labelKey: 'node.moduleInputs', palette: false, inputs: [], outputs: [],
+    inputSocketType: () => undefined, outputSocketType: () => undefined,
+    create: () => new ModuleInputsNode(),
+    matches: (node) => node instanceof ModuleInputsNode,
+    serializeParams: validateEmptyParams,
+    validateParams: validateEmptyParams,
+  },
+  {
+    type: 'module-output', category: 'values', labelKey: 'node.moduleOutput', palette: false, inputs: ['geometry'], outputs: [],
+    inputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
+    outputSocketType: () => undefined,
+    create: () => new ModuleOutputNode(),
+    matches: (node) => node instanceof ModuleOutputNode,
+    serializeParams: validateEmptyParams,
+    validateParams: validateEmptyParams,
+  },
   {
     type: 'number', category: 'values', labelKey: 'node.number', inputs: [], outputs: ['value'],
     inputSocketType: () => undefined, outputSocketType: (port) => port === 'value' ? 'number' : undefined,

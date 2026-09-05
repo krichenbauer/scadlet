@@ -23,6 +23,8 @@ describe('NODE_CATALOG', () => {
         'difference',
         'union',
         'intersection',
+        'module-inputs',
+        'module-output',
         'number',
         'boolean',
         'vector3',

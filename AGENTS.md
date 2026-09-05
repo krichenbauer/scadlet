@@ -1343,6 +1343,16 @@ Core model:
 - The frame represents the expanded form of the reusable definition. A call node elsewhere is the compact invocation of that definition.
 - Definitions may later be opened in a dedicated canvas without changing the underlying semantic model, but dedicated-canvas navigation is not required for the initial implementation.
 
+Phase 1 status: Modules are currently created through `My Modules` and
+persisted in `.scadlet` v3 as their own definition graph records. The
+same-canvas renderer projects their registry-owned `Inputs` and `Output`
+interface nodes inside a derived frame; frame containment is never ownership.
+Interface-node IDs and the Module ID are stable and separate from the Module
+name. The live editor enforces scope equality in addition to socket type and
+direction, so Main and Module wires cannot cross. The interface nodes are
+protected from ordinary deletion. Calls, parameters, Module body creation,
+Functions, and Module OpenSCAD generation remain Phase 2 work.
+
 Every definition starts with two protected, non-deletable, non-duplicable interface nodes:
 
 1. **Inputs / Parameters** on the left

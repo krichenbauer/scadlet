@@ -45,6 +45,35 @@ test('header exposes the SCADlet GitHub link', async ({ page }) => {
   await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
 })
 
+test('creates, displays, protects, and restores a Module definition', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  await expect(page.getByText('My Modules', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '+ New module', exact: true }).click()
+  const dialog = page.getByRole('form', { name: 'Create module' })
+  await dialog.getByLabel('Module name').fill('wheel')
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+
+  await expect(page.locator('node-palette .module-item')).toHaveText('wheel')
+  const frame = page.locator('node-editor .definition-frame[data-definition-id]')
+  await expect(frame).toHaveCount(1)
+  await expect(frame).toContainText('module wheel')
+  const inputs = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Inputs' }) })
+  const output = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Output' }) })
+  await expect(inputs).toHaveCount(1)
+  await expect(output).toHaveCount(1)
+  await expect(output.locator('.node-port--input .node-socket[aria-label="Geometry"]')).toHaveCount(1)
+
+  await output.locator('.node-header').click()
+  await page.keyboard.press('Delete')
+  await expect(output).toHaveCount(1)
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await page.reload()
+  await expect(page.locator('node-palette .module-item')).toHaveText('wheel')
+  await expect(page.locator('node-editor .definition-frame')).toHaveCount(1)
+  await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Inputs' }) })).toHaveCount(1)
+  await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Output' }) })).toHaveCount(1)
+})
+
 test('Cube Size add menu exposes one selected representation at a time', async ({ page }) => {
   await waitForLocalLibrary(page)
   await page.getByRole('button', { name: 'Cube', exact: true }).click()

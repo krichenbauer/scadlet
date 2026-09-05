@@ -27,6 +27,7 @@ import { RenderController } from './render/render-controller'
 import { ExecutionGeneration } from './render/execution-generation'
 import { scadBlob, stlBlob, triggerDownload } from './render/download'
 import { t } from './i18n/translate'
+import type { ModuleDefinition } from './editor/definitions'
 
 /** Pane size limits for the resizable workspace layout, in pixels. */
 const MIN_EDITOR_WIDTH = 280
@@ -230,6 +231,33 @@ export class ScadletApp extends LitElement {
       white-space: pre-wrap;
       border-top: 1px solid #733;
     }
+
+    .module-dialog-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: grid;
+      place-items: center;
+      background: rgb(0 0 0 / 0.45);
+    }
+
+    .module-dialog {
+      display: grid;
+      gap: 14px;
+      min-width: 280px;
+      padding: 18px;
+      border: 1px solid #666;
+      border-radius: 8px;
+      background: #292929;
+      color: #eee;
+      box-shadow: 0 8px 30px rgb(0 0 0 / 0.5);
+    }
+
+    .module-dialog h2 { margin: 0; font-size: 16px; }
+    .module-dialog label { display: grid; gap: 5px; }
+    .module-dialog input { font: inherit; padding: 5px; }
+    .module-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .module-error { margin: -6px 0 0; color: #ffb3b3; font-size: 12px; }
   `
 
   @query('node-editor')
@@ -260,6 +288,7 @@ export class ScadletApp extends LitElement {
   private unsubscribeSemantic?: () => void
   private unsubscribeInspect?: () => void
   private unsubscribeCameraDirty?: () => void
+  private unsubscribeDefinitions?: () => void
   private localStore: LocalProjectStore | null = null
   private activeProjectSession: ActiveProjectSession | null = null
   private localEvents: LocalProjectEvents | null = null
@@ -313,6 +342,18 @@ export class ScadletApp extends LitElement {
 
   @state()
   private stl: ArrayBuffer | null = null
+
+  @state()
+  private moduleDefinitions: readonly ModuleDefinition[] = []
+
+  @state()
+  private moduleDialogOpen = false
+
+  @state()
+  private moduleName = ''
+
+  @state()
+  private moduleError: string | null = null
 
   /** Width, in pixels, of the node-editor pane. 0 means "not measured yet". */
   @state()
@@ -381,7 +422,12 @@ export class ScadletApp extends LitElement {
         <button type="button" @click=${this._downloadStl} ?disabled=${!this.stl}>${t('toolbar.downloadStl')}</button>
       </header>
       <div class="workspace">
-        <node-palette .inert=${this.localInitializing} @node-palette-pick=${this._onPalettePick}></node-palette>
+        <node-palette
+          .inert=${this.localInitializing}
+          .modules=${this.moduleDefinitions}
+          @node-palette-pick=${this._onPalettePick}
+          @new-module=${this._openModuleDialog}
+        ></node-palette>
         <main style=${styleMap({ '--editor-width': this.editorWidth ? `${this.editorWidth}px` : undefined })}>
           <node-editor .inert=${this.localInitializing}></node-editor>
           <layout-splitter orientation="vertical" @splitter-move=${this._onMainSplitterMove}></layout-splitter>
@@ -409,6 +455,22 @@ export class ScadletApp extends LitElement {
           </div>
         </main>
       </div>
+      ${this.moduleDialogOpen ? html`
+        <div class="module-dialog-backdrop" @click=${this._cancelModuleDialog}>
+          <form class="module-dialog" aria-label=${t('definition.createModule')} @submit=${this._submitModule} @click=${(event: Event) => event.stopPropagation()}>
+            <h2>${t('definition.createModule')}</h2>
+            <label>
+              ${t('definition.moduleName')}
+              <input type="text" .value=${this.moduleName} @input=${this._onModuleNameInput} autofocus />
+            </label>
+            ${this.moduleError ? html`<p class="module-error" role="alert">${this.moduleError}</p>` : nothing}
+            <div class="module-dialog-actions">
+              <button type="button" @click=${this._cancelModuleDialog}>${t('definition.cancel')}</button>
+              <button type="submit">${t('definition.create')}</button>
+            </div>
+          </form>
+        </div>
+      ` : nothing}
     `
   }
 
@@ -425,6 +487,9 @@ export class ScadletApp extends LitElement {
     const instance = await this.nodeEditor.whenReady()
     await this.viewer.updateComplete
     this.editorInstance = instance
+    this.unsubscribeDefinitions = instance.onDefinitionsChange(() => {
+      this.moduleDefinitions = instance.getDefinitions()
+    })
 
     try {
       const store = new IndexedDBLocalProjectStore()
@@ -434,6 +499,7 @@ export class ScadletApp extends LitElement {
       this.localStore = store
       this.activeProjectSession = session
       await this._applyStoredProject(stored, false)
+      this.moduleDefinitions = instance.getDefinitions()
 
       try {
         this.localEvents = new LocalProjectEvents()
@@ -538,6 +604,8 @@ export class ScadletApp extends LitElement {
           await instance.area.area.zoom(k, 0, 0)
         },
         setViewerCamera: (camera) => this.viewer.setCameraState(camera),
+        clearDefinitions: () => instance.clearDefinitions(),
+        registerDefinition: (definition) => instance.registerDefinition(definition),
       }),
     )
   }
@@ -731,6 +799,39 @@ export class ScadletApp extends LitElement {
     void this.nodeEditor.addNodeAtCenter(event.detail.type)
   }
 
+  private readonly _openModuleDialog = (): void => {
+    this.moduleName = ''
+    this.moduleError = null
+    this.moduleDialogOpen = true
+  }
+
+  private readonly _cancelModuleDialog = (): void => {
+    this.moduleDialogOpen = false
+    this.moduleError = null
+  }
+
+  private readonly _onModuleNameInput = (event: Event): void => {
+    this.moduleName = (event.target as HTMLInputElement).value
+    this.moduleError = null
+  }
+
+  private readonly _submitModule = (event: SubmitEvent): void => {
+    event.preventDefault()
+    void this._createModule()
+  }
+
+  private async _createModule(): Promise<void> {
+    const instance = this.editorInstance ?? (await this.nodeEditor.whenReady())
+    try {
+      await instance.createModule(this.moduleName)
+      this.moduleDefinitions = instance.getDefinitions()
+      this.moduleDialogOpen = false
+      this.moduleError = null
+    } catch (error) {
+      this.moduleError = this._errorMessage(error)
+    }
+  }
+
   private _onProjectNameChange(event: Event): void {
     const input = event.target as HTMLInputElement
     const trimmed = input.value.trim()
@@ -769,6 +870,8 @@ export class ScadletApp extends LitElement {
       isPinned: (id) => instance.isPinned(id),
       viewport: instance.area.area.transform,
       viewerCamera: this.viewer.getCameraState(),
+      definitions: instance.getDefinitions(),
+      getNodeScope: (id) => instance.getNodeScope(id),
     })
   }
 
@@ -977,6 +1080,7 @@ export class ScadletApp extends LitElement {
     this.unsubscribeSemantic?.()
     this.unsubscribeInspect?.()
     this.unsubscribeCameraDirty?.()
+    this.unsubscribeDefinitions?.()
     this.unsubscribeLocalEvents?.()
     this.localEvents?.close()
     this.autosave?.destroy()

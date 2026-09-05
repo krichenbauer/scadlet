@@ -191,7 +191,7 @@ describe('Milestone 6 semantic node signatures', () => {
       },
       editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera: { position: [0, 0, 0], target: [0, 0, 0] } },
     })
-    expect(project.version).toBe(2)
+    expect(project.version).toBe(3)
     expect(project.graph.nodes[0]?.parameters).toEqual({ size: { x: 2, y: 3, z: 4 }, sizeRepresentation: 'xyz' })
     expect(project.graph.connections[0]?.targetInput).toBe('child:v1-a')
   })

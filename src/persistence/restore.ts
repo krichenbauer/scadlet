@@ -4,6 +4,7 @@ import { removeNodeWithConnections } from '../editor/deletion'
 import { findCatalogEntry, type NodeCreationContext } from '../editor/node-catalog'
 import type { Position } from '../editor/coordinates'
 import type { Schemes } from '../editor/schemes'
+import type { ModuleDefinition } from '../editor/definitions'
 import type { ScadletProjectV1, ScadletViewerCamera } from './project'
 
 /** Removes every node (and, transitively, every connection) currently in `editor`, one at a time, so per-node cleanup (presentation/inspect state - see `editor/editor.ts`'s `noderemoved` pipe) runs for each. */
@@ -25,6 +26,10 @@ export interface RestoreProjectDeps {
   setViewport?: (viewport: { x: number; y: number; k: number }) => void | Promise<void>
   /** Restores the viewer camera. Omit if no viewer is present (e.g. in a DOM-free test). */
   setViewerCamera?: (camera: ScadletViewerCamera) => void
+  /** Definition registry is registered before its interface nodes are
+   * rebuilt, establishing scope ownership atomically during restore. */
+  clearDefinitions?: () => void
+  registerDefinition?: (definition: ModuleDefinition) => void
 }
 
 /**
@@ -44,6 +49,7 @@ export interface RestoreProjectDeps {
  */
 export async function restoreProject(project: ScadletProjectV1, deps: RestoreProjectDeps): Promise<void> {
   await clearGraph(deps.editor)
+  deps.clearDefinitions?.()
 
   for (const nodeDto of project.graph.nodes) {
     const entry = findCatalogEntry(nodeDto.type)
@@ -71,6 +77,35 @@ export async function restoreProject(project: ScadletProjectV1, deps: RestorePro
     )
     connection.id = connectionDto.id
     await deps.editor.addConnection(connection)
+  }
+
+  for (const definitionDto of project.definitions) {
+    deps.registerDefinition?.({
+      id: definitionDto.id,
+      kind: definitionDto.kind,
+      name: definitionDto.name,
+      inputsNodeId: definitionDto.interface.inputs,
+      outputNodeId: definitionDto.interface.output,
+    })
+    for (const nodeDto of definitionDto.graph.nodes) {
+      const entry = findCatalogEntry(nodeDto.type)
+      if (!entry) throw new Error(`Cannot restore definition node "${nodeDto.id}": unknown type "${nodeDto.type}"`)
+      const node = entry.create(deps.creationContext, nodeDto.parameters)
+      node.id = nodeDto.id
+      await deps.editor.addNode(node)
+      await deps.setNodePosition(nodeDto.id, nodeDto.position)
+      if (nodeDto.pinned) deps.setPinned?.(nodeDto.id, true)
+    }
+    for (const connectionDto of definitionDto.graph.connections) {
+      const source = deps.editor.getNode(connectionDto.source)
+      const target = deps.editor.getNode(connectionDto.target)
+      if (!source || !target) throw new Error(`Cannot restore definition connection "${connectionDto.id}": endpoint node missing.`)
+      const connection = new ClassicPreset.Connection<ClassicPreset.Node, ClassicPreset.Node>(
+        source, connectionDto.sourceOutput, target, connectionDto.targetInput,
+      )
+      connection.id = connectionDto.id
+      await deps.editor.addConnection(connection)
+    }
   }
 
   if (deps.setViewport) {

@@ -16,10 +16,14 @@ import type { AreaExtra, Schemes } from './schemes'
 import { attachNodeSelection } from './selection'
 import { BooleanOpNode } from './nodes/boolean-op-node'
 import { ConnectionGestureManager } from './connection-gesture'
-import { areSocketTypesCompatible, socketType, type SocketType } from './sockets'
+import { socketType, type SocketType } from './sockets'
 import { guardPortRemoval, hasConnectedInputs, removeInputSafely, removeOutputSafely } from './port-lifecycle'
 import { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData } from './connection-compatibility'
+import { DefinitionRegistry, bindDefinitionRegistry, moduleNameProblem, type ModuleDefinition } from './definitions'
+import { attachDefinitionFrames } from './definition-frames'
+import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
+import { t } from '../i18n/translate'
 
 export interface SCADletEditor {
   editor: NodeEditor<Schemes>
@@ -58,6 +62,12 @@ export interface SCADletEditor {
   isPinned(nodeId: string): boolean
   /** Sets a node's pinned state directly (used by `.scadlet` project restore) rather than toggling. */
   setPinned(nodeId: string, pinned: boolean): void
+  createModule(name: string): Promise<ModuleDefinition>
+  getDefinitions(): readonly ModuleDefinition[]
+  getNodeScope(nodeId: string): string | null
+  clearDefinitions(): void
+  registerDefinition(definition: ModuleDefinition): void
+  onDefinitionsChange(callback: () => void): () => void
   /**
    * Subscribes to "the project has unsaved changes" notifications:
    * node/connection add/remove, node move, canvas pan/zoom, pin state,
@@ -88,11 +98,11 @@ export interface SCADletEditor {
 export function attachSocketCompatibilityGuard(editor: NodeEditor<Schemes>): void {
   editor.addPipe((context) => {
     if (context.type !== 'connectioncreate') return context
-    const source = editor.getNode(context.data.source)
-    const target = editor.getNode(context.data.target)
-    const sourceSocket = source?.outputs[context.data.sourceOutput]?.socket
-    const targetSocket = target?.inputs[context.data.targetInput]?.socket
-    return areSocketTypesCompatible(sourceSocket, targetSocket) ? context : undefined
+    return canConnectSocketData(editor, {
+      nodeId: context.data.source, key: context.data.sourceOutput, side: 'output',
+    }, {
+      nodeId: context.data.target, key: context.data.targetInput, side: 'input',
+    }) ? context : undefined
   })
 }
 
@@ -110,6 +120,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   const connection = new ConnectionPlugin<Schemes, AreaExtra>()
   const connectionGesture = new ConnectionGestureManager()
   const connectionSelection = new ConnectionSelectionManager()
+  const definitions = new DefinitionRegistry()
+  bindDefinitionRegistry(editor, definitions)
   const engine = new DataflowEngine<Schemes>((node) => ({
     inputs: () => Object.keys(node.inputs),
     outputs: () => Object.keys(node.outputs),
@@ -259,6 +271,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     notifyDirty()
     notifySemanticChange()
   }
+  const unsubscribeDefinitions = definitions.subscribe(() => notifySemanticDirty())
 
   editor.addPipe((context) => {
     if (isDirtyEditorSignal(context.type)) notifySemanticDirty()
@@ -321,10 +334,11 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     () => connectionSelection.clear(),
     selectConnection,
   )
+  const detachDefinitionFrames = attachDefinitionFrames(area, definitions)
 
   AreaExtensions.simpleNodesOrder(area)
 
-  attachDeletion(editor, area, container, connectionSelection)
+  attachDeletion(editor, area, container, connectionSelection, (nodeId) => !definitions.isProtectedNode(nodeId))
   const selectConnectionOnPointerDown = (event: PointerEvent): void => {
     if (event.button !== 0) return
     const wire = event.composedPath().find((item): item is Element =>
@@ -410,6 +424,37 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     await addNodeAt(type, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
   }
 
+  async function createModule(name: string): Promise<ModuleDefinition> {
+    const normalized = name.trim()
+    const problem = moduleNameProblem(normalized, definitions.list().map((definition) => definition.name))
+    if (problem === 'duplicate') throw new Error(t('definition.duplicateName'))
+    if (problem) throw new Error(t('definition.invalidName'))
+
+    const definition: ModuleDefinition = {
+      id: crypto.randomUUID(),
+      kind: 'module',
+      name: normalized,
+      inputsNodeId: crypto.randomUUID(),
+      outputNodeId: crypto.randomUUID(),
+    }
+    definitions.add(definition)
+    const inputs = new ModuleInputsNode()
+    inputs.id = definition.inputsNodeId
+    const output = new ModuleOutputNode()
+    output.id = definition.outputNodeId
+    await editor.addNode(inputs)
+    await editor.addNode(output)
+    const rect = area.container.getBoundingClientRect()
+    const center = clientToGraphPosition(
+      { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+      rect,
+      area.area.transform,
+    )
+    await area.translate(inputs.id, { x: center.x - 230, y: center.y - 30 })
+    await area.translate(output.id, { x: center.x + 90, y: center.y - 30 })
+    return definition
+  }
+
   return {
     editor,
     area,
@@ -429,6 +474,12 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       presentation.togglePin(nodeId)
       notifyDirty()
     },
+    createModule,
+    getDefinitions: () => definitions.list(),
+    getNodeScope: (nodeId) => definitions.scopeOf(nodeId),
+    clearDefinitions: () => definitions.clear(),
+    registerDefinition: (definition) => definitions.add(definition),
+    onDefinitionsChange: (callback) => definitions.subscribe(callback),
     onDirty: (callback: () => void) => {
       dirtyListeners.add(callback)
       return () => dirtyListeners.delete(callback)
@@ -459,6 +510,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       detachConnectionGestureEvents()
       connectionGesture.reset()
       detachRenderer()
+      detachDefinitionFrames()
+      unsubscribeDefinitions()
       area.destroy()
     },
   }
@@ -568,6 +621,7 @@ function attachDeletion(
   area: AreaPlugin<Schemes, AreaExtra>,
   container: HTMLElement,
   connectionSelection: ConnectionSelectionManager,
+  canDeleteNode: (nodeId: string) => boolean,
 ): void {
   // Not part of the tab order (a big pan/zoom canvas isn't a meaningful
   // tab stop) but focusable programmatically, so a following
@@ -594,11 +648,11 @@ function attachDeletion(
       return
     }
 
-    const selected = editor.getNodes().filter((node) => node.selected)
+    const selected = editor.getNodes().filter((node) => node.selected && canDeleteNode(node.id))
     if (selected.length === 0) return
 
     event.preventDefault()
-    void Promise.all(selected.map((node) => removeNodeWithConnections(editor, node.id)))
+    void Promise.all(selected.map((node) => removeNodeWithConnections(editor, node.id, canDeleteNode)))
   })
 }
 

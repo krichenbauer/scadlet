@@ -1,4 +1,4 @@
-# The `.scadlet` project file format (v2)
+# The `.scadlet` project file format (v3)
 
 This document specifies the `.scadlet` project file format as it is
 **actually implemented** in this repository, not as originally sketched in
@@ -6,7 +6,7 @@ This document specifies the `.scadlet` project file format as it is
 the code under `src/persistence/` and `src/editor/node-catalog.ts` is the
 source of truth until this document is updated to match it.
 
-## Version 2 semantic signatures
+## Version 3 definitions and semantic signatures
 
 v2 records each node's OpenSCAD semantic arguments rather than renderer
 controls. A new Cube therefore has `{}` parameters and generates `cube()`.
@@ -29,7 +29,8 @@ and `subtract`.
 
 The loader migrates v1 Cubes from `sizeX`/`sizeY`/`sizeZ` into v2 `size`, and
 migrates v1 Union/Intersection `a`/`b` connection endpoints into deterministic
-v2 child slots. It validates the migrated result before opening it. Unsupported
+v2 child slots. v3 adds a project-level `definitions` array; existing v1/v2
+projects migrate to an empty array. It validates the migrated result before opening it. Unsupported
 newer versions are rejected instead of being guessed at.
 
 ## Status and compatibility
@@ -42,8 +43,9 @@ newer versions are rejected instead of being guessed at.
   `"version"`. The format version is **independent of the SCADlet
   application/package version** - bumping the app's `package.json`
   version never implies a format change, and vice versa.
-- The current format version is **`2`**. Version 1 is accepted on input
-  and explicitly migrated to v2; writers and browser autosave always emit v2.
+- The current format version is **`3`**. Versions 1 and 2 are accepted on
+  input and explicitly migrated through the v2 semantic-signature shape to
+  v3; writers and browser autosave always emit v3.
 - Unknown/future format versions are rejected outright with a clear error
   (`Unsupported SCADlet project version: N`) - there is no attempt to
   guess-parse a newer format. See "Versioning and migrations" below.
@@ -65,7 +67,7 @@ exact, test-verified fixture this is based on):
 ```json
 {
   "format": "scadlet",
-  "version": 2,
+  "version": 3,
   "metadata": {
     "name": "Gearbox Experiment",
     "createdAt": "2026-09-01T00:00:00.000Z",
@@ -75,6 +77,7 @@ exact, test-verified fixture this is based on):
     "nodes": [],
     "connections": []
   },
+  "definitions": [],
   "editor": {
     "viewport": {
       "x": 0,
@@ -94,13 +97,15 @@ exact, test-verified fixture this is based on):
 | Field      | Type                | Required | Meaning                                                          |
 | ---------- | ------------------- | -------- | ----------------------------------------------------------------- |
 | `format`   | `"scadlet"` literal | Yes      | Discriminates this file as a SCADlet project, not arbitrary JSON.  |
-| `version`  | integer             | Yes      | Format version. Versions `1` (migrated) and `2` are accepted.     |
+| `version`  | integer             | Yes      | Format version. Versions `1`/`2` migrate; v3 is current.          |
 | `metadata` | object              | Yes      | Project-level descriptive information. See below.                 |
 | `graph`    | object               | Yes      | Semantic program graph: nodes + connections. See below.           |
+| `definitions` | array              | Yes      | Project-owned Module definition graphs. See below.                 |
 | `editor`   | object               | Yes      | Editor/canvas presentation state (currently just the viewport).   |
 | `viewer`   | object               | Yes      | 3D viewer presentation state (currently just the camera).         |
 
-All four of `metadata`/`graph`/`editor`/`viewer` are required objects;
+`metadata`, `graph`, `editor`, and `viewer` are required objects, and
+`definitions` is a required array;
 omitting any of them fails validation (`Project "X" must be an object.`).
 
 Implementation: `ScadletProjectV1` in
@@ -214,6 +219,8 @@ add
 subtract
 multiply
 divide
+module-inputs
+module-output
 ```
 
 An unrecognized `type` fails with `Unknown node type: "<value>"`. See
@@ -250,6 +257,46 @@ sections below for exact shapes.
   omits `pinned` entirely for an unpinned node rather than writing
   `"pinned": false` - both forms mean the same thing on read, but only
   the omitted form is what SCADlet itself currently produces.
+
+## `definitions`
+
+Version 3 introduces a separate semantic graph for each project-owned Module.
+The Main `graph` remains the program body; a definition is never inferred from
+the position of its visible same-canvas frame. Its stable `id` is independent
+from its user-editable OpenSCAD-style `name`.
+
+```json
+{
+  "id": "definition-wheel",
+  "kind": "module",
+  "name": "wheel",
+  "interface": {
+    "inputs": "wheel-inputs",
+    "output": "wheel-output"
+  },
+  "graph": {
+    "nodes": [
+      { "id": "wheel-inputs", "type": "module-inputs", "position": { "x": 10, "y": 20 }, "parameters": {} },
+      { "id": "wheel-output", "type": "module-output", "position": { "x": 330, "y": 20 }, "parameters": {} }
+    ],
+    "connections": []
+  }
+}
+```
+
+- `definitions` is always an array; v1/v2 files migrate to `[]`.
+- Module names are non-empty OpenSCAD-style identifiers and unique per
+  project. Names are not definition identity.
+- Each Module has exactly one `module-inputs` node and one `module-output`
+  node. The latter owns the one stable Geometry input `geometry`.
+- Nodes and connections are contained in exactly one graph scope. A
+  connection cannot cross between Main and a definition graph.
+- Definition-frame bounds are derived editor presentation from these member
+  node positions; frame geometry is not serialized as semantic membership.
+
+Phase 1 persists and displays definitions only. It does not yet generate
+OpenSCAD declarations or Module call nodes, so unused empty definitions do not
+alter Main rendering/export.
 
 ## Per-node parameter schemas
 
@@ -624,7 +671,7 @@ old-shaped raw object into the current shape before validating it, so
 that no other call site ever needs to know about historical versions:
 
 ```text
-v1 → migrate to v2 → validate against the current (v2) shape
+v1 → migrate to v2 → migrate to v3 → validate against the current shape
 ```
 
 Rules of thumb for whether a change needs a version bump:

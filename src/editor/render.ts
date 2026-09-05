@@ -17,6 +17,7 @@ import { compatiblePortKeys, type ConnectionGestureManager } from './connection-
 import { nearestSnapTarget, type SnapCandidate } from './connection-gesture'
 import type { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData } from './connection-compatibility'
+import { ModuleOutputNode } from './nodes/module-interface-nodes'
 
 type Position = { x: number; y: number }
 type Side = 'input' | 'output'
@@ -53,6 +54,9 @@ export function parameterRowPresentation(
 /** Dynamic child slots keep their stable semantic ids while this supplies
  * the compact, localized visual/accessibility distinction. */
 export function geometryInputPresentation(node: Schemes['Node'], key: string): PortPresentation | undefined {
+  if (node instanceof ModuleOutputNode && key === 'geometry') {
+    return { visibleLabel: t('input.geometry'), accessibleLabel: t('input.geometry') }
+  }
   if (!(node instanceof BooleanOpNode) || !node.isInputPort(key)) return undefined
   return node.isExtensionPort(key)
     ? { visibleLabel: '+', accessibleLabel: t('input.addGeometryChild') }

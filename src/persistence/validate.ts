@@ -1,4 +1,5 @@
 import { findCatalogEntry } from '../editor/node-catalog'
+import { moduleNameProblem } from '../editor/definitions'
 import {
   SCADLET_FORMAT,
   SCADLET_VERSION,
@@ -7,6 +8,7 @@ import {
   type ScadletGraph,
   type ScadletNodeDTO,
   type ScadletProjectMetadata,
+  type ScadletModuleDefinition,
   type ScadletProjectV1,
   type ScadletViewerCamera,
   type ScadletViewerState,
@@ -68,15 +70,14 @@ export function parseScadletProject(raw: unknown): ScadletProjectV1 {
 }
 
 /**
- * The version → validator migration boundary. Only version 1 exists
- * today; a real future migration would convert an older raw object into
- * the current shape here before validating it, so call sites never need
- * to know about historical versions themselves (AGENTS.md: "v1 → v2 →
- * v3 without every loader call site knowing about historical versions").
+ * The version → validator migration boundary. Older raw objects are
+ * converted through each known format shape before one current validator
+ * runs, so call sites never need to understand historical versions.
  */
 function migrateScadletProject(version: number, raw: Record<string, unknown>): ScadletProjectV1 {
   if (version === SCADLET_VERSION) return validateV1(raw)
-  if (version === 1) return validateV1(migrateV1ToV2(raw))
+  if (version === 2) return validateV1(migrateV2ToV3(raw))
+  if (version === 1) return validateV1(migrateV2ToV3(migrateV1ToV2(raw)))
   throw new ScadletProjectError(`Unsupported SCADlet project version: ${version}`)
 }
 
@@ -107,15 +108,29 @@ function migrateV1ToV2(raw: Record<string, unknown>): Record<string, unknown> {
       ? { ...rawConnection, targetInput: mapped[rawConnection.targetInput] }
       : rawConnection
   }) : rawConnections
-  return { ...raw, version: SCADLET_VERSION, graph: { ...graph, nodes, connections } }
+  return { ...raw, version: 2, graph: { ...graph, nodes, connections } }
+}
+
+/** v3 adds project-level definitions without changing the Main graph. */
+function migrateV2ToV3(raw: Record<string, unknown>): Record<string, unknown> {
+  return { ...raw, version: SCADLET_VERSION, definitions: [] }
 }
 
 function validateV1(raw: Record<string, unknown>): ScadletProjectV1 {
   const metadata = validateMetadata(raw.metadata)
-  const graph = validateGraph(raw.graph)
+  const graph = validateGraph(raw.graph, 'main')
+  const definitions = validateDefinitions(raw.definitions)
+  const mainNodeIds = new Set(graph.nodes.map((node) => node.id))
+  for (const definition of definitions) {
+    for (const node of definition.graph.nodes) {
+      if (mainNodeIds.has(node.id)) {
+        throw new ScadletProjectError(`Node id "${node.id}" is shared by Main and a Module definition.`)
+      }
+    }
+  }
   const editorState = validateEditorState(raw.editor)
   const viewer = validateViewerState(raw.viewer)
-  return { format: SCADLET_FORMAT, version: SCADLET_VERSION, metadata, graph, editor: editorState, viewer }
+  return { format: SCADLET_FORMAT, version: SCADLET_VERSION, metadata, graph, definitions, editor: editorState, viewer }
 }
 
 function validateMetadata(raw: unknown): ScadletProjectMetadata {
@@ -143,7 +158,7 @@ function validatePosition(raw: unknown, nodeId: string): { x: number; y: number 
   }
 }
 
-function validateNode(raw: unknown, index: number, seenIds: Set<string>): ScadletNodeDTO {
+function validateNode(raw: unknown, index: number, seenIds: Set<string>, graphKind: 'main' | 'definition'): ScadletNodeDTO {
   if (!isPlainObject(raw)) throw new ScadletProjectError(`Node at index ${index} must be an object.`)
 
   if (typeof raw.id !== 'string' || raw.id.length === 0) {
@@ -155,6 +170,9 @@ function validateNode(raw: unknown, index: number, seenIds: Set<string>): Scadle
   if (typeof raw.type !== 'string') throw new ScadletProjectError(`Node "${raw.id}" is missing a "type".`)
   const entry = findCatalogEntry(raw.type)
   if (!entry) throw new ScadletProjectError(`Unknown node type: "${raw.type}"`)
+  if (graphKind === 'main' && entry.palette === false) {
+    throw new ScadletProjectError(`Interface node "${raw.id}" belongs inside a Module definition, not Main.`)
+  }
 
   const position = validatePosition(raw.position, raw.id)
 
@@ -221,12 +239,12 @@ function validateConnection(
   return { id: raw.id, source, sourceOutput, target, targetInput }
 }
 
-function validateGraph(raw: unknown): ScadletGraph {
+function validateGraph(raw: unknown, graphKind: 'main' | 'definition'): ScadletGraph {
   if (!isPlainObject(raw)) throw new ScadletProjectError('Project "graph" must be an object.')
 
   if (!Array.isArray(raw.nodes)) throw new ScadletProjectError('Project "graph.nodes" must be an array.')
   const seenNodeIds = new Set<string>()
-  const nodes = raw.nodes.map((node, index) => validateNode(node, index, seenNodeIds))
+  const nodes = raw.nodes.map((node, index) => validateNode(node, index, seenNodeIds, graphKind))
   const nodesById = new Map(nodes.map((node) => [node.id, node]))
 
   if (!Array.isArray(raw.connections)) throw new ScadletProjectError('Project "graph.connections" must be an array.')
@@ -236,6 +254,50 @@ function validateGraph(raw: unknown): ScadletGraph {
   )
 
   return { nodes, connections }
+}
+
+function validateDefinitions(raw: unknown): ScadletModuleDefinition[] {
+  if (!Array.isArray(raw)) throw new ScadletProjectError('Project "definitions" must be an array.')
+  const seenDefinitionIds = new Set<string>()
+  const seenNames = new Set<string>()
+  const seenNodeIds = new Set<string>()
+  const definitions: ScadletModuleDefinition[] = []
+  for (const item of raw) {
+    if (!isPlainObject(item)) throw new ScadletProjectError('Each definition must be an object.')
+    if (typeof item.id !== 'string' || !item.id) throw new ScadletProjectError('A definition is missing a valid "id".')
+    if (seenDefinitionIds.has(item.id)) throw new ScadletProjectError(`Duplicate definition id: "${item.id}"`)
+    seenDefinitionIds.add(item.id)
+    if (item.kind !== 'module') throw new ScadletProjectError(`Definition "${item.id}" has an invalid "kind".`)
+    if (typeof item.name !== 'string' || moduleNameProblem(item.name, seenNames) !== null) {
+      throw new ScadletProjectError(`Definition "${item.id}" has an invalid or duplicate Module name.`)
+    }
+    seenNames.add(item.name)
+    const interfaceRoles = item.interface
+    if (!isPlainObject(interfaceRoles) || typeof interfaceRoles.inputs !== 'string' || typeof interfaceRoles.output !== 'string') {
+      throw new ScadletProjectError(`Module definition "${item.id}" has invalid interface roles.`)
+    }
+    const graph = validateGraph(item.graph, 'definition')
+    for (const node of graph.nodes) {
+      if (seenNodeIds.has(node.id)) throw new ScadletProjectError(`Duplicate node id across definition graphs: "${node.id}"`)
+      seenNodeIds.add(node.id)
+    }
+    const allInputs = graph.nodes.filter((node) => node.type === 'module-inputs')
+    const allOutputs = graph.nodes.filter((node) => node.type === 'module-output')
+    const inputs = allInputs.filter((node) => node.id === interfaceRoles.inputs)
+    const outputs = allOutputs.filter((node) => node.id === interfaceRoles.output)
+    if (allInputs.length !== 1 || inputs.length !== 1) throw new ScadletProjectError(`Module definition "${item.id}" must contain exactly one Inputs interface node.`)
+    if (allOutputs.length !== 1 || outputs.length !== 1) throw new ScadletProjectError(`Module definition "${item.id}" must contain exactly one Output interface node.`)
+    const output = outputs[0]
+    if (output.type !== 'module-output') throw new ScadletProjectError(`Module definition "${item.id}" has an invalid Output interface node.`)
+    definitions.push({
+      id: item.id,
+      kind: 'module',
+      name: item.name,
+      interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output },
+      graph,
+    })
+  }
+  return definitions
 }
 
 function validateEditorState(raw: unknown): ScadletEditorState {

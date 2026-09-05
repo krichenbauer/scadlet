@@ -3,6 +3,7 @@ import type { NodeEditor } from 'rete'
 import { findCatalogEntry, identifyNodeType } from '../editor/node-catalog'
 import type { Position } from '../editor/coordinates'
 import type { Schemes } from '../editor/schemes'
+import type { ModuleDefinition } from '../editor/definitions'
 import {
   SCADLET_FORMAT,
   SCADLET_VERSION,
@@ -25,6 +26,10 @@ export interface SerializeProjectOptions {
   viewerCamera: ScadletViewerCamera
   /** Injectable clock for `updatedAt`, overridable for deterministic tests. */
   now?: () => string
+  /** Project-owned definition registry. Nodes are still read from Rete, but
+   * grouped into their semantic graph rather than inferred from frame bounds. */
+  definitions?: readonly ModuleDefinition[]
+  getNodeScope?: (nodeId: string) => string | null
 }
 
 /**
@@ -62,11 +67,48 @@ export function serializeProject(options: SerializeProjectOptions): ScadletProje
     targetInput: String(connection.targetInput),
   }))
 
+  const definitionIds = new Set((options.definitions ?? []).map((definition) => definition.id))
+  const scopeOf = (nodeId: string): string | null => options.getNodeScope?.(nodeId) ?? null
+  for (const connection of connections) {
+    if (scopeOf(connection.source) !== scopeOf(connection.target)) {
+      throw new Error(`Cannot serialize connection "${connection.id}": it crosses a definition scope boundary.`)
+    }
+  }
+  const mainNodes = nodes.filter((node) => scopeOf(node.id) === null)
+  const mainConnections = connections.filter((connection) => scopeOf(connection.source) === null && scopeOf(connection.target) === null)
+  const definitions = (options.definitions ?? []).map((definition) => ({
+    id: definition.id,
+    kind: definition.kind,
+    name: definition.name,
+    interface: { inputs: definition.inputsNodeId, output: definition.outputNodeId },
+    graph: {
+      nodes: nodes.filter((node) => scopeOf(node.id) === definition.id),
+      connections: connections.filter((connection) => scopeOf(connection.source) === definition.id && scopeOf(connection.target) === definition.id),
+    },
+  }))
+  // A stale scope provider must never make a node disappear from the saved
+  // project. Definitions are a closed registry, so unknown scopes remain in
+  // Main where they retain ordinary graph semantics.
+  const graph = definitionIds.size === 0
+    ? { nodes, connections }
+    : {
+        nodes: mainNodes.concat(nodes.filter((node) => {
+          const scope = scopeOf(node.id)
+          return scope !== null && !definitionIds.has(scope)
+        })),
+        connections: mainConnections.concat(connections.filter((connection) => {
+          const sourceScope = scopeOf(connection.source)
+          const targetScope = scopeOf(connection.target)
+          return (sourceScope !== null && !definitionIds.has(sourceScope)) || (targetScope !== null && !definitionIds.has(targetScope))
+        })),
+      }
+
   return {
     format: SCADLET_FORMAT,
     version: SCADLET_VERSION,
     metadata: { ...options.metadata, updatedAt: now() },
-    graph: { nodes, connections },
+    graph,
+    definitions,
     editor: { viewport: { x: viewport.x, y: viewport.y, zoom: viewport.k } },
     viewer: { camera: viewerCamera },
   }

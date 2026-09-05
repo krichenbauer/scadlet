@@ -12,7 +12,9 @@ import type { Schemes } from './schemes'
 export async function removeNodeWithConnections(
   editor: NodeEditor<Schemes>,
   nodeId: string,
-): Promise<void> {
+  canRemove: (nodeId: string) => boolean = () => true,
+): Promise<boolean> {
+  if (!canRemove(nodeId)) return false
   const attached = editor
     .getConnections()
     .filter((connection) => connection.source === nodeId || connection.target === nodeId)
@@ -22,6 +24,7 @@ export async function removeNodeWithConnections(
   }
 
   await editor.removeNode(nodeId)
+  return true
 }
 
 /**
