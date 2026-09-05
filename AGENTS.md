@@ -206,6 +206,32 @@ Difference node
 
 Prefer structured node implementations and reusable code-generation helpers over ad-hoc string concatenation scattered throughout UI components.
 
+### Project-level definitions and graph scopes
+
+Milestone 8 introduces named user-defined **Modules** and **Functions**. Treat these as project-level definitions, not as ordinary main-graph nodes with decorative boxes around them.
+
+Conceptually, a project evolves from one graph into:
+
+```text
+Project
+├── Main graph
+└── Definitions
+    ├── Module: wheel
+    │   └── definition graph / scope
+    ├── Module: axle
+    │   └── definition graph / scope
+    └── Function: doubleSize
+        └── definition graph / scope
+```
+
+Rete remains the source of truth **within each graph** for nodes, ports, connections, and dataflow. A small SCADlet-owned project-level definition registry may own stable definition identity, kind, name/signature metadata, and graph membership; this is not a second AST or parallel graph implementation.
+
+The initial Milestone 8 UI may render the Main graph and definition graphs **on the same visible infinite canvas**. Same-canvas presentation must not collapse their semantics into one flat graph: a definition frame represents a real scope boundary and its internal nodes belong to that definition graph.
+
+Do not permit arbitrary wires to cross a definition boundary. External values enter through the definition's explicit Input/Parameters interface; its result leaves through its explicit Output interface. Future lexical/global variables may provide another explicit scope mechanism, but ordinary cross-frame wiring must not become a substitute for scope.
+
+Use stable, language-independent IDs for definitions and their parameters. User-facing names are editable source-language names and must not become graph identity. Calls should refer to the stable definition identity so renaming a Module/Function does not silently break every call.
+
 ---
 
 ## Node design principles
@@ -220,7 +246,9 @@ Initial node families include:
 
 - Boolean operations: union, difference, intersection
 
-- later: extrusion, hull, minkowski, mirror, resize, modules, iteration
+- later/broader language surface: extrusion, hull, minkowski, mirror, resize, iteration
+
+- user-defined Modules and Functions are planned under Milestone 8 as reusable named definitions
 
 - values/math exist to support geometry, not to dominate the graph
 
@@ -276,6 +304,87 @@ Prefer a simple dynamic-slot interaction: connected child slots remain visible a
 
 Do not generalize this into an abstract signature/DSL framework beyond what the current OpenSCAD node vocabulary demonstrates. Prefer a few explicit reusable mechanisms for optional parameters, alternative value editors, typed parameter inputs, and ordered variadic children.
 
+### User-defined Modules and Functions
+
+Milestone 8 introduces reusable named OpenSCAD definitions. Modules and Functions should share one coherent definition/signature infrastructure while preserving their different OpenSCAD semantics.
+
+#### Definition frame / same-canvas model
+
+The initial UX keeps definitions on the **same visible editor canvas** as Main. Each definition is shown as a visually distinct framed subgraph: conceptually the expanded form of the corresponding reusable call node. The frame is a scope visualization, not merely a comment/group rectangle.
+
+A definition frame should automatically encompass all nodes belonging to that definition, with reasonable padding and a clear header such as `module wheel(...)` or `function doubleSize(...)`. Exact auto-sizing, frame movement, collapsing, colors, and other polish are secondary UX goals; semantic graph membership must not depend on geometric point-in-frame hit testing.
+
+Keep the internal representation independent enough that a future `Open definition in dedicated canvas` view could be added without changing the project semantics or `.scadlet` definition model.
+
+#### Mandatory interface nodes
+
+Every newly created definition graph starts with two special interface nodes that are present from the beginning and cannot be deleted or duplicated:
+
+```text
+Inputs / Parameters                         Output
+(outputs on the right)                     (input on the left)
+```
+
+The **Input/Parameters** node owns the definition's explicit parameter signature. Each parameter appears there as a typed **output** connector because it supplies a value to the implementation graph. Parameters may be added, renamed, reordered, removed, typed, and given supported OpenSCAD default values through this interface.
+
+Parameter identity must be separate from display/name/order. Use stable parameter IDs so renaming or reordering a parameter does not silently retarget persisted call connections. Signature edits that truly remove or change an incompatible parameter must update/validate every call explicitly; never reconnect calls by display index or name coincidence.
+
+Initially use the current value types where meaningful:
+
+- Number
+- Boolean
+- Vector3
+
+String/List and other future value types should be added only when the language surface actually needs them. Do not split Number into int/float.
+
+The interface-node positions may be moved like normal nodes unless a later UX pass decides otherwise, but they remain protected from deletion. Newly created definitions should place Inputs on the left and Output on the right with enough space to start building between them.
+
+#### Module definitions
+
+A Module definition represents an OpenSCAD `module name(parameters) { ... }`. Its Output node has exactly one **Geometry input** on the left. In SCADlet this is a deliberate graph sink / body root, not an OpenSCAD return value.
+
+Conceptually:
+
+```text
+Inputs                                    Module Output
+┌─────────────────┐                      ┌───────────────┐
+│ radius Number ● ├──▶ ... ────────────▶○ Geometry      │
+│ width  Number ● ├──▶ ...               └───────────────┘
+└─────────────────┘
+```
+
+Generated OpenSCAD is still ordinary Module body syntax; do not invent `return geometry`. The single Geometry root is a SCADlet teaching abstraction that makes the definition's result explicit. If several independent geometry branches should form the body, combine them explicitly with the existing variadic Union rather than giving Module Output hidden multi-root/implicit-union semantics.
+
+Ordinary Module parameters are value parameters. Do not model geometry passed into a Module as a normal OpenSCAD argument merely because SCADlet has Geometry wires. OpenSCAD `children()` is distinct child-block semantics. Leave room for a later explicit `children()`/Geometry-child interface, but do not require it in the first Milestone 8 implementation unless requested.
+
+#### Function definitions
+
+A Function definition represents an OpenSCAD `function name(parameters) = expression;`. Functions have the same Input/Parameters concept but exactly one **value result** rather than Geometry.
+
+The Function Output node therefore has exactly one typed value input. Its result type is part of the Function signature and must be one of the supported value socket types (initially Number, Boolean, or Vector3). Whether the UI selects that type explicitly or derives it from the connected result is an implementation detail unless a task settles it; persisted semantics must nevertheless be unambiguous.
+
+A Function definition graph may use value/math nodes and calls to compatible user-defined Functions. Geometry-producing nodes and Module/action calls do not belong in a Function expression graph. Keep the rule simple: a Function produces one OpenSCAD value expression; OpenSCAD evaluates it. Do not introduce JavaScript evaluation.
+
+OpenSCAD Functions do not use an imperative `return` statement; generate the normal expression form.
+
+#### Call nodes
+
+A Module/Function call in Main or another permitted definition graph is a normal compact SCADlet node generated from the current definition signature. Built-in nodes and user-defined call nodes should look and behave as similarly as practical.
+
+- Module call inputs mirror the Module parameters and its output is Geometry.
+- Function call inputs mirror the Function parameters and its output is the Function's value type.
+- Parameter default values should map naturally to the existing inline-literal fallback model where supported.
+- A call references the stable definition ID while displaying/emitting the current source-language name.
+- Signature edits must propagate safely to all call instances; do not leave hidden live connections to removed/incompatible parameter ports.
+
+Do not intentionally add recursive definition calls in the first implementation. If direct or indirect recursion would create an evaluation/code-generation cycle, reject it clearly until recursion receives an explicit design pass.
+
+#### Scope and future variables
+
+Do not bake in the assumption that Module/Function parameters will forever be the only names visible inside a definition. OpenSCAD also has outer-scope variables and `$` special variables. Future variable support may expose visible outer-scope names through explicit reference nodes or another deliberate scope UI.
+
+For now, definitions should be self-contained through explicit parameters/calls. Do not add arbitrary cross-frame wires or implicit hidden captures merely to anticipate variables. Ordinary lexical variables and OpenSCAD `$` special variables have different semantics and should not be conflated when that later feature is designed.
+
 ### Code node
 
 A geometry-oriented OpenSCAD code node is planned for a later milestone as an escape hatch for constructs that are awkward to represent visually.
@@ -307,6 +416,22 @@ Required initial behavior:
 - pass the same source to OpenSCAD WASM for rendering
 
 The preview and exported OpenSCAD must derive from the same generated source.
+
+With user-defined definitions, generate one coherent OpenSCAD program containing the named Module/Function declarations plus the Main graph body. Definition frames are editor structure only; exported source should use normal readable OpenSCAD syntax, e.g.:
+
+```scad
+module wheel(radius = 20) {
+    cylinder(r = radius);
+}
+
+function doubleSize(x) = (x * 2);
+
+wheel(doubleSize(10));
+```
+
+For a Module, the Geometry connected to the special Module Output node defines the generated Module body root. For a Function, the value connected to Function Output defines the generated expression. Call nodes emit ordinary OpenSCAD Module calls or Function expressions; no SCADlet-specific wrapper syntax belongs in exported `.scad`.
+
+Definition dependency ordering must be deterministic and readable. Do not duplicate a definition's generated source for every call. Detect unsupported definition cycles rather than recursing indefinitely in SCADlet's graph evaluation.
 
 Do not introduce a second geometry implementation such as JSCAD or replicad for preview generation. Avoid any architecture where preview semantics can differ from exported OpenSCAD semantics.
 
@@ -526,6 +651,26 @@ Current palette behavior:
 
 Keep all creation mechanisms routed through one shared editor-level creation path.
 
+Milestone 8 keeps user-defined definitions in this **same left sidebar** rather than introducing a separate project browser. Add dynamic project sections conceptually like:
+
+```text
+MY MODULES
+  wheel
+  axle
+  + New module
+
+MY FUNCTIONS
+  doubleSize
+  clampSize
+  + New function
+```
+
+The existing built-in catalog remains the authority for built-in node types. User-defined Module/Function entries are project-derived dynamic call-node factories and must not require inventing a permanent built-in catalog type for every definition instance. Route creation through the same editor-level add-node path so drag/drop and click placement retain current viewport behavior.
+
+A normal click/drag on a user-defined entry creates a **call node**. Provide a distinct edit affordance/context action that locates/selects/focuses the corresponding definition frame on the same canvas rather than overloading ordinary call creation. New definition creation should be Scratch-like and discoverable (`+ New module`, `+ New function`); a small creation flow may collect the definition name and initial parameters, which remain editable afterward on the definition's Input/Parameters node.
+
+Keep future sidebar polish separate from Milestone 8 semantics. Collapsible groups, stronger category colors, searching, and other palette organization are desirable later but should not be required to implement reusable definitions correctly. Structure palette groups so such refinement remains feasible.
+
 ### Localization readiness
 
 SCADlet is intended to support a German UI later.
@@ -564,7 +709,7 @@ Project persistence (Milestone 5) is implemented and remains fully client-side. 
 
 ### Canonical `.scadlet` project format
 
-The canonical v1 `.scadlet` format is documented in detail in
+The canonical current `.scadlet` format (v2 after Milestone 6 migration) is documented in detail in
 `docs/scadlet-format.md`, generated from and kept aligned with the actual
 implementation (`src/persistence/`, `src/editor/node-catalog.ts`). Keep
 implementation, validation, and any future migrations consistent with
@@ -615,6 +760,31 @@ The format must be explicitly versioned from the beginning. Prefer small migrati
 From this milestone onward, every new persistent language/editor feature must be reviewed against `.scadlet`: update the canonical types, serializer, validator, restore path, fixtures/tests, and `docs/scadlet-format.md` whenever the persisted representation changes. Changing existing parameter shapes or stable port IDs is a format-compatibility event; either preserve backward-compatible identities/adapters or introduce a new format version with a tested migration. Never silently make existing saved projects unloadable.
 
 `.scad` and `.stl` remain export formats, not SCADlet project formats.
+
+### Persistence of Modules and Functions
+
+Milestone 8 is a persistent language-model change and therefore requires an explicit `.scadlet` format evolution from the current v2 representation (normally a new version plus migration unless a demonstrably backward-compatible extension is preferable). Update `docs/scadlet-format.md`, types, serializer, validator, restore path, fixtures, local autosave compatibility, and migration tests together.
+
+Persist definitions as project-level semantic objects with stable IDs. Conceptually each definition needs:
+
+```text
+definition id
+kind: module | function
+source/display name
+ordered parameter definitions with stable parameter ids
+parameter types/defaults
+function result type where applicable
+definition graph nodes/connections
+editor positions for its member nodes
+```
+
+Main/definition call nodes must reference the stable definition ID, not only its name. Definition and parameter renames must therefore remain identity-preserving. Parameter order is meaningful for readable/generated call signatures but must not be used as persistent connection identity.
+
+Definition graph membership is semantic state. The visible frame's derived bounds/padding are presentation and should preferably be recomputed from member-node positions rather than persisted as semantic truth. If later user-adjustable frame presentation becomes worth preserving, keep it under editor state.
+
+The mandatory Input/Parameters and Output interface nodes must restore deterministically and retain stable protected identities/roles. Do not serialize them as arbitrary deletable user nodes if that makes malformed definition graphs possible. Validation must reject call references to missing definitions, missing/incompatible parameter ports, invalid Function result types, or definition cycles that the current language subset does not support.
+
+Old v2 projects without definitions must migrate/open as a project containing only Main with an empty definition registry. Never make existing projects unloadable merely because Milestone 8 adds reusable definitions.
 
 ### Project serialization architecture
 
@@ -671,7 +841,7 @@ The purpose of browser persistence is that useful work survives reloads and clos
 
 Current implementation choices:
 
-- `src/persistence/local-project-store.ts` uses native IndexedDB with database schema version 1 and stores a small record wrapper (`id`, `revision`, local timestamps) around the validated canonical `ScadletProjectV1` payload. The IndexedDB schema version and `.scadlet` format version remain independent.
+- `src/persistence/local-project-store.ts` uses native IndexedDB with database schema version 1 and stores a small record wrapper (`id`, `revision`, local timestamps) around the validated canonical SCADlet project payload. The IndexedDB schema version and `.scadlet` format version remain independent.
 - Local IDs use `crypto.randomUUID()` and are unrelated to names, filenames, or graph/node IDs. External `.scadlet` Open always imports a new local record.
 - This tab's active ID is kept in `sessionStorage`. Startup restores that ID when valid, otherwise opens the most recently updated local project, otherwise creates one empty project.
 - Autosave uses the existing dirty notifications with a 750 ms debounce and one in-flight write at a time. Generation tracking prevents an older completion from marking newer edits clean.
@@ -1152,16 +1322,84 @@ type as the fallback for blank/default names. Do not render a separate Name
 row or a redundant Value label for a source literal; titles remain SCADlet
 documentation only and must not affect OpenSCAD expressions or port identity.
 
-### Milestone 8 — Modules / reusable subgraphs
+### Milestone 8 — Modules, Functions, and reusable definitions
 
-Support reusable, parameterized graph structures corresponding to OpenSCAD modules.
+Introduce named reusable OpenSCAD definitions while keeping the first UX visually close to a single `.scad` file: Main and definition subgraphs are shown on the same infinite canvas, but each definition remains a separate semantic graph/scope internally.
 
-Focus on teaching:
+Teaching goals:
 
 - abstraction
 - parameterization
+- definition vs. invocation
 - reuse
 - composition
+- explicit data flow across a definition boundary
+
+Core model:
+
+- A project contains Main plus a registry of named Module/Function definitions with stable IDs.
+- Each definition owns a semantically separate Rete graph/scope even though the editor initially displays all definitions on the same canvas. Do not implement Modules as ordinary visual groups inside one flat Main graph.
+- Each definition is rendered as a clear frame/subprocess on the canvas. The frame should automatically encompass its member nodes; robust automatic bounds are useful UX but subordinate to correct graph membership/scope.
+- The frame represents the expanded form of the reusable definition. A call node elsewhere is the compact invocation of that definition.
+- Definitions may later be opened in a dedicated canvas without changing the underlying semantic model, but dedicated-canvas navigation is not required for the initial implementation.
+
+Every definition starts with two protected, non-deletable, non-duplicable interface nodes:
+
+1. **Inputs / Parameters** on the left
+   - parameters are defined here
+   - each parameter produces a typed output connector on the right
+   - use stable parameter IDs independent from names/order
+   - initially support Number, Boolean, and Vector3
+   - support OpenSCAD defaults where practical and map them to call-node literal fallbacks
+
+2. **Output** on the right
+   - receives exactly one result connection on its left
+   - for a Module this is exactly one Geometry input and represents SCADlet's explicit Module body root, not an OpenSCAD return value
+   - for a Function this is exactly one supported value input and represents the Function expression/result
+
+Module requirements:
+
+- generate ordinary `module name(parameters) { ... }` OpenSCAD
+- Module call nodes mirror parameters and produce Geometry
+- multiple independent geometry roots should be made explicit through Union before Module Output rather than hidden implicit multi-root semantics
+- do not pretend Geometry is an ordinary OpenSCAD Module argument
+- leave explicit `children()` / geometry-child semantics for a later extension unless separately requested
+
+Function requirements:
+
+- generate ordinary `function name(parameters) = expression;` OpenSCAD; do not invent a `return` statement
+- Function call nodes mirror parameters and produce exactly one typed value
+- initial result/value vocabulary is Number, Boolean, and Vector3
+- Function graphs contain value/math/compatible Function-call semantics, not Geometry-producing nodes or Module actions
+- OpenSCAD remains the evaluator; do not evaluate user Functions in JavaScript
+
+Sidebar/creation UX:
+
+- keep everything in the existing left palette/sidebar
+- add dynamic `My Modules` and `My Functions` sections
+- include obvious `+ New module` / `+ New function` creation actions inspired by Scratch's custom-block workflow
+- dragging/clicking a definition entry creates a call node through the normal creation path
+- a separate edit action locates/focuses its definition frame on the same canvas
+- defer collapsible groups, stronger sidebar colors, search, and other palette polish to a later UX pass
+
+Scope rules:
+
+- wires may not arbitrarily cross definition frames
+- explicit parameters are the initial supported inputs to a definition
+- architecture must not assume parameters are the only possible names forever: future ordinary variables and OpenSCAD `$` special variables may provide explicit scope/reference mechanisms
+- do not implement implicit hidden captures or variable support as part of the first definition pass
+
+Call/signature correctness:
+
+- call nodes reference stable definition IDs
+- signature changes must update all calls safely
+- renaming/reordering must not silently retarget connections
+- removing/changing a connected parameter must never leave dangling/ghost Rete connections
+- reject direct/indirect recursive call cycles in the initial implementation unless recursion receives an explicit later design
+
+Persistence is part of Milestone 8. Extend/version `.scadlet` deliberately for project-level definitions, definition graphs/scopes, stable parameter IDs, calls, and required editor positions; migrate existing v2 projects to Main + no definitions.
+
+Do not expand this milestone into variables, `children()`, iteration, function literals/closures, generic macros, or a broad type system merely because the shared definition infrastructure makes them conceivable.
 
 ### Milestone 9 — Iteration
 
@@ -1250,5 +1488,7 @@ When multiple implementation options are viable:
 6. Avoid adding architectural layers without an immediate demonstrated need.
 
 7. If a change would alter a documented architectural decision, explain the tradeoff before implementing it.
+
+For Milestone 8 specifically, preserve the distinction between **same-canvas presentation** and **separate definition scope/graph semantics**. Do not simplify implementation by flattening definitions into Main merely because they share one visible canvas.
 
 Do not reinterpret unresolved product questions as settled requirements. Implement only what the current task requires.
