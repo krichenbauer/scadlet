@@ -3,7 +3,7 @@ import type { DataflowEngine } from 'rete-engine'
 
 import type { BooleanValue, GeometryValue, NumberValue, Vector3Value } from './sockets'
 import type { Schemes } from './schemes'
-import type { DefinitionRegistry, ModuleDefinition } from './definitions'
+import type { DefinitionRegistry, ModuleDefinition, ModuleParameter, ModuleParameterDefault } from './definitions'
 
 /**
  * Evaluates the graph into a single OpenSCAD source string: one statement
@@ -29,6 +29,9 @@ export async function evaluateOpenSCAD(
   if (rootNodeId !== undefined) {
     if (!editor.getNode(rootNodeId)) return ''
     const source = await evaluateGeometryRoot(engine, rootNodeId)
+    const scope = definitions?.scopeOf(rootNodeId)
+    const definition = scope ? definitions?.get(scope) : undefined
+    if (definition) return inspectModuleSource(definition, source)
     return definitions ? joinDefinitions(await evaluateDefinitions(editor, engine, definitions), source) : source
   }
 
@@ -70,7 +73,7 @@ async function evaluateDefinitions(editor: NodeEditor<Schemes>, engine: Dataflow
   for (const definition of definitions.list()) {
     const body = await evaluateModuleBody(editor, engine, definition)
     const indented = body ? `\n${body.split('\n').map((line) => `  ${line}`).join('\n')}\n` : '\n'
-    fragments.push(`module ${definition.name}() {${indented}}`)
+    fragments.push(`module ${definition.name}(${moduleParameterDeclaration(definition.parameters ?? [])}) {${indented}}`)
   }
   return fragments.join('\n\n')
 }
@@ -82,7 +85,7 @@ function joinDefinitions(definitions: string, main: string): string {
 
 export type InspectEvaluation =
   | { kind: 'geometry'; source: string }
-  | { kind: 'value'; expression: string }
+  | { kind: 'value'; expression: string; source?: string }
   | { kind: 'missing' }
 
 /** Evaluates one explicitly inspected node while retaining the ordinary
@@ -100,5 +103,27 @@ export async function evaluateInspectNode(
   engine.reset()
   if (node.outputs.geometry) return { kind: 'geometry', source: await evaluateOpenSCAD(editor, engine, nodeId, definitions) }
   const output = (await engine.fetch(nodeId)) as { value?: NumberValue | BooleanValue | Vector3Value }
-  return output.value ? { kind: 'value', expression: output.value.code } : { kind: 'missing' }
+  if (!output.value) return { kind: 'missing' }
+  const scope = definitions?.scopeOf(nodeId)
+  const definition = scope ? definitions?.get(scope) : undefined
+  return definition
+    ? { kind: 'value', expression: output.value.code, source: inspectModuleSource(definition, `echo("__SCADLET_VALUE__:", ${output.value.code});`) }
+    : { kind: 'value', expression: output.value.code }
+}
+
+function moduleParameterDeclaration(parameters: readonly ModuleParameter[]): string {
+  return parameters.map((parameter) => `${parameter.name} = ${moduleParameterLiteral(parameter.default)}`).join(', ')
+}
+
+function moduleParameterLiteral(value: ModuleParameterDefault): string {
+  return Array.isArray(value) ? `[${value.join(', ')}]` : String(value)
+}
+
+/** An internal Module node has no call instance. Inspect therefore creates a
+ * collision-resistant, default-argument wrapper instead of substituting
+ * defaults into its expressions in JavaScript. */
+function inspectModuleSource(definition: ModuleDefinition, body: string): string {
+  const name = `__scadlet_inspect_${definition.id.replace(/[^A-Za-z0-9_]/g, '_')}`
+  const indented = body ? `\n${body.split('\n').map((line) => `  ${line}`).join('\n')}\n` : '\n'
+  return `module ${name}(${moduleParameterDeclaration(definition.parameters ?? [])}) {${indented}}\n\n${name}();`
 }

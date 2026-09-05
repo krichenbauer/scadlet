@@ -275,6 +275,9 @@ from its user-editable OpenSCAD-style `name`.
     "inputs": "wheel-inputs",
     "output": "wheel-output"
   },
+  "parameters": [
+    { "id": "parameter-radius", "name": "radius", "type": "number", "default": 10 }
+  ],
   "graph": {
     "nodes": [
       { "id": "wheel-inputs", "type": "module-inputs", "position": { "x": 10, "y": 20 }, "parameters": {} },
@@ -289,6 +292,13 @@ from its user-editable OpenSCAD-style `name`.
 - `definitions` is always an array; v1/v2 files migrate to `[]`.
 - Module names are non-empty OpenSCAD-style identifiers and unique per
   project. Names are not definition identity.
+- `parameters` is an ordered signature. Each item has a stable non-empty
+  `id`, a Module-unique OpenSCAD-style name, one of `number`, `boolean`, or
+  `vector3`, and a matching finite literal default. Missing `parameters` in
+  an older v3 parameterless record is normalized to `[]`; writers include it.
+- Parameter port IDs are `parameter:<id>`, derived from the signature during
+  restore rather than serialized as renderer sockets. Future rename/reorder
+  operations therefore preserve existing wires through the stable ID.
 - Each Module has exactly one `module-inputs` node and one `module-output`
   node. The latter owns the one stable Geometry input `geometry`.
 - Ordinary catalog nodes may be created in this graph by dropping a static
@@ -311,17 +321,19 @@ uses it.
 ### `module-call`
 
 `module-call` is a generic Main-only Geometry-producing node, not a generated
-node type named after a Module. Its parameter record contains exactly the
-stable definition reference:
+node type named after a Module. Its parameter record contains the stable
+definition reference plus independent literal fallbacks keyed by parameter ID:
 
 ```json
-{ "definitionId": "definition-wheel" }
+{ "definitionId": "definition-wheel", "arguments": { "parameter-radius": 25 } }
 ```
 
 The referenced definition must exist in the same project's `definitions`
 array and have `kind: "module"`; dangling references are rejected. The
-Module's name is resolved from that definition at load/runtime and generates
-`wheel();`; it is deliberately not duplicated as authoritative call state.
+The Module name/signature are resolved from the definition at load/runtime and
+generate explicit named arguments such as `wheel(radius = 25);`; they are not
+duplicated as authoritative call state. A connected typed value overrides but
+does not erase the stored fallback.
 Calls are not permitted inside definition graphs in this parameterless Phase 2
 slice, so nested calls and recursive dependency ordering are not represented.
 
@@ -525,7 +537,8 @@ add:           inputs: a, b (Number)        outputs: value (Number)
 subtract:      inputs: a, b (Number)        outputs: value (Number)
 multiply:      inputs: a, b (Number)        outputs: value (Number)
 divide:        inputs: a, b (Number)        outputs: value (Number)
-module-call:   inputs: none                  outputs: geometry (Geometry); parameters: definitionId
+module-inputs: dynamic outputs: parameter:<id> (Number|Boolean|Vector3)
+module-call:   dynamic inputs: parameter:<id> (referenced signature); outputs: geometry (Geometry); parameters: definitionId, arguments
 ```
 
 Port-level addressing (rather than plain node-to-node edges) exists

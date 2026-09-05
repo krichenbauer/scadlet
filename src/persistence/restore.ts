@@ -64,6 +64,7 @@ export async function restoreProject(project: ScadletProjectV1, deps: RestorePro
       name: definitionDto.name,
       inputsNodeId: definitionDto.interface.inputs,
       outputNodeId: definitionDto.interface.output,
+      parameters: definitionDto.parameters,
     })
   }
 

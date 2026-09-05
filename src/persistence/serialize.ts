@@ -81,6 +81,7 @@ export function serializeProject(options: SerializeProjectOptions): ScadletProje
     kind: definition.kind,
     name: definition.name,
     interface: { inputs: definition.inputsNodeId, output: definition.outputNodeId },
+    parameters: [...(definition.parameters ?? [])],
     graph: {
       nodes: nodes.filter((node) => scopeOf(node.id) === definition.id),
       connections: connections.filter((connection) => scopeOf(connection.source) === definition.id && scopeOf(connection.target) === definition.id),

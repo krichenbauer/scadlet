@@ -433,6 +433,30 @@ export class NodeEditorElement extends LitElement {
       flex: none;
     }
 
+    .node-param-output-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      padding-left: 10px;
+      padding-bottom: 4px;
+      min-width: 0;
+    }
+
+    .node-param-output-row {
+      justify-content: flex-start;
+      padding: 2px 0;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .node-param-output-row .node-socket {
+      margin-right: -6px;
+    }
+
+    .node-param-vector3 { display: flex; gap: 2px; min-width: 0; }
+    .node-param-vector3 .node-param-value { width: 38px; }
+    .node-control-error { color: #ff9b9b; font-size: 11px; }
+
     .node-param-label {
       flex: none;
       font-size: 11px;

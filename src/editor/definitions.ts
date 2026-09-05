@@ -3,6 +3,17 @@ import type { NodeEditor } from 'rete'
 import type { Schemes } from './schemes'
 
 export type DefinitionKind = 'module'
+export type ModuleParameterType = 'number' | 'boolean' | 'vector3'
+export type ModuleParameterDefault = number | boolean | [number, number, number]
+
+/** Ordered semantic signature entry. Its id, rather than the mutable name,
+ * is the durable identity of the corresponding Inputs/Call port. */
+export interface ModuleParameter {
+  id: string
+  name: string
+  type: ModuleParameterType
+  default: ModuleParameterDefault
+}
 
 /** Runtime definition metadata. Node content remains authoritative in Rete;
  * this small registry owns stable definition identity and graph membership. */
@@ -12,9 +23,13 @@ export interface ModuleDefinition {
   name: string
   inputsNodeId: string
   outputNodeId: string
+  /** Always present for newly-created/restored definitions. Optional only at
+   * this TypeScript boundary so older test/embedder fixtures remain valid. */
+  parameters?: readonly ModuleParameter[]
 }
 
 export type ModuleNameProblem = 'empty' | 'identifier' | 'duplicate'
+export type ModuleParameterNameProblem = 'empty' | 'identifier' | 'duplicate'
 
 const MODULE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
 
@@ -22,6 +37,26 @@ export function moduleNameProblem(name: string, existingNames: Iterable<string>)
   if (!name.trim()) return 'empty'
   if (!MODULE_IDENTIFIER.test(name)) return 'identifier'
   return new Set(existingNames).has(name) ? 'duplicate' : null
+}
+
+export function moduleParameterNameProblem(name: string, existingNames: Iterable<string>): ModuleParameterNameProblem | null {
+  if (!name.trim()) return 'empty'
+  if (!MODULE_IDENTIFIER.test(name)) return 'identifier'
+  return new Set(existingNames).has(name) ? 'duplicate' : null
+}
+
+export function moduleParameterPortId(id: string): string { return `parameter:${id}` }
+
+export function defaultForModuleParameterType(type: ModuleParameterType): ModuleParameterDefault {
+  if (type === 'number') return 0
+  if (type === 'boolean') return false
+  return [0, 0, 0]
+}
+
+export function moduleParameterDefaultIsValid(type: ModuleParameterType, value: unknown): value is ModuleParameterDefault {
+  if (type === 'number') return typeof value === 'number' && Number.isFinite(value)
+  if (type === 'boolean') return typeof value === 'boolean'
+  return Array.isArray(value) && value.length === 3 && value.every((item) => typeof item === 'number' && Number.isFinite(item))
 }
 
 export class DefinitionRegistry {
@@ -72,11 +107,24 @@ export class DefinitionRegistry {
   }
 
   add(definition: ModuleDefinition): void {
+    validateModuleParameters(definition.parameters ?? [])
     this.definitions.set(definition.id, definition)
     this.scopes.set(definition.inputsNodeId, definition.id)
     this.scopes.set(definition.outputNodeId, definition.id)
     this.protectedNodeIds.add(definition.inputsNodeId)
     this.protectedNodeIds.add(definition.outputNodeId)
+    this.emit()
+  }
+
+  /** Signature additions are deliberately narrow in Phase 3. Keeping this
+   * registry operation atomic gives Phase 4 a single place to add the
+   * destructive rename/reorder/delete/type-change preflight later. */
+  addParameter(definitionId: string, parameter: ModuleParameter): void {
+    const definition = this.definitions.get(definitionId)
+    if (!definition) throw new Error(`Unknown Module definition "${definitionId}".`)
+    const parameters = definition.parameters ?? []
+    validateModuleParameters([...parameters, parameter])
+    this.definitions.set(definitionId, { ...definition, parameters: [...parameters, parameter] })
     this.emit()
   }
 
@@ -95,6 +143,20 @@ export class DefinitionRegistry {
 
   private emit(): void {
     for (const listener of this.listeners) listener()
+  }
+}
+
+export function validateModuleParameters(parameters: readonly ModuleParameter[]): void {
+  const ids = new Set<string>()
+  const names = new Set<string>()
+  for (const parameter of parameters) {
+    if (!parameter.id) throw new Error('Module parameter id must be non-empty.')
+    if (ids.has(parameter.id)) throw new Error(`Duplicate Module parameter id "${parameter.id}".`)
+    ids.add(parameter.id)
+    if (moduleParameterNameProblem(parameter.name, names) !== null) throw new Error(`Invalid or duplicate Module parameter name "${parameter.name}".`)
+    names.add(parameter.name)
+    if (!['number', 'boolean', 'vector3'].includes(parameter.type)) throw new Error(`Unsupported Module parameter type "${String(parameter.type)}".`)
+    if (!moduleParameterDefaultIsValid(parameter.type, parameter.default)) throw new Error(`Invalid default for Module parameter "${parameter.name}".`)
   }
 }
 

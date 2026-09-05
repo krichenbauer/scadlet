@@ -1356,8 +1356,24 @@ order before Main/Inspect geometry; unused definitions are declarations only,
 not top-level rendered geometry. `My Modules` entries create ordinary Main-only
 generic `module-call` nodes. A call persists `type: module-call` plus its
 stable `definitionId`, resolves the definition name for display/codegen, and
-produces ordinary Geometry. Parameters, nested Module Calls, Functions, and
-definition deletion remain later work.
+produces ordinary Geometry. Phase 3 adds an ordered parameter signature whose
+stable IDs define `parameter:<id>` ports: Number, Boolean, and Vector3
+parameters appear as typed Inputs outputs and typed Call inputs. Definitions
+own typed defaults; Calls own independent per-parameter fallbacks, with a
+connected value overriding but never erasing its fallback. Declarations and
+Calls emit parameters/arguments in signature order, and adding a parameter
+synchronizes existing Calls in place. Parameter-dependent internal Geometry
+and Value Inspect use generated default-argument Module wrappers rather than
+substituting literals into expressions in JavaScript.
+
+SCADlet sockets are anchored directly on node borders: inputs use the **left**
+border and outputs use the **right** border, while labels and inline editors
+remain inside the node body. Module Inputs, Module Call, and Module Output
+reuse exactly the same renderer convention as Translate and other existing
+nodes. Phase 4 may rename/reorder through stable IDs without retargeting
+wires; delete/type-change must first remove every affected wire cleanly. Its
+mutation UI is not implemented yet. Nested Module Calls, Functions, and other
+parameter types remain later work.
 
 Phase 2.1 interaction: ordinary transferable nodes/groups may change their
 explicit scope only on a completed ordinary-node drag. Dropping into a Module

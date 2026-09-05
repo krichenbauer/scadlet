@@ -23,7 +23,8 @@ import type { Vector3Params } from '../openscad/transform'
 import type { SocketType } from './sockets'
 import { t } from '../i18n/translate'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
-import { ModuleCallNode } from './nodes/module-call-node'
+import { ModuleCallNode, type ModuleCallParams } from './nodes/module-call-node'
+import type { ModuleDefinition, ModuleParameterDefault } from './definitions'
 
 /** MIME type used to carry a node-catalog `type` id through native HTML drag-and-drop (see `node-palette.ts`/`node-editor.ts`). */
 export const NODE_DRAG_MIME_TYPE = 'application/x-scadlet-node-type'
@@ -82,7 +83,7 @@ export interface NodeCreationContext {
   canRemoveInputs?(nodeId: string, inputKeys: readonly string[]): boolean
   /** Resolves a project-owned Module by its stable ID while constructing a
    * generic `module-call`; absent in DOM-free tests that never create calls. */
-  getModuleDefinition?(definitionId: string): { name: string } | undefined
+  getModuleDefinition?(definitionId: string): ModuleDefinition | undefined
 }
 
 export interface NodeCatalogEntry {
@@ -132,11 +133,13 @@ function validateEmptyParams(value: unknown): Record<string, never> {
   return {}
 }
 
-function validateModuleCallParams(value: unknown): { definitionId: string } {
+function validateModuleCallParams(value: unknown): ModuleCallParams {
   if (typeof value !== 'object' || value === null || Array.isArray(value) || typeof (value as Record<string, unknown>).definitionId !== 'string' || !(value as Record<string, unknown>).definitionId) {
     throw new Error('Invalid parameters: expected a non-empty "definitionId"')
   }
-  return { definitionId: (value as Record<string, unknown>).definitionId as string }
+  const raw = value as Record<string, unknown>
+  if (raw.arguments !== undefined && (typeof raw.arguments !== 'object' || raw.arguments === null || Array.isArray(raw.arguments))) throw new Error('Invalid parameters: "arguments" must be an object')
+  return { definitionId: raw.definitionId as string, ...(raw.arguments ? { arguments: raw.arguments as Record<string, ModuleParameterDefault> } : {}) }
 }
 
 function validateVariadicBooleanParams(value: unknown): VariadicBooleanParams {
@@ -238,11 +241,11 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
       const call = validateModuleCallParams(params)
       const definition = context.getModuleDefinition?.(call.definitionId)
       if (!definition) throw new Error(`Unknown Module definition "${call.definitionId}".`)
-      return new ModuleCallNode(call.definitionId, definition.name)
+      return new ModuleCallNode(definition, call, (id) => context.onControlsChanged(id))
     },
     matches: (node) => node instanceof ModuleCallNode,
-    serializeParams: (node) => ({ definitionId: (node as ModuleCallNode).definitionId }),
-    validateParams: validateModuleCallParams,
+    serializeParams: (node) => (node as ModuleCallNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateModuleCallParams(value) as unknown as Record<string, unknown>,
   },
   {
     type: 'module-inputs', category: 'values', labelKey: 'node.moduleInputs', palette: false, inputs: [], outputs: [],

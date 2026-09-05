@@ -1,4 +1,5 @@
 import type { Position } from '../editor/coordinates'
+import type { ModuleParameter } from '../editor/definitions'
 
 /** SCADlet's own project-file format identifier (see `parseScadletProject` in `validate.ts`). */
 export const SCADLET_FORMAT = 'scadlet' as const
@@ -65,6 +66,9 @@ export interface ScadletModuleDefinition {
     inputs: string
     output: string
   }
+  /** Ordered Module signature. Version 3 remains backward-compatible: old
+   * parameterless records normalize a missing array to `[]`. */
+  parameters: ModuleParameter[]
   graph: ScadletGraph
 }
 

@@ -4,7 +4,7 @@ import type { AreaPlugin } from 'rete-area-plugin'
 import type { ConnectionPlugin } from 'rete-connection-plugin'
 import { classicConnectionPath, getDOMSocketPosition } from 'rete-render-utils'
 
-import { CheckboxControl, LabeledNumberControl, LabeledTextControl, ParameterActionsControl, RepresentationSelectControl, SelectControl, type ParameterAction } from './controls'
+import { CheckboxControl, LabeledNumberControl, LabeledTextControl, ModuleParameterAddControl, ParameterActionsControl, RepresentationSelectControl, SelectControl, Vector3Control, type ParameterAction } from './controls'
 import { isEditableTarget } from './deletion'
 import { t } from '../i18n/translate'
 import type { InspectManager } from './inspect'
@@ -329,6 +329,7 @@ function renderNode(
   // expand whenever their geometry input was connected.
   const geometryInputs: [string, ClassicPreset.Input<ClassicPreset.Socket>][] = []
   const parameterInputs: [string, ClassicPreset.Input<ClassicPreset.Socket>][] = []
+  const parameterOutputs: [string, ClassicPreset.Output<ClassicPreset.Socket>][] = []
   for (const [key, input] of Object.entries(node.inputs)) {
     if (!input) continue
     if (input.socket.name === 'geometry') {
@@ -336,6 +337,9 @@ function renderNode(
     } else {
       parameterInputs.push([key, input])
     }
+  }
+  for (const [key, output] of Object.entries(node.outputs)) {
+    if (output && output.socket.name !== 'geometry' && key !== 'value') parameterOutputs.push([key, output])
   }
 
   // Keys of parameter inputs that map 1-to-1 to a control of the same key.
@@ -354,13 +358,13 @@ function renderNode(
   // of the compact node rather than hidden behind hover/pinning. Other
   // standalone controls retain the normal progressive-disclosure behavior.
   const alwaysVisibleControls = standaloneControls.filter(
-    ([key]) => Boolean(sourceNameControl) && key === 'value' && parameterInputs.length === 0,
+    ([key, control]) => (Boolean(sourceNameControl) && key === 'value' && parameterInputs.length === 0) || control instanceof ModuleParameterAddControl,
   )
   const expandableStandaloneControls = standaloneControls.filter(([key]) => !alwaysVisibleControls.some(([primary]) => primary === key))
 
   // A node has collapsible content if it has parameter inputs (whose rows can be shown/hidden)
   // or standalone controls (shown only when expanded). This drives pin-button visibility.
-  const hasCollapsibleContent = parameterInputs.length > 0 || expandableStandaloneControls.length > 0 || representationControls.length > 0
+  const hasCollapsibleContent = parameterInputs.length > 0 || parameterOutputs.length > 0 || expandableStandaloneControls.length > 0 || representationControls.length > 0
   // Rete remains authoritative for the semantic endpoint. Presentation keeps
   // compact expansion state, while this direct read ensures a freshly
   // committed snapped wire immediately disables its fallback literal even if
@@ -429,11 +433,11 @@ function renderNode(
   body.appendChild(renderHeader(node, presentation, hasCollapsibleContent, inspected, notifyDirty, sourceNameControl))
   main.appendChild(body)
 
-  if (Object.values(node.outputs).some(Boolean)) {
+  if (Object.entries(node.outputs).some(([key, output]) => Boolean(output) && (output!.socket.name === 'geometry' || key === 'value'))) {
     const outputs = document.createElement('div')
     outputs.className = 'node-outputs'
     for (const [key, output] of Object.entries(node.outputs)) {
-      if (!output) continue
+      if (!output || (output.socket.name !== 'geometry' && key !== 'value')) continue
       outputs.appendChild(renderPort(area, node.id, 'output', key, output.label, output.socket.name, key === 'value' ? { visibleLabel: '', accessibleLabel: output.label } : undefined))
     }
     main.appendChild(outputs)
@@ -481,6 +485,20 @@ function renderNode(
       )
     }
     element.appendChild(paramRows)
+  }
+
+  // Definition Inputs has typed value outputs rather than parameter inputs.
+  // These rows reuse the normal port renderer and border-anchor convention;
+  // only their semantic direction differs.
+  if (parameterOutputs.length > 0) {
+    const rows = document.createElement('div')
+    rows.className = 'node-param-output-rows'
+    for (const [key, output] of parameterOutputs) {
+      const row = renderPort(area, node.id, 'output', key, output.label, output.socket.name)
+      row.classList.add('node-param-output-row')
+      rows.appendChild(row)
+    }
+    element.appendChild(rows)
   }
 
   // Standalone controls (mode selects, checkboxes, add/remove actions): only when expanded.
@@ -708,10 +726,30 @@ function renderParamControlValue(control: ClassicPreset.Control, overridden: boo
     input.addEventListener('change', () => control.setValue(input.checked))
     return input
   }
+  if (control instanceof Vector3Control) {
+    const wrapper = document.createElement('span')
+    wrapper.className = 'node-param-vector3'
+    control.value.forEach((value, index) => {
+      const input = document.createElement('input')
+      input.type = 'number'
+      input.value = overridden ? '' : String(value)
+      input.disabled = overridden
+      input.className = 'node-param-value'
+      input.addEventListener('pointerdown', (event) => event.stopPropagation())
+      input.addEventListener('input', () => {
+        const next = [...control.value] as [number, number, number]
+        next[index] = input.valueAsNumber
+        control.setValue(next)
+      })
+      wrapper.appendChild(input)
+    })
+    return wrapper
+  }
   return null
 }
 
 function renderControl(key: string, control: ClassicPreset.Control, hideLabel = false): HTMLElement | null {
+  if (control instanceof ModuleParameterAddControl) return renderModuleParameterAddControl(control)
   if (control instanceof ParameterActionsControl) {
     const wrapper = document.createElement('div')
     wrapper.className = 'node-control node-control--actions'
@@ -803,6 +841,56 @@ function renderControl(key: string, control: ClassicPreset.Control, hideLabel = 
   }
 
   return null
+}
+
+function renderModuleParameterAddControl(control: ModuleParameterAddControl): HTMLElement {
+  const wrapper = document.createElement('div')
+  wrapper.className = 'node-control node-control--module-parameter'
+  if (!control.open) {
+    const add = document.createElement('button')
+    add.type = 'button'; add.textContent = t('definition.addParameter')
+    add.addEventListener('pointerdown', (event) => event.stopPropagation())
+    add.addEventListener('click', () => control.show())
+    wrapper.appendChild(add)
+    return wrapper
+  }
+  const name = document.createElement('input'); name.type = 'text'; name.placeholder = t('definition.parameterName'); name.value = control.name
+  name.setAttribute('aria-label', t('definition.parameterName'))
+  name.addEventListener('pointerdown', (event) => event.stopPropagation())
+  name.addEventListener('input', () => { control.name = name.value })
+  const type = document.createElement('select'); type.setAttribute('aria-label', t('definition.parameterType'))
+  for (const value of ['number', 'boolean', 'vector3'] as const) { const option = document.createElement('option'); option.value = value; option.textContent = value === 'vector3' ? 'Vector3' : value[0].toUpperCase() + value.slice(1); option.selected = control.type === value; type.appendChild(option) }
+  type.addEventListener('pointerdown', (event) => event.stopPropagation())
+  type.addEventListener('change', () => { control.type = type.value as typeof control.type; control.onChange() })
+  wrapper.append(name, type)
+  const defaultValue = control.type === 'boolean'
+    ? (() => { const input = document.createElement('input'); input.type = 'checkbox'; input.checked = control.defaultBoolean; input.setAttribute('aria-label', t('definition.parameterDefault')); input.addEventListener('change', () => { control.defaultBoolean = input.checked }); return input })()
+    : control.type === 'vector3'
+      ? renderVectorDefault(control)
+      : (() => { const input = document.createElement('input'); input.type = 'number'; input.value = String(control.defaultNumber); input.setAttribute('aria-label', t('definition.parameterDefault')); input.addEventListener('input', () => { control.defaultNumber = input.valueAsNumber }); return input })()
+  defaultValue.addEventListener('pointerdown', (event) => event.stopPropagation())
+  wrapper.appendChild(defaultValue)
+  const submit = document.createElement('button'); submit.type = 'button'; submit.textContent = t('definition.add')
+  submit.addEventListener('pointerdown', (event) => event.stopPropagation())
+  submit.addEventListener('click', () => {
+    void Promise.resolve(control.onSubmit({ name: control.name, type: control.type, default: control.type === 'number' ? control.defaultNumber : control.type === 'boolean' ? control.defaultBoolean : control.defaultVector }))
+      .then(() => control.hide())
+      .catch((error: unknown) => { control.error = error instanceof Error ? error.message : String(error); control.onChange() })
+  })
+  const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = t('definition.cancel'); cancel.addEventListener('pointerdown', (event) => event.stopPropagation()); cancel.addEventListener('click', () => control.hide())
+  wrapper.append(submit, cancel)
+  if (control.error) { const error = document.createElement('span'); error.className = 'node-control-error'; error.textContent = control.error; wrapper.appendChild(error) }
+  return wrapper
+}
+
+function renderVectorDefault(control: ModuleParameterAddControl): HTMLElement {
+  const wrapper = document.createElement('span')
+  control.defaultVector.forEach((value, index) => {
+    const input = document.createElement('input'); input.type = 'number'; input.value = String(value); input.setAttribute('aria-label', `${t('definition.parameterDefault')} ${index + 1}`)
+    input.addEventListener('input', () => { const next = [...control.defaultVector] as [number, number, number]; next[index] = input.valueAsNumber; control.defaultVector = next })
+    wrapper.appendChild(input)
+  })
+  return wrapper
 }
 
 function renderParameterAction(action: ParameterAction): HTMLElement {

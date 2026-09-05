@@ -1,5 +1,5 @@
 import { findCatalogEntry } from '../editor/node-catalog'
-import { moduleNameProblem } from '../editor/definitions'
+import { moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterPortId, moduleParameterNameProblem, type ModuleParameter, type ModuleParameterType } from '../editor/definitions'
 import {
   SCADLET_FORMAT,
   SCADLET_VERSION,
@@ -118,8 +118,8 @@ function migrateV2ToV3(raw: Record<string, unknown>): Record<string, unknown> {
 
 function validateV1(raw: Record<string, unknown>): ScadletProjectV1 {
   const metadata = validateMetadata(raw.metadata)
-  const graph = validateGraph(raw.graph, 'main')
   const definitions = validateDefinitions(raw.definitions)
+  const graph = validateGraph(raw.graph, 'main', undefined, definitions)
   const mainNodeIds = new Set(graph.nodes.map((node) => node.id))
   for (const definition of definitions) {
     for (const node of definition.graph.nodes) {
@@ -201,6 +201,8 @@ function validateConnection(
   index: number,
   seenIds: Set<string>,
   nodesById: Map<string, ScadletNodeDTO>,
+  definition?: Pick<ScadletModuleDefinition, 'interface' | 'parameters'>,
+  definitions: readonly ScadletModuleDefinition[] = [],
 ): ScadletConnectionDTO {
   if (!isPlainObject(raw)) throw new ScadletProjectError(`Connection at index ${index} must be an object.`)
 
@@ -224,16 +226,23 @@ function validateConnection(
   if (!targetNode) throw new ScadletProjectError(`Connection "${raw.id}" references missing target node "${target}"`)
 
   const sourceEntry = findCatalogEntry(sourceNode.type)!
-  if (!sourceEntry.outputs.includes(sourceOutput)) {
+  const targetEntry = findCatalogEntry(targetNode.type)!
+  const sourceDynamicType = sourceNode.type === 'module-inputs' && definition && sourceNode.id === definition.interface.inputs
+    ? parameterSocketType(definition.parameters, sourceOutput)
+    : undefined
+  const targetDefinition = targetNode.type === 'module-call'
+    ? definitions.find((definition) => definition.id === targetNode.parameters.definitionId)
+    : undefined
+  const targetDynamicType = targetDefinition ? parameterSocketType(targetDefinition.parameters, targetInput) : undefined
+  if (!sourceEntry.outputs.includes(sourceOutput) && !sourceDynamicType) {
     throw new ScadletProjectError(`Connection "${raw.id}" references unknown source port "${sourceOutput}" on node "${source}"`)
   }
-  const targetEntry = findCatalogEntry(targetNode.type)!
-  if (!targetEntry.inputs.includes(targetInput) && !targetEntry.isInputPort?.(targetInput, targetNode.parameters)) {
+  if (!targetEntry.inputs.includes(targetInput) && !targetEntry.isInputPort?.(targetInput, targetNode.parameters) && !targetDynamicType) {
     throw new ScadletProjectError(`Connection "${raw.id}" references unknown target port "${targetInput}" on node "${target}"`)
   }
 
-  const sourceType = sourceEntry.outputSocketType(sourceOutput)
-  const targetType = targetEntry.inputSocketType(targetInput, targetNode.parameters)
+  const sourceType = sourceDynamicType ?? sourceEntry.outputSocketType(sourceOutput)
+  const targetType = targetDynamicType ?? targetEntry.inputSocketType(targetInput, targetNode.parameters)
   if (!sourceType || !targetType || sourceType !== targetType) {
     throw new ScadletProjectError(
       `Connection "${raw.id}" has incompatible socket types: ${sourceType ?? 'unknown'} output cannot connect to ${targetType ?? 'unknown'} input.`,
@@ -243,7 +252,7 @@ function validateConnection(
   return { id: raw.id, source, sourceOutput, target, targetInput }
 }
 
-function validateGraph(raw: unknown, graphKind: 'main' | 'definition'): ScadletGraph {
+function validateGraph(raw: unknown, graphKind: 'main' | 'definition', definition?: Pick<ScadletModuleDefinition, 'interface' | 'parameters'>, definitions: readonly ScadletModuleDefinition[] = []): ScadletGraph {
   if (!isPlainObject(raw)) throw new ScadletProjectError('Project "graph" must be an object.')
 
   if (!Array.isArray(raw.nodes)) throw new ScadletProjectError('Project "graph.nodes" must be an array.')
@@ -254,7 +263,7 @@ function validateGraph(raw: unknown, graphKind: 'main' | 'definition'): ScadletG
   if (!Array.isArray(raw.connections)) throw new ScadletProjectError('Project "graph.connections" must be an array.')
   const seenConnectionIds = new Set<string>()
   const connections = raw.connections.map((connection, index) =>
-    validateConnection(connection, index, seenConnectionIds, nodesById),
+    validateConnection(connection, index, seenConnectionIds, nodesById, definition, definitions),
   )
 
   return { nodes, connections }
@@ -280,7 +289,8 @@ function validateDefinitions(raw: unknown): ScadletModuleDefinition[] {
     if (!isPlainObject(interfaceRoles) || typeof interfaceRoles.inputs !== 'string' || typeof interfaceRoles.output !== 'string') {
       throw new ScadletProjectError(`Module definition "${item.id}" has invalid interface roles.`)
     }
-    const graph = validateGraph(item.graph, 'definition')
+    const parameters = validateModuleParameters(item.parameters)
+    const graph = validateGraph(item.graph, 'definition', { interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output }, parameters })
     for (const node of graph.nodes) {
       if (seenNodeIds.has(node.id)) throw new ScadletProjectError(`Duplicate node id across definition graphs: "${node.id}"`)
       seenNodeIds.add(node.id)
@@ -298,6 +308,7 @@ function validateDefinitions(raw: unknown): ScadletModuleDefinition[] {
       kind: 'module',
       name: item.name,
       interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output },
+      parameters,
       graph,
     })
   }
@@ -315,7 +326,37 @@ function validateModuleCalls(graph: ScadletGraph, definitions: readonly ScadletM
     if (typeof definitionId !== 'string' || !definitionIds.has(definitionId)) {
       throw new ScadletProjectError(`Module Call node "${node.id}" references unknown Module definition "${String(definitionId)}".`)
     }
+    const definition = definitions.find((item) => item.id === definitionId)!
+    const argumentsValue = node.parameters.arguments ?? {}
+    if (typeof argumentsValue !== 'object' || argumentsValue === null || Array.isArray(argumentsValue)) throw new ScadletProjectError(`Module Call node "${node.id}" has invalid argument fallbacks.`)
+    for (const [parameterId, value] of Object.entries(argumentsValue)) {
+      const parameter = definition.parameters.find((item) => item.id === parameterId)
+      if (!parameter) throw new ScadletProjectError(`Module Call node "${node.id}" has a fallback for unknown parameter "${parameterId}".`)
+      if (!moduleParameterDefaultIsValid(parameter.type, value)) throw new ScadletProjectError(`Module Call node "${node.id}" has an invalid fallback for parameter "${parameter.name}".`)
+    }
   }
+}
+
+function validateModuleParameters(raw: unknown): ModuleParameter[] {
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) throw new ScadletProjectError('Module "parameters" must be an array.')
+  const ids = new Set<string>(); const names = new Set<string>()
+  return raw.map((item, index) => {
+    if (!isPlainObject(item) || typeof item.id !== 'string' || !item.id || typeof item.name !== 'string') throw new ScadletProjectError(`Module parameter at index ${index} is invalid.`)
+    if (ids.has(item.id)) throw new ScadletProjectError(`Duplicate Module parameter id "${item.id}".`)
+    ids.add(item.id)
+    if (moduleParameterNameProblem(item.name, names) !== null) throw new ScadletProjectError(`Module parameter "${item.name}" has an invalid or duplicate name.`)
+    names.add(item.name)
+    if (item.type !== 'number' && item.type !== 'boolean' && item.type !== 'vector3') throw new ScadletProjectError(`Module parameter "${item.name}" has an unsupported type.`)
+    const type = item.type as ModuleParameterType
+    if (!moduleParameterDefaultIsValid(type, item.default)) throw new ScadletProjectError(`Module parameter "${item.name}" has an invalid default.`)
+    return { id: item.id, name: item.name, type, default: item.default }
+  })
+}
+
+function parameterSocketType(parameters: readonly ModuleParameter[], port: string): 'number' | 'boolean' | 'vector3' | undefined {
+  const parameter = parameters.find((item) => moduleParameterPortId(item.id) === port)
+  return parameter?.type
 }
 
 function validateEditorState(raw: unknown): ScadletEditorState {

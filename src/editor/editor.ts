@@ -20,9 +20,10 @@ import { socketType, type SocketType } from './sockets'
 import { guardPortRemoval, hasConnectedInputs, removeInputSafely, removeOutputSafely } from './port-lifecycle'
 import { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData } from './connection-compatibility'
-import { DefinitionRegistry, bindDefinitionRegistry, moduleNameProblem, type ModuleDefinition } from './definitions'
+import { DefinitionRegistry, bindDefinitionRegistry, moduleNameProblem, moduleParameterNameProblem, type ModuleDefinition, type ModuleParameter, type ModuleParameterDefault, type ModuleParameterType } from './definitions'
 import { attachDefinitionFrames, definitionFrameBounds, type DefinitionFrameBounds } from './definition-frames'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
+import { ModuleCallNode } from './nodes/module-call-node'
 import { scopeTransferProblem, type ScopeTransferProblem } from './scope-transfer'
 import { t } from '../i18n/translate'
 
@@ -65,6 +66,7 @@ export interface SCADletEditor {
   /** Sets a node's pinned state directly (used by `.scadlet` project restore) rather than toggling. */
   setPinned(nodeId: string, pinned: boolean): void
   createModule(name: string): Promise<ModuleDefinition>
+  addModuleParameter(definitionId: string, parameter: { name: string; type: ModuleParameterType; default: ModuleParameterDefault }): Promise<void>
   getDefinitions(): readonly ModuleDefinition[]
   getNodeScope(nodeId: string): string | null
   clearDefinitions(): void
@@ -221,6 +223,13 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     if (context.type === 'nodecreated') {
       const node = editor.getNode(context.data.id)
       if (node) guardPortRemoval(editor, node)
+      if (node instanceof ModuleInputsNode) {
+        const definitionId = definitions.scopeOf(node.id)
+        if (definitionId) node.configureParameterCreation(
+          () => void area.update('node', node.id),
+          (parameter) => void addModuleParameter(definitionId, parameter),
+        )
+      }
     }
     return context
   })
@@ -438,6 +447,29 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     getModuleDefinition: (definitionId) => definitions.get(definitionId),
   }
 
+  async function addModuleParameter(definitionId: string, input: { name: string; type: ModuleParameterType; default: ModuleParameterDefault }): Promise<void> {
+    const definition = definitions.get(definitionId)
+    if (!definition) throw new Error(`Unknown Module definition "${definitionId}".`)
+    const nameProblem = moduleParameterNameProblem(input.name, (definition.parameters ?? []).map((parameter) => parameter.name))
+    if (nameProblem) throw new Error(nameProblem === 'duplicate' ? t('definition.duplicateParameter') : t('definition.invalidParameter'))
+    const parameter: ModuleParameter = { id: crypto.randomUUID(), name: input.name, type: input.type, default: input.default }
+    // Mutation first, then every live projection. All following steps are
+    // synchronous structural additions, so calls can never render a partial
+    // signature between user actions.
+    definitions.addParameter(definitionId, parameter)
+    const updated = definitions.get(definitionId)!
+    const inputs = editor.getNode(updated.inputsNodeId)
+    if (inputs instanceof ModuleInputsNode) {
+      inputs.syncSignature(updated.parameters ?? [])
+      await area.update('node', inputs.id)
+    }
+    for (const node of editor.getNodes()) {
+      if (!(node instanceof ModuleCallNode) || node.definitionId !== definitionId) continue
+      node.syncSignature(updated.parameters ?? [])
+      await area.update('node', node.id)
+    }
+  }
+
   const definitionAt = (clientPosition: Position): string | null => {
     const rect = area.container.getBoundingClientRect()
     const graphPosition = clientToGraphPosition(clientPosition, rect, area.area.transform)
@@ -585,9 +617,10 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       name: normalized,
       inputsNodeId: crypto.randomUUID(),
       outputNodeId: crypto.randomUUID(),
+      parameters: [],
     }
     definitions.add(definition)
-    const inputs = new ModuleInputsNode()
+    const inputs = new ModuleInputsNode(definition.parameters)
     inputs.id = definition.inputsNodeId
     const output = new ModuleOutputNode()
     output.id = definition.outputNodeId
@@ -624,6 +657,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       notifyDirty()
     },
     createModule,
+    addModuleParameter,
     getDefinitions: () => definitions.list(),
     getNodeScope: (nodeId) => definitions.scopeOf(nodeId),
     clearDefinitions: () => definitions.clear(),

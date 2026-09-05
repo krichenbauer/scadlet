@@ -1026,7 +1026,7 @@ export class ScadletApp extends LitElement {
       this.exportSource = fullSource
 
       if (inspected.kind === 'value') {
-        const source = `echo("__SCADLET_VALUE__:", ${inspected.expression});`
+        const source = inspected.source ?? `echo("__SCADLET_VALUE__:", ${inspected.expression});`
         this.scadSource = source
         const value = await this.renderController.inspectValue(source)
         if (!this.executionGeneration.isCurrent(generation)) return

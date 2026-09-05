@@ -51,6 +51,38 @@ export class CheckboxControl extends ClassicPreset.Control {
   }
 }
 
+/** The existing three-number literal convention, packaged as one semantic
+ * Vector3 fallback for a Module Call parameter. */
+export class Vector3Control extends ClassicPreset.Control {
+  readonly label: string
+  value: [number, number, number]
+
+  constructor(label: string, initial: [number, number, number]) {
+    super()
+    this.label = label
+    this.value = [...initial] as [number, number, number]
+  }
+
+  setValue(value: [number, number, number]): void { this.value = [...value] as [number, number, number] }
+}
+
+/** Compact inline creation state for the permanent Module Inputs node. It is
+ * intentionally only an add form; signature mutation UI belongs to Phase 4. */
+export class ModuleParameterAddControl extends ClassicPreset.Control {
+  open = false
+  name = ''
+  type: 'number' | 'boolean' | 'vector3' = 'number'
+  defaultNumber = 0
+  defaultBoolean = false
+  defaultVector: [number, number, number] = [0, 0, 0]
+  error: string | null = null
+  onChange: () => void
+  onSubmit: (value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => void | Promise<void>
+  constructor(onChange: () => void, onSubmit: (value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => void | Promise<void>) { super(); this.onChange = onChange; this.onSubmit = onSubmit }
+  show(): void { this.open = true; this.error = null; this.onChange() }
+  hide(): void { this.open = false; this.onChange() }
+}
+
 /**
  * A labeled dropdown for choosing between a fixed set of mutually
  * exclusive modes (e.g. a cylinder's radius/diameter/tapered sizing).
