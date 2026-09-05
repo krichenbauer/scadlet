@@ -293,8 +293,10 @@ from its user-editable OpenSCAD-style `name`.
   node. The latter owns the one stable Geometry input `geometry`.
 - Ordinary catalog nodes may be created in this graph by dropping a static
   palette node into its frame. Their ownership is explicit in this enclosing
-  graph record, never inferred from their current coordinates; moving one
-  outside a frame does not migrate it to Main.
+  graph record, never inferred continuously from their current coordinates.
+  A completed ordinary-node drop may explicitly transfer a node/group between
+  this graph, another Module graph, and Main when its connections remain
+  scope-valid; the resulting enclosing graph is what persists.
 - Nodes and connections are contained in exactly one graph scope. A
   connection cannot cross between Main and a definition graph.
 - Definition-frame bounds are derived editor presentation from these member

@@ -77,6 +77,8 @@ const dictionaries: Record<LocaleId, Record<string, string>> = {
     'definition.invalidName': 'Module names must be valid identifiers.',
     'definition.duplicateName': 'A module with this name already exists.',
     'definition.moduleFrame': 'Module definition',
+    'definition.invalidScopeTransfer': 'Move connected nodes together or disconnect them first.',
+    'definition.moduleCallsMainOnly': 'Module Calls can only be placed in Main.',
     'input.base': 'Base',
     'input.subtract': 'Subtract',
     'input.geometryChild': 'Geometry child',

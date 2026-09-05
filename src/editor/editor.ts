@@ -23,6 +23,7 @@ import { canConnectSocketData } from './connection-compatibility'
 import { DefinitionRegistry, bindDefinitionRegistry, moduleNameProblem, type ModuleDefinition } from './definitions'
 import { attachDefinitionFrames, definitionFrameBounds } from './definition-frames'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
+import { scopeTransferProblem, type ScopeTransferProblem } from './scope-transfer'
 import { t } from '../i18n/translate'
 
 export interface SCADletEditor {
@@ -34,15 +35,12 @@ export interface SCADletEditor {
    * Creates a node of the given catalog type and places it so that
    * `clientPosition` (viewport coordinates, e.g. `event.clientX/Y`)
    * becomes its top-left origin in graph space. The single creation path
-   * used by both palette drag/drop and the click fallback (`addNodeAtCenter`).
+   * used by palette drag/drop.
    */
   addNodeAt(type: string, clientPosition: Position): Promise<void>
-  /** Creates a node of the given catalog type near the visible center of the canvas, without changing pan/zoom. */
-  addNodeAtCenter(type: string): Promise<void>
   /** Creates a generic Call node for a project Module in Main only. Drops
    * inside a definition frame are deliberately refused in Phase 2. */
   addModuleCallAt(definitionId: string, clientPosition: Position): Promise<boolean>
-  addModuleCallAtCenter(definitionId: string): Promise<boolean>
   /**
    * Evaluates the graph into OpenSCAD source. With no argument this is
    * the normal full-model evaluation (unchanged). Passing `rootNodeId`
@@ -260,6 +258,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   const semanticListeners = new Set<() => void>()
   const inspectListeners = new Set<(nodeId: string) => void>()
   let dirtySuspended = false
+  let activeScopeDrag: { nodeIds: string[]; startPositions: Map<string, Position>; moved: boolean } | null = null
+  let scopeDestination: { definitionId: string; valid: boolean } | null = null
   function notifyDirty(): void {
     if (dirtySuspended) return
     for (const listener of dirtyListeners) listener()
@@ -311,7 +311,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return context
   })
   area.addPipe((context) => {
-    if (isDirtyAreaSignal(context.type)) notifyDirty()
+    if (isDirtyAreaSignal(context.type) && !(context.type === 'nodetranslated' && activeScopeDrag)) notifyDirty()
     return context
   })
 
@@ -351,6 +351,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   const detachDefinitionFrames = attachDefinitionFrames(area, definitions, {
     select: selectDefinition,
     translateSelected: (dx, dy) => nodeSelection.translate(dx, dy),
+    scopeTransferState: (definitionId) => scopeDestination?.definitionId === definitionId
+      ? scopeDestination.valid ? 'valid' : 'invalid'
+      : null,
   })
 
   AreaExtensions.simpleNodesOrder(area)
@@ -409,6 +412,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       connectionGesture.removeNode(context.data.id)
       presentation.remove(context.data.id)
       inspect.remove(context.data.id)
+      definitions.forgetNode(context.data.id)
     }
     return context
   })
@@ -439,6 +443,78 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return null
   }
 
+  const definitionAtGraphPosition = (graphPosition: Position, excludedNodeIds: ReadonlySet<string> = new Set()): string | null => {
+    for (const definition of [...definitions.list()].reverse()) {
+      const bounds = definitionFrameBounds(definitions, definition.id, (id) => area.nodeViews.get(id)?.position, excludedNodeIds)
+      if (bounds && graphPosition.x >= bounds.minX && graphPosition.x <= bounds.maxX && graphPosition.y >= bounds.minY && graphPosition.y <= bounds.maxY) return definition.id
+    }
+    return null
+  }
+
+  const feedback = document.createElement('div')
+  feedback.className = 'scope-transfer-feedback'
+  feedback.hidden = true
+  container.appendChild(feedback)
+  let feedbackTimer: number | undefined
+  const showScopeTransferFeedback = (problem: ScopeTransferProblem): void => {
+    feedback.textContent = t(problem === 'module-call' ? 'definition.moduleCallsMainOnly' : 'definition.invalidScopeTransfer')
+    feedback.hidden = false
+    if (feedbackTimer !== undefined) window.clearTimeout(feedbackTimer)
+    feedbackTimer = window.setTimeout(() => { feedback.hidden = true }, 3500)
+  }
+  const updateScopeDestination = (graphPosition: Position): void => {
+    if (!activeScopeDrag) return
+    const definitionId = definitionAtGraphPosition(graphPosition, new Set(activeScopeDrag.nodeIds))
+    if (!definitionId) {
+      scopeDestination = null
+      return
+    }
+    scopeDestination = {
+      definitionId,
+      valid: scopeTransferProblem(editor, definitions, activeScopeDrag.nodeIds, definitionId) === null,
+    }
+  }
+  area.addPipe((context) => {
+    if (context.type === 'nodepicked') {
+      const nodeIds = editor.getNodes().filter((node) => node.selected).map((node) => node.id)
+      // A selected group moves as the one atomic transaction; an unselected
+      // node being picked is included even if Rete selection settles later.
+      if (!nodeIds.includes(context.data.id)) nodeIds.push(context.data.id)
+      // Permanent definition interfaces still move normally with Rete, but
+      // never enter the ordinary transferable-node gesture at all.
+      if (nodeIds.some((nodeId) => definitions.isProtectedNode(nodeId))) return context
+      activeScopeDrag = {
+        nodeIds,
+        startPositions: new Map(nodeIds.flatMap((id) => {
+          const position = area.nodeViews.get(id)?.position
+          return position ? [[id, { ...position }] as const] : []
+        })),
+        moved: false,
+      }
+    } else if (context.type === 'nodetranslated' && activeScopeDrag?.nodeIds.includes(context.data.id)) {
+      activeScopeDrag.moved = true
+    } else if (context.type === 'pointermove' && activeScopeDrag) {
+      updateScopeDestination(context.data.position)
+    } else if (context.type === 'pointerup' && activeScopeDrag) {
+      const drag = activeScopeDrag
+      const targetScope = definitionAtGraphPosition(context.data.position, new Set(drag.nodeIds))
+      const changingScope = drag.moved && drag.nodeIds.some((nodeId) => definitions.scopeOf(nodeId) !== targetScope)
+      const problem = changingScope ? scopeTransferProblem(editor, definitions, drag.nodeIds, targetScope) : null
+      scopeDestination = null
+      if (changingScope && problem) {
+        void Promise.all([...drag.startPositions].map(([nodeId, position]) => area.translate(nodeId, position))).then(() => {
+          if (activeScopeDrag === drag) activeScopeDrag = null
+          showScopeTransferFeedback(problem)
+        })
+      } else {
+        activeScopeDrag = null
+        if (changingScope) definitions.setNodeScopes(drag.nodeIds, targetScope)
+        else if (drag.moved) notifyDirty()
+      }
+    }
+    return context
+  })
+
   async function addNodeAt(type: string, clientPosition: Position, scope: string | null | undefined = undefined): Promise<void> {
     const entry = findCatalogEntry(type)
     if (!entry) return
@@ -455,11 +531,6 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     await area.translate(node.id, position)
   }
 
-  async function addNodeAtCenter(type: string): Promise<void> {
-    const rect = area.container.getBoundingClientRect()
-    await addNodeAt(type, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, null)
-  }
-
   async function addModuleCallAt(definitionId: string, clientPosition: Position): Promise<boolean> {
     if (!definitions.get(definitionId) || definitionAt(clientPosition) !== null) return false
     const entry = findCatalogEntry('module-call')!
@@ -467,25 +538,6 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     await editor.addNode(node)
     const rect = area.container.getBoundingClientRect()
     await area.translate(node.id, clientToGraphPosition(clientPosition, rect, area.area.transform))
-    return true
-  }
-
-  async function addModuleCallAtCenter(definitionId: string): Promise<boolean> {
-    const rect = area.container.getBoundingClientRect()
-    if (!definitions.get(definitionId)) return false
-    // A sidebar click is intentionally an unambiguous Main creation action,
-    // even when the visible center happens to lie inside a definition frame.
-    const node = findCatalogEntry('module-call')!.create(creationContext, { definitionId })
-    await editor.addNode(node)
-    const position = clientToGraphPosition(
-      { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, rect, area.area.transform,
-    )
-    const containingDefinition = definitionAt({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
-    if (containingDefinition) {
-      const bounds = definitionFrameBounds(definitions, containingDefinition, (id) => area.nodeViews.get(id)?.position)
-      if (bounds) position.x = bounds.maxX + 40
-    }
-    await area.translate(node.id, position)
     return true
   }
 
@@ -525,9 +577,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     area,
     creationContext,
     addNodeAt,
-    addNodeAtCenter,
     addModuleCallAt,
-    addModuleCallAtCenter,
     evaluate: (rootNodeId?: string) => evaluateOpenSCAD(editor, engine, rootNodeId, definitions),
     evaluateInspect: (nodeId) => evaluateInspectNode(editor, engine, nodeId, definitions),
     setInspectedValueResult: (nodeId, value) => inspect.setValueResult(nodeId, value),

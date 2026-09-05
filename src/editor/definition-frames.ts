@@ -11,6 +11,7 @@ const PADDING = { left: 42, top: 46, right: 42, bottom: 38 }
 export interface DefinitionFrameInteractions {
   select(definitionId: string): Promise<void>
   translateSelected(dx: number, dy: number): Promise<void>
+  scopeTransferState?(definitionId: string): 'valid' | 'invalid' | null
 }
 
 export interface DefinitionFrameBounds {
@@ -27,8 +28,10 @@ export function definitionFrameBounds(
   registry: DefinitionRegistry,
   definitionId: string,
   getPosition: (nodeId: string) => { x: number; y: number } | undefined,
+  excludedNodeIds: ReadonlySet<string> = new Set(),
 ): DefinitionFrameBounds | null {
   const positions = registry.nodeIds(definitionId)
+    .filter((nodeId) => !excludedNodeIds.has(nodeId))
     .map(getPosition)
     .filter((position): position is { x: number; y: number } => Boolean(position))
   if (positions.length === 0) return null
@@ -62,6 +65,8 @@ export function attachDefinitionFrames(
       if (!bounds) continue
       const frame = document.createElement('section')
       frame.className = 'definition-frame'
+      const scopeTransferState = interactions.scopeTransferState?.(definition.id)
+      if (scopeTransferState) frame.classList.add(`definition-frame--scope-${scopeTransferState}`)
       frame.dataset.definitionId = definition.id
       frame.setAttribute('role', 'group')
       frame.setAttribute('aria-label', `${t('definition.moduleFrame')} ${definition.name}`)

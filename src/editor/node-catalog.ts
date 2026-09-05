@@ -220,7 +220,7 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
  * created". The palette UI, the canvas drop handler, and the click
  * fallback all resolve a `NodeTypeId` through this catalog and call
  * `entry.create()` rather than duplicating per-node-type construction
- * logic (see `editor.ts`'s `addNodeAt`/`addNodeAtCenter`). `.scadlet`
+ * logic (see `editor.ts`'s `addNodeAt`). `.scadlet`
  * project persistence (`persistence/`) reuses the same catalog for both
  * directions: `serializeParams`/`matches` to save a live node, and
  * `validateParams`/`create(context, params)` to restore one.

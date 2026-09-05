@@ -425,8 +425,6 @@ export class ScadletApp extends LitElement {
         <node-palette
           .inert=${this.localInitializing}
           .modules=${this.moduleDefinitions}
-          @node-palette-pick=${this._onPalettePick}
-          @module-palette-pick=${this._onModulePalettePick}
           @new-module=${this._openModuleDialog}
         ></node-palette>
         <main style=${styleMap({ '--editor-width': this.editorWidth ? `${this.editorWidth}px` : undefined })}>
@@ -795,14 +793,6 @@ export class ScadletApp extends LitElement {
     const max = Math.max(MIN_VIEWER_HEIGHT, available - MIN_OUTPUT_HEIGHT)
     const y = event.detail.clientY - rect.top
     this.viewerHeight = Math.min(Math.max(y, MIN_VIEWER_HEIGHT), max)
-  }
-
-  private _onPalettePick(event: CustomEvent<{ type: string }>): void {
-    void this.nodeEditor.addNodeAtCenter(event.detail.type)
-  }
-
-  private _onModulePalettePick(event: CustomEvent<{ definitionId: string }>): void {
-    void this.nodeEditor.addModuleCallAtCenter(event.detail.definitionId)
   }
 
   private readonly _openModuleDialog = (): void => {

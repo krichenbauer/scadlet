@@ -18,7 +18,7 @@ async function renameProject(page: Page, name: string) {
 }
 
 async function addAndEditCube(page: Page, size: string) {
-  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  await dropPaletteNode(page, 'cube')
   const node = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   await expect(node).toHaveCount(1)
   await node.locator('.node-pin').click()
@@ -26,6 +26,48 @@ async function addAndEditCube(page: Page, size: string) {
   await node.getByRole('button', { name: 'XYZ', exact: true }).click()
   await node.locator('[data-param-key="sizeX"] input').fill(size)
   await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+}
+
+/** Graph-node palette entries are deliberately drag-only. This dispatches
+ * their native payload to the visible canvas center, the same drop path a
+ * user drag reaches, without retaining the removed click-to-add shortcut. */
+async function dropPaletteNode(page: Page, type: string, position?: { x: number; y: number }) {
+  const canvasBox = await page.locator('node-editor').boundingBox()
+  if (!canvasBox) throw new Error('Expected node-editor canvas')
+  const point = position ?? { x: canvasBox.x + canvasBox.width / 2, y: canvasBox.y + canvasBox.height / 2 }
+  await page.evaluate(({ type, x, y }) => {
+    const editor = document.querySelector('scadlet-app')?.shadowRoot?.querySelector('node-editor')
+    const canvas = editor?.shadowRoot?.querySelector('#canvas')
+    if (!canvas) throw new Error('Expected node-editor canvas')
+    const dataTransfer = new DataTransfer()
+    dataTransfer.setData('application/x-scadlet-node-type', type)
+    canvas.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientX: x, clientY: y, dataTransfer }))
+    canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX: x, clientY: y, dataTransfer }))
+  }, { type, ...point })
+}
+
+async function dropModuleCall(page: Page, definitionId: string, position?: { x: number; y: number }) {
+  const canvasBox = await page.locator('node-editor').boundingBox()
+  if (!canvasBox) throw new Error('Expected node-editor canvas')
+  const point = position ?? { x: canvasBox.x + 40, y: canvasBox.y + canvasBox.height - 40 }
+  await page.evaluate(({ definitionId, x, y }) => {
+    const editor = document.querySelector('scadlet-app')?.shadowRoot?.querySelector('node-editor')
+    const canvas = editor?.shadowRoot?.querySelector('#canvas')
+    if (!canvas) throw new Error('Expected node-editor canvas')
+    const dataTransfer = new DataTransfer()
+    dataTransfer.setData('application/x-scadlet-module-call', definitionId)
+    canvas.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientX: x, clientY: y, dataTransfer }))
+    canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX: x, clientY: y, dataTransfer }))
+  }, { definitionId, ...point })
+}
+
+async function dragNodeTo(page: Page, node: Locator, target: { x: number; y: number }) {
+  const header = await node.locator('.node-header').boundingBox()
+  if (!header) throw new Error('Expected node header')
+  await page.mouse.move(header.x + 20, header.y + header.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(target.x, target.y, { steps: 8 })
+  await page.mouse.up()
 }
 
 test.beforeEach(async ({ context }) => {
@@ -49,7 +91,7 @@ test('creates, displays, protects, and restores a Module definition', async ({ p
   await waitForLocalLibrary(page)
   const categoryTitles = await page.locator('node-palette .category-title').allTextContents()
   expect(categoryTitles.indexOf('My Modules')).toBeGreaterThan(categoryTitles.indexOf('Math'))
-  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  await dropPaletteNode(page, 'cube')
   const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   const cubeBefore = await cube.boundingBox()
   if (!cubeBefore) throw new Error('Expected Main Cube')
@@ -174,15 +216,12 @@ test('creates, renders, inspects, and restores a parameterless Module Call', asy
 
   // Sidebar click remains an explicitly Main-only creation action and does
   // not create a second definition.
-  await page.locator('node-palette .module-item[data-definition-id]').click()
+  const definitionId = await frame.getAttribute('data-definition-id')
+  if (!definitionId) throw new Error('Expected Module definition id')
+  await dropModuleCall(page, definitionId)
   const call = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'wheel' }) })
   await expect(call).toHaveCount(1)
   await expect(call.locator('.node-port--output .node-socket[aria-label="Geometry"]')).toHaveCount(1)
-  const callBox = await call.boundingBox()
-  const refreshedFrameBox = await frame.boundingBox()
-  if (!callBox || !refreshedFrameBox) throw new Error('Expected separate Module Call and frame')
-  expect(callBox.x).toBeGreaterThan(refreshedFrameBox.x + refreshedFrameBox.width)
-
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(page.locator('scadlet-app .scad-output')).toContainText('module wheel()', { timeout: 15_000 })
   await expect(page.locator('scadlet-app .scad-output')).toContainText('cube();')
@@ -202,9 +241,54 @@ test('creates, renders, inspects, and restores a parameterless Module Call', asy
   await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
 })
 
+test('transfers ordinary nodes between Main and Module scopes only on drop', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  const editorBox = await page.locator('node-editor').boundingBox()
+  if (!editorBox) throw new Error('Expected node editor')
+  await page.getByRole('button', { name: '+ New module', exact: true }).click()
+  let dialog = page.getByRole('form', { name: 'Create module' })
+  await dialog.getByLabel('Module name').fill('wheel')
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+  const wheel = page.locator('node-editor .definition-frame').filter({ hasText: 'module wheel' })
+  const wheelId = await wheel.getAttribute('data-definition-id')
+  if (!wheelId) throw new Error('Expected wheel definition id')
+
+  await dropPaletteNode(page, 'sphere', { x: editorBox.x + editorBox.width - 100, y: editorBox.y + 100 })
+  const sphere = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Sphere' }) })
+  const mainBefore = await sphere.boundingBox()
+  const wheelBox = await wheel.boundingBox()
+  if (!mainBefore || !wheelBox) throw new Error('Expected Sphere and Module frame')
+  await dragNodeTo(page, sphere, { x: wheelBox.x + wheelBox.width / 2, y: wheelBox.y + wheelBox.height / 2 })
+  await expect(wheel).toHaveClass(/definition-frame--scope-valid/, { timeout: 1_000 }).catch(() => undefined)
+  const movedIntoWheel = await sphere.boundingBox()
+  if (!movedIntoWheel) throw new Error('Expected transferred Sphere')
+  expect(movedIntoWheel.x).toBeLessThan(wheelBox.x + wheelBox.width)
+  await wheel.locator('.definition-frame-title').click()
+  await expect(sphere).toHaveClass(/node--selected/)
+
+  // Clear the header's complete Module selection so direct node dragging
+  // moves just Sphere rather than the whole definition.
+  await page.mouse.click(editorBox.x + editorBox.width - 12, editorBox.y + editorBox.height - 12)
+  await dragNodeTo(page, sphere, { x: editorBox.x + 40, y: editorBox.y + editorBox.height - 80 })
+  const mainAfter = await sphere.boundingBox()
+  if (!mainAfter) throw new Error('Expected Sphere returned to Main')
+  expect(mainAfter.x).toBeLessThan(wheelBox.x)
+  await wheel.locator('.definition-frame-title').click()
+  await expect(sphere).not.toHaveClass(/node--selected/)
+
+  // A sidebar item is now only a draggable source. Its click is inert.
+  await page.locator('node-palette .module-item[data-definition-id]').click()
+  await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'wheel' }) })).toHaveCount(0)
+  await page.locator('node-palette .node-item').filter({ hasText: 'Cube' }).click()
+  await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })).toHaveCount(0)
+
+  await dropModuleCall(page, wheelId, { x: editorBox.x + 40, y: editorBox.y + editorBox.height - 40 })
+  await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'wheel' }) })).toHaveCount(1)
+})
+
 test('Cube Size add menu exposes one selected representation at a time', async ({ page }) => {
   await waitForLocalLibrary(page)
-  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  await dropPaletteNode(page, 'cube')
   const node = page.locator('node-editor .node').filter({ hasText: 'Cube' })
   await node.locator('.node-pin').click()
 
@@ -227,7 +311,7 @@ test('Cube Size add menu exposes one selected representation at a time', async (
 
 test('vector transforms expose one representation and Center has a Boolean row', async ({ page }) => {
   await waitForLocalLibrary(page)
-  await page.getByRole('button', { name: 'Translate', exact: true }).click()
+  await dropPaletteNode(page, 'translate')
   const translate = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Translate' }) })
   await translate.locator('.node-pin').click()
   await expect(translate.locator('[data-param-key="x"], [data-param-key="y"], [data-param-key="z"]')).toHaveCount(3)
@@ -239,7 +323,7 @@ test('vector transforms expose one representation and Center has a Boolean row',
   await translate.locator('.node-param-header select').selectOption('xyz')
   await expect(translate.locator('[data-param-key="x"] input')).toHaveValue('12')
 
-  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  await dropPaletteNode(page, 'cube')
   const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   await cube.locator('.node-pin').click()
   await cube.getByRole('button', { name: '+ Center', exact: true }).click()
@@ -249,13 +333,13 @@ test('vector transforms expose one representation and Center has a Boolean row',
 
 test('variadic Boolean nodes use compact localized child affordances', async ({ page }) => {
   await waitForLocalLibrary(page)
-  await page.getByRole('button', { name: 'Union', exact: true }).click()
+  await dropPaletteNode(page, 'union')
   const union = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Union' }) })
   await expect(union.locator('.node-port-label')).toHaveText('+')
   await expect(union.locator('.node-socket[aria-label="Add geometry child"]')).toHaveCount(1)
   await expect(union.getByText('Geometry child', { exact: true })).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Intersection', exact: true }).click()
+  await dropPaletteNode(page, 'intersection')
   const intersection = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Intersection' }) })
   await expect(intersection.locator('.node-port-label')).toHaveText('+')
   await expect(intersection.locator('.node-socket[aria-label="Add geometry child"]')).toHaveCount(1)
@@ -263,8 +347,8 @@ test('variadic Boolean nodes use compact localized child affordances', async ({ 
 
 test('typed value nodes remain compact and a Number drives Cube Size', async ({ page }) => {
   await waitForLocalLibrary(page)
-  await page.getByRole('button', { name: 'Number', exact: true }).click()
-  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  await dropPaletteNode(page, 'number')
+  await dropPaletteNode(page, 'cube')
   const number = page.locator('node-editor .node').filter({ has: page.locator('.node-header input.node-title') })
   const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   await expect(number.locator('.node-controls--primary input[type="number"]')).toBeVisible()
@@ -304,7 +388,7 @@ test('typed value nodes remain compact and a Number drives Cube Size', async ({ 
 
 test('source names persist and value Inspect evaluates Add headlessly through OpenSCAD', async ({ page }) => {
   await waitForLocalLibrary(page)
-  await page.getByRole('button', { name: 'Number', exact: true }).click()
+  await dropPaletteNode(page, 'number')
   const number = page.locator('node-editor .node').filter({ has: page.locator('.node-header input.node-title') })
   await number.locator('.node-header input.node-title').fill('Width')
   await number.locator('.node-header input.node-title').press('Tab')
@@ -319,7 +403,7 @@ test('source names persist and value Inspect evaluates Add headlessly through Op
   await restoredNumber.locator('.node-controls--primary').dblclick({ position: { x: 2, y: 2 } })
   await expect(restoredNumber.locator('.node-inspect-value')).toHaveText('= 10', { timeout: 15_000 })
 
-  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await dropPaletteNode(page, 'add')
   const add = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Add' }) })
   await add.locator('.node-pin').click()
   await add.locator('[data-param-key="a"] input').fill('5')
@@ -337,7 +421,7 @@ test('source names persist and value Inspect evaluates Add headlessly through Op
 
 test('Geometry Inspect renders the selected subtree immediately and Render returns to the full project', async ({ page }) => {
   await waitForLocalLibrary(page)
-  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  await dropPaletteNode(page, 'cube')
   const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   const cubeHeader = await cube.locator('.node-header').boundingBox()
   if (!cubeHeader) throw new Error('Expected Cube node header')
@@ -345,7 +429,7 @@ test('Geometry Inspect renders the selected subtree immediately and Render retur
   await page.mouse.down()
   await page.mouse.move(cubeHeader.x - 180, cubeHeader.y + cubeHeader.height / 2, { steps: 6 })
   await page.mouse.up()
-  await page.getByRole('button', { name: 'Sphere', exact: true }).click()
+  await dropPaletteNode(page, 'sphere')
 
   await cube.locator('.node-header').dblclick()
   await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
@@ -359,8 +443,8 @@ test('Geometry Inspect renders the selected subtree immediately and Render retur
 
 test('Boolean and Vector3 use editable source titles without redundant body labels', async ({ page }) => {
   await waitForLocalLibrary(page)
-  await page.getByRole('button', { name: 'Boolean', exact: true }).click()
-  await page.getByRole('button', { name: 'Vector3', exact: true }).click()
+  await dropPaletteNode(page, 'boolean')
+  await dropPaletteNode(page, 'vector3')
   const sources = page.locator('node-editor .node').filter({ has: page.locator('.node-header input.node-title') })
   const boolean = sources.nth(0)
   const vector = sources.nth(1)
@@ -380,7 +464,7 @@ test('Boolean and Vector3 use editable source titles without redundant body labe
 
 test('focused controls stay expanded and compatible wire hover temporarily reveals targets', async ({ page }) => {
   await waitForLocalLibrary(page)
-  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await dropPaletteNode(page, 'add')
   const add = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Add' }) })
   await add.hover()
   const addA = add.locator('[data-param-key="a"] input')
@@ -392,8 +476,8 @@ test('focused controls stay expanded and compatible wire hover temporarily revea
   await page.locator('scadlet-app header h1').click()
   await expect(addA).toBeHidden({ timeout: 2_000 })
 
-  await page.getByRole('button', { name: 'Number', exact: true }).click()
-  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  await dropPaletteNode(page, 'number')
+  await dropPaletteNode(page, 'cube')
   const number = page.locator('node-editor .node').filter({ has: page.locator('.node-header input.node-title') })
   const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   await cube.locator('.node-pin').click()
@@ -439,7 +523,7 @@ test('connection gestures disclose one compatible compact target repeatedly for 
     await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
     await cube.locator('.node-pin').click()
   }
-  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  await dropPaletteNode(page, 'cube')
   const cubes = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   const cubeAInitial = cubes.nth(0)
   const cubeAId = await cubeAInitial.getAttribute('data-node-id')
@@ -447,7 +531,7 @@ test('connection gestures disclose one compatible compact target repeatedly for 
   const cubeA = page.locator(`node-editor .node[data-node-id="${cubeAId}"]`)
   await configureScalarCube(cubeA)
   await moveNode(cubeA, 140, -90)
-  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  await dropPaletteNode(page, 'cube')
   const cubeBInitial = cubes.nth(1)
   const cubeBId = await cubeBInitial.getAttribute('data-node-id')
   if (!cubeBId) throw new Error('Expected Cube B id')
@@ -455,7 +539,7 @@ test('connection gestures disclose one compatible compact target repeatedly for 
   await configureScalarCube(cubeB)
   await moveNode(cubeB, 160, 110)
 
-  await page.getByRole('button', { name: 'Number', exact: true }).click()
+  await dropPaletteNode(page, 'number')
   const number = page.locator('node-editor .node').filter({ has: page.locator('.node-header input.node-title') })
 
   const source = await number.locator('.node-port--output .node-socket').boundingBox()
@@ -494,7 +578,7 @@ test('connection gestures disclose one compatible compact target repeatedly for 
 
   // A Vector3-only Cube representation is incompatible with this Number
   // wire and must not be exposed as a false target.
-  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  await dropPaletteNode(page, 'cube')
   const cubeInitial = cubes.last()
   const cubeId = await cubeInitial.getAttribute('data-node-id')
   if (!cubeId) throw new Error('Expected Vector Cube id')
@@ -514,8 +598,8 @@ test('connection gestures disclose one compatible compact target repeatedly for 
 
 test('a selected wire is transient and Delete removes only that connection', async ({ page }) => {
   await waitForLocalLibrary(page)
-  await page.getByRole('button', { name: 'Number', exact: true }).click()
-  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await dropPaletteNode(page, 'number')
+  await dropPaletteNode(page, 'add')
   const number = page.locator('node-editor .node').filter({ has: page.locator('.node-header input.node-title') })
   const add = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Add' }) })
   await add.locator('.node-pin').click()
@@ -557,7 +641,7 @@ test('connected compact rows preserve canonical order when expanded', async ({ p
   let numberIndex = 0
   const connectNumber = async (node: Locator, key: string, throughDisclosure = false) => {
     if (!throughDisclosure) await node.locator('.node-pin').click()
-    await page.getByRole('button', { name: 'Number', exact: true }).click()
+    await dropPaletteNode(page, 'number')
     const number = numberSources.nth(numberIndex++)
     const source = await number.locator('.node-port--output .node-socket').boundingBox()
     const header = await node.locator('.node-header').boundingBox()
@@ -581,7 +665,7 @@ test('connected compact rows preserve canonical order when expanded', async ({ p
     await expect.poll(() => visibleRowKeys(node), { timeout: 2_000 }).toEqual(expected)
   }
 
-  await page.getByRole('button', { name: 'Translate', exact: true }).click()
+  await dropPaletteNode(page, 'translate')
   const translate = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Translate' }) })
   await moveNode(translate, 190, -120)
   await connectNumber(translate, 'z', true)
@@ -597,7 +681,7 @@ test('connected compact rows preserve canonical order when expanded', async ({ p
 
   // Phase 1 disclosure combines with the connected compact row, but still
   // uses Translate's canonical X/Y/Z order rather than connected-first.
-  await page.getByRole('button', { name: 'Number', exact: true }).click()
+  await dropPaletteNode(page, 'number')
   const disclosureSource = numberSources.nth(numberIndex++)
   const disclosureSocket = await disclosureSource.locator('.node-port--output .node-socket').boundingBox()
   const translateHeader = await translate.locator('.node-header').boundingBox()
@@ -610,7 +694,7 @@ test('connected compact rows preserve canonical order when expanded', async ({ p
   await page.mouse.move(5, 200)
   await expect.poll(() => visibleRowKeys(translate), { timeout: 2_000 }).toEqual(['x', 'z'])
 
-  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await dropPaletteNode(page, 'add')
   const add = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Add' }) })
   await moveNode(add, 190, 0)
   await connectNumber(add, 'b')
@@ -640,7 +724,7 @@ test('Vector3 connected rows retain canonical order', async ({ page }) => {
   const connectNumber = async (node: Locator, key: string) => {
     if (numberIndex === 0) await node.locator('.node-pin').click()
     else await node.locator('.node-pin').click({ force: true })
-    await page.getByRole('button', { name: 'Number', exact: true }).click()
+    await dropPaletteNode(page, 'number')
     const number = numberSources.nth(numberIndex++)
     const source = await number.locator('.node-port--output .node-socket').boundingBox()
     const target = await node.locator(`[data-param-key="${key}"] .node-socket`).boundingBox()
@@ -658,7 +742,7 @@ test('Vector3 connected rows retain canonical order', async ({ page }) => {
     await expect.poll(() => visibleRowKeys(node), { timeout: 2_000 }).toEqual(expected)
   }
 
-  await page.getByRole('button', { name: 'Vector3', exact: true }).click()
+  await dropPaletteNode(page, 'vector3')
   const vector = page.locator('node-editor .node').filter({ has: page.locator('.node-header input.node-title') }).filter({ has: page.locator('[data-param-key="x"]') })
   await moveNode(vector, 190, 110)
   await connectNumber(vector, 'y')
@@ -687,7 +771,7 @@ test('Cube XYZ connected rows retain canonical order', async ({ page }) => {
     rows.filter((row) => !row.hidden).map((row) => row.getAttribute('data-param-key')),
   )
 
-  await page.getByRole('button', { name: 'Cube', exact: true }).click()
+  await dropPaletteNode(page, 'cube')
   const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   await cube.locator('.node-pin').click()
   await cube.getByText('+ Size', { exact: true }).click()
@@ -695,7 +779,7 @@ test('Cube XYZ connected rows retain canonical order', async ({ page }) => {
   await cube.locator('.node-pin').click()
   await moveNode(cube, 190, 210)
   await cube.locator('.node-pin').click()
-  await page.getByRole('button', { name: 'Number', exact: true }).click()
+  await dropPaletteNode(page, 'number')
   const number = page.locator('node-editor .node').filter({ has: page.locator('.node-header input[aria-label="Number Name"]') })
   const source = await number.locator('.node-port--output .node-socket').boundingBox()
   const target = await cube.locator('[data-param-key="sizeZ"] .node-socket').boundingBox()
@@ -736,7 +820,7 @@ test('keeps different projects active independently per tab and detects same-pro
   await expect(second.locator('scadlet-app .project-picker')).toHaveValue(projectAId)
   await second.getByRole('button', { name: 'New', exact: true }).click()
   await renameProject(second, 'Project B')
-  await second.getByRole('button', { name: 'Sphere', exact: true }).click()
+  await dropPaletteNode(second, 'sphere')
   await expect(second.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
   const projectBId = await second.locator('scadlet-app .project-picker').inputValue()
   expect(projectBId).not.toBe(projectAId)

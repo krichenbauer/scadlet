@@ -8,14 +8,11 @@ import { t } from '../i18n/translate'
  * A persistent, always-visible sidebar listing available node types,
  * grouped by category (see `NODE_CATEGORIES`/`NODE_CATALOG`). This is the
  * single place node types are listed in the UI - it never constructs
- * nodes itself, it only tells the surrounding app *what* the user picked:
+ * nodes itself; graph-node placement is always explicit drag-and-drop:
  *
  *  - drag: native HTML5 drag-and-drop carries the catalog `type` id as
  *    `NODE_DRAG_MIME_TYPE`; `<node-editor>` reads it on `drop` and
  *    converts the drop position into graph coordinates itself.
- *  - click (fallback): dispatches a `node-palette-pick` event with the
- *    same `type` id; the app shell asks the editor to place it near the
- *    visible canvas center.
  *
  * Labels are resolved through `t()` (see `src/i18n/translate.ts`) rather
  * than hardcoded strings, so a future German dictionary is a data change,
@@ -88,14 +85,14 @@ export class NodePaletteElement extends LitElement {
       <div class="category" aria-label=${t('definition.myModules')}>
         <div class="category-title">${t('definition.myModules')}</div>
         ${this.modules.map((module) => html`
-          <button
-            type="button"
+          <div
+            role="listitem"
             class="node-item module-item"
             data-definition-id=${module.id}
             draggable="true"
             @dragstart=${(event: DragEvent) => this._onModuleDragStart(event, module.id)}
-            @click=${() => this._onModulePick(module.id)}
-          >${module.name}</button>
+            aria-label=${module.name}
+          >${module.name}</div>
         `)}
         <button type="button" class="node-item" @click=${this._onNewModule}>${t('definition.newModule')}</button>
       </div>
@@ -111,15 +108,15 @@ export class NodePaletteElement extends LitElement {
         <div class="category-title">${t(category.labelKey)}</div>
         ${entries.map(
           (entry) => html`
-            <button
-              type="button"
+            <div
+              role="listitem"
               class="node-item"
               draggable="true"
               @dragstart=${(event: DragEvent) => this._onDragStart(event, entry.type)}
-              @click=${() => this._onPick(entry.type)}
+              aria-label=${t(entry.labelKey)}
             >
               ${t(entry.labelKey)}
-            </button>
+            </div>
           `,
         )}
       </div>
@@ -132,22 +129,10 @@ export class NodePaletteElement extends LitElement {
     event.dataTransfer.setData(NODE_DRAG_MIME_TYPE, type)
   }
 
-  private _onPick(type: string): void {
-    this.dispatchEvent(
-      new CustomEvent('node-palette-pick', { detail: { type }, bubbles: true, composed: true }),
-    )
-  }
-
   private _onModuleDragStart(event: DragEvent, definitionId: string): void {
     if (!event.dataTransfer) return
     event.dataTransfer.effectAllowed = 'copy'
     event.dataTransfer.setData(MODULE_CALL_DRAG_MIME_TYPE, definitionId)
-  }
-
-  private _onModulePick(definitionId: string): void {
-    this.dispatchEvent(
-      new CustomEvent('module-palette-pick', { detail: { definitionId }, bubbles: true, composed: true }),
-    )
   }
 
   private _onNewModule(): void {

@@ -1345,8 +1345,7 @@ Core model:
 
 Phase 2 status: Modules are persisted in `.scadlet` v3 as their own definition
 graph records. Dragging a built-in palette node into a Module frame assigns
-that node an explicit registry-owned Module scope at creation time; moving it
-later never changes that ownership. Same-Module connections are valid while
+that node an explicit registry-owned Module scope at creation time. Same-Module connections are valid while
 Main/Module and Module/Module cross-scope wires remain invalid. Frames derive
 their bounds and header group selection/movement from every scoped node, while
 only the permanent Inputs/Output interfaces are deletion-protected.
@@ -1359,6 +1358,18 @@ generic `module-call` nodes. A call persists `type: module-call` plus its
 stable `definitionId`, resolves the definition name for display/codegen, and
 produces ordinary Geometry. Parameters, nested Module Calls, Functions, and
 definition deletion remain later work.
+
+Phase 2.1 interaction: ordinary transferable nodes/groups may change their
+explicit scope only on a completed ordinary-node drag. Dropping into a Module
+frame targets that Module; dropping outside all frames targets Main. The
+transfer is atomic and preflights every touching connection under the proposed
+final scopes: any cross-scope result is rejected, positions are restored, and
+connections are never silently deleted. Permanent Inputs/Output nodes cannot
+transfer, and Module-frame header drags only translate existing members without
+reparenting them. Frames show valid/invalid drop feedback while dragging.
+Sidebar graph-node and Module-Call entries are drag-only so every placement has
+an explicit spatial destination; `+ New module` remains a click action because
+it creates a definition rather than placing a graph node.
 
 Phase 1.1 interaction: `My Modules` follows every built-in palette category.
 Clicking a Module frame header clears ordinary selection and selects every

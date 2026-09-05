@@ -6,6 +6,9 @@ import { DefinitionRegistry, bindDefinitionRegistry, moduleNameProblem } from '.
 import { removeNodeWithConnections } from './deletion'
 import { CubeNode } from './nodes/cube-node'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
+import { scopeTransferProblem } from './scope-transfer'
+import { TranslateNode } from './nodes/translate-node'
+import { ModuleCallNode } from './nodes/module-call-node'
 import type { Schemes } from './schemes'
 
 function definition() {
@@ -72,5 +75,43 @@ describe('Module definitions', () => {
     const created = await editor.addConnection(new ClassicPreset.Connection(cube, 'geometry', output, 'geometry') as Schemes['Connection'])
     expect(created).toBe(false)
     expect(editor.getConnections()).toEqual([])
+  })
+
+  it('preflights a selected connected group atomically before changing scope', async () => {
+    const editor = new NodeEditor<Schemes>()
+    const registry = new DefinitionRegistry()
+    registry.add(definition())
+    const cube = new CubeNode(); cube.id = 'cube'
+    const translate = new TranslateNode(); translate.id = 'translate'
+    await editor.addNode(cube)
+    await editor.addNode(translate)
+    await editor.addConnection(new ClassicPreset.Connection(cube, 'geometry', translate, 'geometry') as Schemes['Connection'])
+
+    expect(scopeTransferProblem(editor, registry, [cube.id], 'definition-wheel')).toBe('connection')
+    expect(scopeTransferProblem(editor, registry, [cube.id, translate.id], 'definition-wheel')).toBeNull()
+    registry.setNodeScopes([cube.id, translate.id], 'definition-wheel')
+    expect(registry.scopeOf(cube.id)).toBe('definition-wheel')
+    expect(registry.scopeOf(translate.id)).toBe('definition-wheel')
+    expect(editor.getConnections()).toHaveLength(1)
+  })
+
+  it('allows a connection-safe Module-to-Module transfer but never interfaces or Main-only calls', async () => {
+    const editor = new NodeEditor<Schemes>()
+    const registry = new DefinitionRegistry()
+    const wheel = definition()
+    const axle = { ...definition(), id: 'definition-axle', name: 'axle', inputsNodeId: 'axle-inputs', outputNodeId: 'axle-output' }
+    registry.add(wheel)
+    registry.add(axle)
+    const sphere = new CubeNode(); sphere.id = 'body-node'
+    const call = new ModuleCallNode(wheel.id, wheel.name); call.id = 'call'
+    await editor.addNode(sphere)
+    await editor.addNode(call)
+    registry.assignNode(wheel.id, sphere.id)
+
+    expect(scopeTransferProblem(editor, registry, [sphere.id], axle.id)).toBeNull()
+    registry.setNodeScopes([sphere.id], axle.id)
+    expect(registry.scopeOf(sphere.id)).toBe(axle.id)
+    expect(scopeTransferProblem(editor, registry, [wheel.inputsNodeId], null)).toBe('protected')
+    expect(scopeTransferProblem(editor, registry, [call.id], wheel.id)).toBe('module-call')
   })
 })

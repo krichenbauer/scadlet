@@ -58,6 +58,30 @@ export class NodeEditorElement extends LitElement {
       cursor: grabbing;
     }
 
+    .definition-frame--scope-valid {
+      border-color: #8be28b;
+      box-shadow: 0 0 0 2px rgb(139 226 139 / 0.35);
+    }
+
+    .definition-frame--scope-invalid {
+      border-color: #e58a8a;
+      box-shadow: 0 0 0 2px rgb(229 138 138 / 0.3);
+    }
+
+    .scope-transfer-feedback {
+      position: absolute;
+      z-index: 20;
+      left: 12px;
+      bottom: 12px;
+      max-width: 300px;
+      padding: 6px 9px;
+      border-radius: 4px;
+      background: rgb(64 30 30 / 0.96);
+      color: #ffd7d7;
+      font: 12px system-ui, sans-serif;
+      pointer-events: none;
+    }
+
     /*
      * Connector layout is normalized project-wide (AGENTS.md section 9)
      * AND structurally isolated from the expandable controls body: a
@@ -524,16 +548,8 @@ export class NodeEditorElement extends LitElement {
     await this.instance?.addNodeAt(type, clientPosition)
   }
 
-  async addNodeAtCenter(type: string): Promise<void> {
-    await this.instance?.addNodeAtCenter(type)
-  }
-
   async addModuleCallAt(definitionId: string, clientPosition: { x: number; y: number }): Promise<boolean> {
     return (await this.instance?.addModuleCallAt(definitionId, clientPosition)) ?? false
-  }
-
-  async addModuleCallAtCenter(definitionId: string): Promise<boolean> {
-    return (await this.instance?.addModuleCallAtCenter(definitionId)) ?? false
   }
 
   async evaluate(rootNodeId?: string): Promise<string> {

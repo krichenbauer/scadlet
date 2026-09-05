@@ -46,9 +46,28 @@ export class DefinitionRegistry {
   /** Assigns explicit, persistent semantic ownership. A frame's geometry is
    * never consulted after this creation/restore-time assignment. */
   assignNode(definitionId: string, nodeId: string): void {
-    if (!this.definitions.has(definitionId)) throw new Error(`Unknown Module definition "${definitionId}".`)
-    if (this.scopes.get(nodeId) === definitionId) return
-    this.scopes.set(nodeId, definitionId)
+    this.setNodeScopes([nodeId], definitionId)
+  }
+
+  /** Atomically changes a transferable set's ownership. `null` is Main's
+   * implicit scope. Callers preflight connections before invoking this, so
+   * the registry never represents a transient cross-scope graph. */
+  setNodeScopes(nodeIds: readonly string[], scope: string | null): void {
+    if (scope !== null && !this.definitions.has(scope)) throw new Error(`Unknown Module definition "${scope}".`)
+    if (nodeIds.every((nodeId) => this.scopeOf(nodeId) === scope)) return
+    if (nodeIds.some((nodeId) => this.protectedNodeIds.has(nodeId))) throw new Error('Module interface nodes cannot change scope.')
+    for (const nodeId of nodeIds) {
+      if (scope === null) this.scopes.delete(nodeId)
+      else this.scopes.set(nodeId, scope)
+    }
+    this.emit()
+  }
+
+  /** Removes a deleted ordinary node from scope membership. Interfaces are
+   * never deletable through the editor and remain definition infrastructure. */
+  forgetNode(nodeId: string): void {
+    if (!this.scopes.has(nodeId) || this.protectedNodeIds.has(nodeId)) return
+    this.scopes.delete(nodeId)
     this.emit()
   }
 
