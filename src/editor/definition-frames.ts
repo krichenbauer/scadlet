@@ -12,6 +12,10 @@ export interface DefinitionFrameInteractions {
   select(definitionId: string): Promise<void>
   translateSelected(dx: number, dy: number): Promise<void>
   scopeTransferState?(definitionId: string): 'valid' | 'invalid' | null
+  /** During an ordinary scope-transfer drag, the source frame stays at its
+   * start-of-drag bounds. This keeps its presentation and hit area stable
+   * while Rete moves the member nodes underneath it. */
+  scopeTransferFrameBounds?(definitionId: string): DefinitionFrameBounds | null
 }
 
 export interface DefinitionFrameBounds {
@@ -61,7 +65,8 @@ export function attachDefinitionFrames(
     layer.replaceChildren()
     const transform = area.area.transform
     for (const definition of registry.list()) {
-      const bounds = definitionFrameBounds(registry, definition.id, (id) => area.nodeViews.get(id)?.position)
+      const bounds = interactions.scopeTransferFrameBounds?.(definition.id)
+        ?? definitionFrameBounds(registry, definition.id, (id) => area.nodeViews.get(id)?.position)
       if (!bounds) continue
       const frame = document.createElement('section')
       frame.className = 'definition-frame'

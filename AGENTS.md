@@ -1367,6 +1367,11 @@ final scopes: any cross-scope result is rejected, positions are restored, and
 connections are never silently deleted. Permanent Inputs/Output nodes cannot
 transfer, and Module-frame header drags only translate existing members without
 reparenting them. Frames show valid/invalid drop feedback while dragging.
+During an ordinary drag that starts in a Module, its source frame uses stable
+start-of-drag bounds for both display and scope hit testing: the moving member
+must not expand or drag the source boundary along with it, and a clearly
+outside drop must therefore return it to Main. A different target Module still
+takes priority when it contains the drop point.
 Sidebar graph-node and Module-Call entries are drag-only so every placement has
 an explicit spatial destination; `+ New module` remains a click action because
 it creates a definition rather than placing a graph node.

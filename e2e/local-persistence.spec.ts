@@ -253,28 +253,46 @@ test('transfers ordinary nodes between Main and Module scopes only on drop', asy
   const wheelId = await wheel.getAttribute('data-definition-id')
   if (!wheelId) throw new Error('Expected wheel definition id')
 
-  await dropPaletteNode(page, 'sphere', { x: editorBox.x + editorBox.width - 100, y: editorBox.y + 100 })
+  // Create Sphere directly inside the Module. Its initial scope makes this a
+  // regression test for the former "own frame follows the node" trap: moving
+  // it away must leave a stable source boundary and permit a Main drop.
+  const initialWheelBox = await wheel.boundingBox()
+  if (!initialWheelBox) throw new Error('Expected Module frame')
+  await dropPaletteNode(page, 'sphere', { x: initialWheelBox.x + initialWheelBox.width / 2, y: initialWheelBox.y + initialWheelBox.height / 2 })
   const sphere = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Sphere' }) })
-  const mainBefore = await sphere.boundingBox()
-  const wheelBox = await wheel.boundingBox()
-  if (!mainBefore || !wheelBox) throw new Error('Expected Sphere and Module frame')
-  await dragNodeTo(page, sphere, { x: wheelBox.x + wheelBox.width / 2, y: wheelBox.y + wheelBox.height / 2 })
-  await expect(wheel).toHaveClass(/definition-frame--scope-valid/, { timeout: 1_000 }).catch(() => undefined)
-  const movedIntoWheel = await sphere.boundingBox()
-  if (!movedIntoWheel) throw new Error('Expected transferred Sphere')
-  expect(movedIntoWheel.x).toBeLessThan(wheelBox.x + wheelBox.width)
   await wheel.locator('.definition-frame-title').click()
   await expect(sphere).toHaveClass(/node--selected/)
 
   // Clear the header's complete Module selection so direct node dragging
   // moves just Sphere rather than the whole definition.
   await page.mouse.click(editorBox.x + editorBox.width - 12, editorBox.y + editorBox.height - 12)
-  await dragNodeTo(page, sphere, { x: editorBox.x + 40, y: editorBox.y + editorBox.height - 80 })
+  const wheelBox = await wheel.boundingBox()
+  const header = await sphere.locator('.node-header').boundingBox()
+  if (!wheelBox || !header) throw new Error('Expected Sphere and Module frame')
+  const mainDrop = { x: editorBox.x + 40, y: editorBox.y + editorBox.height - 80 }
+  await page.mouse.move(header.x + 20, header.y + header.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(mainDrop.x, mainDrop.y, { steps: 8 })
+  const sourceFrameWhileDragging = await wheel.boundingBox()
+  if (!sourceFrameWhileDragging) throw new Error('Expected stable Module frame during drag')
+  expect(sourceFrameWhileDragging.x).toBeCloseTo(wheelBox.x, 0)
+  expect(sourceFrameWhileDragging.y).toBeCloseTo(wheelBox.y, 0)
+  expect(sourceFrameWhileDragging.width).toBeCloseTo(wheelBox.width, 0)
+  expect(sourceFrameWhileDragging.height).toBeCloseTo(wheelBox.height, 0)
+  await page.mouse.up()
   const mainAfter = await sphere.boundingBox()
   if (!mainAfter) throw new Error('Expected Sphere returned to Main')
   expect(mainAfter.x).toBeLessThan(wheelBox.x)
   await wheel.locator('.definition-frame-title').click()
   await expect(sphere).not.toHaveClass(/node--selected/)
+
+  // The inverse path remains supported: after its successful Main drop, the
+  // same ordinary node can be assigned back to the Module by a later drag.
+  const currentWheelBox = await wheel.boundingBox()
+  if (!currentWheelBox) throw new Error('Expected Module frame')
+  await dragNodeTo(page, sphere, { x: currentWheelBox.x + currentWheelBox.width / 2, y: currentWheelBox.y + currentWheelBox.height / 2 })
+  await wheel.locator('.definition-frame-title').click()
+  await expect(sphere).toHaveClass(/node--selected/)
 
   // A sidebar item is now only a draggable source. Its click is inert.
   await page.locator('node-palette .module-item[data-definition-id]').click()

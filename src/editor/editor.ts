@@ -21,7 +21,7 @@ import { guardPortRemoval, hasConnectedInputs, removeInputSafely, removeOutputSa
 import { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData } from './connection-compatibility'
 import { DefinitionRegistry, bindDefinitionRegistry, moduleNameProblem, type ModuleDefinition } from './definitions'
-import { attachDefinitionFrames, definitionFrameBounds } from './definition-frames'
+import { attachDefinitionFrames, definitionFrameBounds, type DefinitionFrameBounds } from './definition-frames'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
 import { scopeTransferProblem, type ScopeTransferProblem } from './scope-transfer'
 import { t } from '../i18n/translate'
@@ -258,7 +258,15 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   const semanticListeners = new Set<() => void>()
   const inspectListeners = new Set<(nodeId: string) => void>()
   let dirtySuspended = false
-  let activeScopeDrag: { nodeIds: string[]; startPositions: Map<string, Position>; moved: boolean } | null = null
+  let activeScopeDrag: {
+    nodeIds: string[]
+    startPositions: Map<string, Position>
+    /** Frozen source boundaries prevent a moved member from taking its own
+     * source frame along for the drag, which would make dropping to Main
+     * impossible. */
+    sourceFrameBounds: Map<string, DefinitionFrameBounds>
+    moved: boolean
+  } | null = null
   let scopeDestination: { definitionId: string; valid: boolean } | null = null
   function notifyDirty(): void {
     if (dirtySuspended) return
@@ -354,6 +362,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     scopeTransferState: (definitionId) => scopeDestination?.definitionId === definitionId
       ? scopeDestination.valid ? 'valid' : 'invalid'
       : null,
+    scopeTransferFrameBounds: (definitionId) => activeScopeDrag?.sourceFrameBounds.get(definitionId) ?? null,
   })
 
   AreaExtensions.simpleNodesOrder(area)
@@ -443,10 +452,22 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return null
   }
 
-  const definitionAtGraphPosition = (graphPosition: Position, excludedNodeIds: ReadonlySet<string> = new Set()): string | null => {
+  const pointIsInsideDefinitionFrame = (graphPosition: Position, bounds: DefinitionFrameBounds): boolean =>
+    graphPosition.x >= bounds.minX && graphPosition.x <= bounds.maxX
+      && graphPosition.y >= bounds.minY && graphPosition.y <= bounds.maxY
+
+  const definitionAtGraphPosition = (graphPosition: Position, sourceFrameBounds: ReadonlyMap<string, DefinitionFrameBounds> = new Map()): string | null => {
+    // A different definition is the intended destination when frames overlap.
+    // Check those current (and therefore target) bounds before the frozen
+    // source bounds so an outgoing node can enter another Module directly.
     for (const definition of [...definitions.list()].reverse()) {
-      const bounds = definitionFrameBounds(definitions, definition.id, (id) => area.nodeViews.get(id)?.position, excludedNodeIds)
-      if (bounds && graphPosition.x >= bounds.minX && graphPosition.x <= bounds.maxX && graphPosition.y >= bounds.minY && graphPosition.y <= bounds.maxY) return definition.id
+      if (sourceFrameBounds.has(definition.id)) continue
+      const bounds = definitionFrameBounds(definitions, definition.id, (id) => area.nodeViews.get(id)?.position)
+      if (bounds && pointIsInsideDefinitionFrame(graphPosition, bounds)) return definition.id
+    }
+    for (const definition of [...definitions.list()].reverse()) {
+      const bounds = sourceFrameBounds.get(definition.id)
+      if (bounds && pointIsInsideDefinitionFrame(graphPosition, bounds)) return definition.id
     }
     return null
   }
@@ -464,7 +485,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   }
   const updateScopeDestination = (graphPosition: Position): void => {
     if (!activeScopeDrag) return
-    const definitionId = definitionAtGraphPosition(graphPosition, new Set(activeScopeDrag.nodeIds))
+    const definitionId = definitionAtGraphPosition(graphPosition, activeScopeDrag.sourceFrameBounds)
     if (!definitionId) {
       scopeDestination = null
       return
@@ -483,12 +504,18 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       // Permanent definition interfaces still move normally with Rete, but
       // never enter the ordinary transferable-node gesture at all.
       if (nodeIds.some((nodeId) => definitions.isProtectedNode(nodeId))) return context
+      const sourceFrameBounds = new Map<string, DefinitionFrameBounds>()
+      for (const definitionId of new Set(nodeIds.map((nodeId) => definitions.scopeOf(nodeId)).filter((id): id is string => id !== null))) {
+        const bounds = definitionFrameBounds(definitions, definitionId, (id) => area.nodeViews.get(id)?.position)
+        if (bounds) sourceFrameBounds.set(definitionId, bounds)
+      }
       activeScopeDrag = {
         nodeIds,
         startPositions: new Map(nodeIds.flatMap((id) => {
           const position = area.nodeViews.get(id)?.position
           return position ? [[id, { ...position }] as const] : []
         })),
+        sourceFrameBounds,
         moved: false,
       }
     } else if (context.type === 'nodetranslated' && activeScopeDrag?.nodeIds.includes(context.data.id)) {
@@ -497,13 +524,18 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       updateScopeDestination(context.data.position)
     } else if (context.type === 'pointerup' && activeScopeDrag) {
       const drag = activeScopeDrag
-      const targetScope = definitionAtGraphPosition(context.data.position, new Set(drag.nodeIds))
+      const targetScope = definitionAtGraphPosition(context.data.position, drag.sourceFrameBounds)
       const changingScope = drag.moved && drag.nodeIds.some((nodeId) => definitions.scopeOf(nodeId) !== targetScope)
       const problem = changingScope ? scopeTransferProblem(editor, definitions, drag.nodeIds, targetScope) : null
       scopeDestination = null
       if (changingScope && problem) {
         void Promise.all([...drag.startPositions].map(([nodeId, position]) => area.translate(nodeId, position))).then(() => {
-          if (activeScopeDrag === drag) activeScopeDrag = null
+          if (activeScopeDrag === drag) {
+            activeScopeDrag = null
+            // The rollback completes after the pointerup frame has rendered,
+            // so explicitly schedule one more frame with live bounds.
+            void area.update('node', drag.nodeIds[0])
+          }
           showScopeTransferFeedback(problem)
         })
       } else {
