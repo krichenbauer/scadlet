@@ -192,5 +192,6 @@ describe('IndexedDBLocalProjectStore', () => {
     database.close()
 
     await expect(store.getProject('broken')).rejects.toBeInstanceOf(CorruptLocalProjectError)
+    await expect(store.listProjects()).resolves.toContainEqual(expect.objectContaining({ id: 'broken', name: 'Unreadable project' }))
   })
 })

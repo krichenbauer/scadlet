@@ -137,6 +137,25 @@ function requireStoredRecord(value: unknown, knownId?: string): StoredProjectRec
   }
 }
 
+/** Listing is deliberately less strict than opening. A malformed project
+ * must remain visible so a learner can select another project or delete the
+ * bad record; only opening it parses the canonical payload. */
+function storedSummary(value: unknown): ProjectSummary | null {
+  if (!isRecord(value) || typeof value.id !== 'string' || !value.id) return null
+  const project = isRecord(value.project) ? value.project : undefined
+  const metadata = project && isRecord(project.metadata) ? project.metadata : undefined
+  const name = metadata && typeof metadata.name === 'string' && metadata.name.trim()
+    ? metadata.name
+    : 'Unreadable project'
+  return {
+    id: value.id,
+    revision: Number.isInteger(value.revision) && (value.revision as number) >= 1 ? value.revision as number : 0,
+    createdAt: typeof value.createdAt === 'string' ? value.createdAt : '',
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : '',
+    name,
+  }
+}
+
 function asStoredProject(record: StoredProjectRecord): StoredProject {
   return {
     id: record.id,
@@ -191,8 +210,8 @@ export class IndexedDBLocalProjectStore implements LocalProjectStore {
     await transactionDone(transaction)
 
     return records
-      .map((record) => asStoredProject(requireStoredRecord(record)))
-      .map(({ project: _project, ...summary }) => summary)
+      .map((record) => storedSummary(record))
+      .filter((record): record is ProjectSummary => record !== null)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.name.localeCompare(b.name))
   }
 

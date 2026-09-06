@@ -452,6 +452,7 @@ export class NodeEditorElement extends LitElement {
     .node-param-output-row .node-socket {
       margin-right: -6px;
     }
+    .node-param-edit { margin-left: 2px; padding: 0 3px; }
 
     .node-param-vector3 { display: flex; gap: 2px; min-width: 0; }
     .node-param-vector3 .node-param-value { width: 38px; }

@@ -20,7 +20,7 @@ import { socketType, type SocketType } from './sockets'
 import { guardPortRemoval, hasConnectedInputs, removeInputSafely, removeOutputSafely } from './port-lifecycle'
 import { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData } from './connection-compatibility'
-import { DefinitionRegistry, bindDefinitionRegistry, moduleNameProblem, moduleParameterNameProblem, type ModuleDefinition, type ModuleParameter, type ModuleParameterDefault, type ModuleParameterType } from './definitions'
+import { DefinitionRegistry, bindDefinitionRegistry, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterNameProblem, type ModuleDefinition, type ModuleParameter, type ModuleParameterDefault, type ModuleParameterType } from './definitions'
 import { attachDefinitionFrames, definitionFrameBounds, type DefinitionFrameBounds } from './definition-frames'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
 import { ModuleCallNode } from './nodes/module-call-node'
@@ -67,6 +67,8 @@ export interface SCADletEditor {
   setPinned(nodeId: string, pinned: boolean): void
   createModule(name: string): Promise<ModuleDefinition>
   addModuleParameter(definitionId: string, parameter: { name: string; type: ModuleParameterType; default: ModuleParameterDefault }): Promise<void>
+  editModuleParameter(definitionId: string, parameterId: string, update: { name?: string; type?: ModuleParameterType; default?: ModuleParameterDefault; move?: -1 | 1 }): Promise<boolean>
+  deleteModuleParameter(definitionId: string, parameterId: string): Promise<boolean>
   getDefinitions(): readonly ModuleDefinition[]
   getNodeScope(nodeId: string): string | null
   clearDefinitions(): void
@@ -225,10 +227,16 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       if (node) guardPortRemoval(editor, node)
       if (node instanceof ModuleInputsNode) {
         const definitionId = definitions.scopeOf(node.id)
-        if (definitionId) node.configureParameterCreation(
-          () => void area.update('node', node.id),
-          (parameter) => void addModuleParameter(definitionId, parameter),
-        )
+        if (definitionId) {
+          const update = () => void area.update('node', node.id)
+          node.configureParameterCreation(update, (parameter) => addModuleParameter(definitionId, parameter))
+          node.configureParameterEditing(
+            update,
+            async (parameterId, change) => { await editModuleParameter(definitionId, parameterId, change) },
+            async (parameterId) => { await deleteModuleParameter(definitionId, parameterId) },
+            async (parameterId, move) => { await editModuleParameter(definitionId, parameterId, { move }) },
+          )
+        }
       }
     }
     return context
@@ -470,6 +478,71 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     }
   }
 
+  const signatureConnections = (definition: ModuleDefinition, parameterId: string) => {
+    const key = `parameter:${parameterId}`
+    return editor.getConnections().filter((connection) =>
+      (connection.source === definition.inputsNodeId && connection.sourceOutput === key)
+      || (editor.getNode(connection.target) instanceof ModuleCallNode
+        && (editor.getNode(connection.target) as ModuleCallNode).definitionId === definition.id
+        && connection.targetInput === key),
+    )
+  }
+
+  async function synchronizeModuleSignature(definition: ModuleDefinition, resetFallbackIds: ReadonlySet<string> = new Set()): Promise<void> {
+    const inputs = editor.getNode(definition.inputsNodeId)
+    if (inputs instanceof ModuleInputsNode) { inputs.syncSignature(definition.parameters ?? []); await area.update('node', inputs.id) }
+    for (const node of editor.getNodes()) {
+      if (node instanceof ModuleCallNode && node.definitionId === definition.id) {
+        node.syncSignature(definition.parameters ?? [], resetFallbackIds)
+        await area.update('node', node.id)
+      }
+    }
+  }
+
+  async function editModuleParameter(definitionId: string, parameterId: string, update: { name?: string; type?: ModuleParameterType; default?: ModuleParameterDefault; move?: -1 | 1 }): Promise<boolean> {
+    const definition = definitions.get(definitionId)
+    const parameters = definition?.parameters ?? []
+    const index = parameters.findIndex((parameter) => parameter.id === parameterId)
+    if (!definition || index < 0) return false
+    const previous = parameters[index]
+    const { move, ...changes } = update
+    const next = { ...previous, ...changes }
+    const typeChanged = next.type !== previous.type
+    const nextParameters = [...parameters]
+    nextParameters[index] = next
+    if (move) {
+      const destination = index + move
+      if (destination >= 0 && destination < nextParameters.length) {
+        const [moved] = nextParameters.splice(index, 1)
+        nextParameters.splice(destination, 0, moved)
+      }
+    }
+    const nameProblem = moduleParameterNameProblem(next.name, nextParameters.filter((parameter) => parameter.id !== parameterId).map((parameter) => parameter.name))
+    if (nameProblem) throw new Error(nameProblem === 'duplicate' ? t('definition.duplicateParameter') : t('definition.invalidParameter'))
+    if (!['number', 'boolean', 'vector3'].includes(next.type) || !moduleParameterDefaultIsValid(next.type, next.default)) throw new Error(t('definition.invalidParameterDefault'))
+    const doomed = typeChanged ? signatureConnections(definition, parameterId) : []
+    if (doomed.length > 0 && !window.confirm(t('definition.confirmTypeChange').replace('{name}', previous.name).replace('{count}', String(doomed.length)))) return false
+    if (doomed.length > 0) {
+      connection.drop(); connectionGesture.cancel()
+      for (const item of doomed) await editor.removeConnection(item.id)
+    }
+    definitions.setParameters(definitionId, nextParameters)
+    await synchronizeModuleSignature(definitions.get(definitionId)!, typeChanged ? new Set([parameterId]) : new Set())
+    return true
+  }
+
+  async function deleteModuleParameter(definitionId: string, parameterId: string): Promise<boolean> {
+    const definition = definitions.get(definitionId)
+    const parameter = definition?.parameters?.find((item) => item.id === parameterId)
+    if (!definition || !parameter) return false
+    const doomed = signatureConnections(definition, parameterId)
+    if (doomed.length > 0 && !window.confirm(t('definition.confirmDeleteParameter').replace('{name}', parameter.name).replace('{count}', String(doomed.length)))) return false
+    if (doomed.length > 0) { connection.drop(); connectionGesture.cancel(); for (const item of doomed) await editor.removeConnection(item.id) }
+    definitions.setParameters(definitionId, (definition.parameters ?? []).filter((item) => item.id !== parameterId))
+    await synchronizeModuleSignature(definitions.get(definitionId)!)
+    return true
+  }
+
   const definitionAt = (clientPosition: Position): string | null => {
     const rect = area.container.getBoundingClientRect()
     const graphPosition = clientToGraphPosition(clientPosition, rect, area.area.transform)
@@ -658,6 +731,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     },
     createModule,
     addModuleParameter,
+    editModuleParameter,
+    deleteModuleParameter,
     getDefinitions: () => definitions.list(),
     getNodeScope: (nodeId) => definitions.scopeOf(nodeId),
     clearDefinitions: () => definitions.clear(),

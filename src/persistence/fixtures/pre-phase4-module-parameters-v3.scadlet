@@ -1,0 +1,101 @@
+{
+  "format": "scadlet",
+  "version": 3,
+  "metadata": {
+    "name": "Historical parameterized wheel",
+    "createdAt": "2026-09-05T09:00:00.000Z",
+    "updatedAt": "2026-09-05T09:15:00.000Z"
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "main-radius-source",
+        "type": "number",
+        "position": { "x": -280, "y": 60 },
+        "parameters": { "value": 31, "name": "Call radius" }
+      },
+      {
+        "id": "main-wheel-call",
+        "type": "module-call",
+        "position": { "x": 40, "y": 60 },
+        "parameters": {
+          "definitionId": "definition-wheel",
+          "arguments": {
+            "radius-id": 19,
+            "center-id": false,
+            "offset-id": [8, 9, 10]
+          }
+        }
+      }
+    ],
+    "connections": [
+      {
+        "id": "call-radius-wire",
+        "source": "main-radius-source",
+        "sourceOutput": "value",
+        "target": "main-wheel-call",
+        "targetInput": "parameter:radius-id"
+      }
+    ]
+  },
+  "definitions": [
+    {
+      "id": "definition-wheel",
+      "kind": "module",
+      "name": "wheel",
+      "interface": {
+        "inputs": "wheel-inputs",
+        "output": "wheel-output"
+      },
+      "parameters": [
+        { "id": "radius-id", "name": "radius", "type": "number", "default": 12 },
+        { "id": "center-id", "name": "centered", "type": "boolean", "default": true },
+        { "id": "offset-id", "name": "offset", "type": "vector3", "default": [1, 2, 3] }
+      ],
+      "graph": {
+        "nodes": [
+          {
+            "id": "wheel-inputs",
+            "type": "module-inputs",
+            "position": { "x": 320, "y": -200 },
+            "parameters": {}
+          },
+          {
+            "id": "wheel-sphere",
+            "type": "sphere",
+            "position": { "x": 560, "y": -200 },
+            "parameters": { "mode": "radius", "r": 6 }
+          },
+          {
+            "id": "wheel-output",
+            "type": "module-output",
+            "position": { "x": 800, "y": -200 },
+            "parameters": {}
+          }
+        ],
+        "connections": [
+          {
+            "id": "wheel-radius-wire",
+            "source": "wheel-inputs",
+            "sourceOutput": "parameter:radius-id",
+            "target": "wheel-sphere",
+            "targetInput": "r"
+          },
+          {
+            "id": "wheel-body-wire",
+            "source": "wheel-sphere",
+            "sourceOutput": "geometry",
+            "target": "wheel-output",
+            "targetInput": "geometry"
+          }
+        ]
+      }
+    }
+  ],
+  "editor": {
+    "viewport": { "x": 120, "y": -80, "zoom": 1.1 }
+  },
+  "viewer": {
+    "camera": { "position": [80, 80, 60], "target": [0, 0, 0] }
+  }
+}

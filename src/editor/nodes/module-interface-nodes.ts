@@ -2,14 +2,14 @@ import { ClassicPreset } from 'rete'
 import type { DataflowNode } from 'rete-engine'
 
 import { t } from '../../i18n/translate'
-import { ModuleParameterAddControl } from '../controls'
+import { ModuleParameterAddControl, ModuleParameterEditControl } from '../controls'
 import { booleanSocket, geometrySocket, numberSocket, vector3Socket, type BooleanValue, type NumberValue, type Vector3Value } from '../sockets'
 import { moduleParameterPortId, type ModuleParameter } from '../definitions'
 
 /** The fixed parameter interface of a Module definition. Phase 1 has no
  * parameters yet, but the node is a real, stable part of that definition's
  * graph rather than a decorative frame label. */
-export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, Record<string, ClassicPreset.Socket>, { addParameter: ModuleParameterAddControl }> implements DataflowNode {
+export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, Record<string, ClassicPreset.Socket>, { addParameter: ModuleParameterAddControl; editParameter: ModuleParameterEditControl }> implements DataflowNode {
   private parameters: readonly ModuleParameter[]
   constructor(parameters: readonly ModuleParameter[] = []) {
     super(t('node.moduleInputs'))
@@ -19,6 +19,19 @@ export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, 
       () => {},
       () => {},
     ))
+    this.addControl('editParameter', new ModuleParameterEditControl(() => {}, () => {}))
+  }
+
+  configureParameterEditing(onChange: () => void, onSubmit: (id: string, value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => void | Promise<void>, onDelete: (id: string) => void | Promise<void>, onMove: (id: string, direction: -1 | 1) => void | Promise<void>): void {
+    const control = this.controls.editParameter
+    control.onChange = onChange
+    control.onSubmit = (value) => control.parameterId ? onSubmit(control.parameterId, value) : undefined
+    control.onDelete = onDelete; control.onMove = onMove
+  }
+
+  beginParameterEdit(id: string): void {
+    const index = this.parameters.findIndex((parameter) => parameter.id === id)
+    if (index >= 0) this.controls.editParameter.openParameter(this.parameters[index], index)
   }
 
   configureParameterCreation(onChange: () => void, onSubmit: (value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => void | Promise<void>): void {
@@ -28,8 +41,19 @@ export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, 
   }
 
   syncSignature(parameters: readonly ModuleParameter[]): void {
+    const next = new Map(parameters.map((parameter) => [moduleParameterPortId(parameter.id), parameter]))
+    for (const key of Object.keys(this.outputs)) {
+      if (!next.has(key)) this.removeOutput(key)
+      else if (this.outputs[key]?.socket.name !== socketName(next.get(key)!)) {
+        this.removeOutput(key)
+      }
+    }
     this.parameters = parameters
     this.materializeOutputs()
+    for (const parameter of parameters) {
+      const output = this.outputs[moduleParameterPortId(parameter.id)]
+      if (output) output.label = parameter.name
+    }
   }
 
   private materializeOutputs(): void {
@@ -44,6 +68,8 @@ export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, 
     return Object.fromEntries(this.parameters.map((parameter) => [moduleParameterPortId(parameter.id), { code: parameter.name }]))
   }
 }
+
+function socketName(parameter: ModuleParameter): string { return parameter.type }
 
 /** SCADlet's explicit Geometry body root for a Module definition. It is a
  * sink, not an OpenSCAD return statement, and intentionally has no output. */

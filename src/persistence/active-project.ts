@@ -1,4 +1,4 @@
-import type { LocalProjectStore, StoredProject } from './local-project-store'
+import { CorruptLocalProjectError, type LocalProjectStore, type StoredProject } from './local-project-store'
 import { createEmptyProject } from './project'
 
 export const ACTIVE_PROJECT_SESSION_KEY = 'scadlet.activeProjectId'
@@ -7,6 +7,19 @@ export interface SessionStorageLike {
   getItem(key: string): string | null
   setItem(key: string, value: string): void
   removeItem(key: string): void
+}
+
+/** The library itself is reachable, but a particular stored payload cannot
+ * be read. Keeping this distinct from IndexedDB failures lets the UI offer
+ * recovery instead of disabling all local projects. */
+export class StartupProjectLoadError extends Error {
+  readonly projectId: string
+
+  constructor(projectId: string, cause: unknown) {
+    super(`Could not load local project "${projectId}".`, { cause })
+    this.name = 'StartupProjectLoadError'
+    this.projectId = projectId
+  }
 }
 
 /** Tab-scoped active-project identity. Browser `sessionStorage` is deliberately used rather than shared `localStorage`. */
@@ -71,14 +84,28 @@ export async function resolveStartupProject(
 ): Promise<StoredProject> {
   const activeId = session.get()
   if (activeId) {
-    const active = await store.getProject(activeId)
+    let active: StoredProject | null
+    try {
+      active = await store.getProject(activeId)
+    } catch (error) {
+      if (error instanceof CorruptLocalProjectError) throw new StartupProjectLoadError(activeId, error)
+      throw error
+    }
     if (active) return active
     session.clear()
   }
 
-  const [mostRecent] = await store.listProjects()
-  if (mostRecent) {
-    const stored = await store.getProject(mostRecent.id)
+  const projects = await store.listProjects()
+  for (const mostRecent of projects) {
+    let stored: StoredProject | null
+    try {
+      stored = await store.getProject(mostRecent.id)
+    } catch (error) {
+      // A non-active malformed record does not prevent a different valid
+      // project from opening. IndexedDB access errors still propagate.
+      if (error instanceof CorruptLocalProjectError) continue
+      throw error
+    }
     if (stored) {
       session.set(stored.id)
       return stored

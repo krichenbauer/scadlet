@@ -41,6 +41,24 @@ describe('typed Module parameters', () => {
     expect(second.getArguments()['radius-id']).toBe(10)
   })
 
+  it('retains a stable port for rename/reorder and replaces only the changed type fallback', () => {
+    const inputs = new ModuleInputsNode(definition.parameters)
+    const call = new ModuleCallNode(definition)
+    const key = moduleParameterPortId('radius-id')
+    const originalInput = call.inputs[key]
+    const renamed = [{ id: 'radius-id', name: 'size', type: 'number' as const, default: 20 }, ...(definition.parameters ?? []).slice(1)]
+    inputs.syncSignature(renamed); call.syncSignature(renamed)
+    expect(call.inputs[key]).toBe(originalInput)
+    expect(call.inputs[key]?.label).toBe('size')
+    expect(call.getArguments()['radius-id']).toBe(10)
+
+    const retagged = [{ id: 'radius-id', name: 'size', type: 'vector3' as const, default: [1, 2, 3] as [number, number, number] }, ...renamed.slice(1)]
+    inputs.syncSignature(retagged); call.syncSignature(retagged, new Set(['radius-id']))
+    expect(inputs.outputs[key]?.socket.name).toBe('vector3')
+    expect(call.inputs[key]?.socket.name).toBe('vector3')
+    expect(call.getArguments()['radius-id']).toEqual([1, 2, 3])
+  })
+
   it('generates declarations, identifier expressions, named call arguments, and default-context Inspect source', async () => {
     const { editor, engine } = graph()
     const definitions = new DefinitionRegistry(); definitions.add(definition)

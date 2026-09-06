@@ -4,7 +4,8 @@ import type { AreaPlugin } from 'rete-area-plugin'
 import type { ConnectionPlugin } from 'rete-connection-plugin'
 import { classicConnectionPath, getDOMSocketPosition } from 'rete-render-utils'
 
-import { CheckboxControl, LabeledNumberControl, LabeledTextControl, ModuleParameterAddControl, ParameterActionsControl, RepresentationSelectControl, SelectControl, Vector3Control, type ParameterAction } from './controls'
+import { CheckboxControl, LabeledNumberControl, LabeledTextControl, ModuleParameterAddControl, ModuleParameterEditControl, ParameterActionsControl, RepresentationSelectControl, SelectControl, Vector3Control, type ParameterAction } from './controls'
+import { ModuleInputsNode } from './nodes/module-interface-nodes'
 import { isEditableTarget } from './deletion'
 import { t } from '../i18n/translate'
 import type { InspectManager } from './inspect'
@@ -358,7 +359,7 @@ function renderNode(
   // of the compact node rather than hidden behind hover/pinning. Other
   // standalone controls retain the normal progressive-disclosure behavior.
   const alwaysVisibleControls = standaloneControls.filter(
-    ([key, control]) => (Boolean(sourceNameControl) && key === 'value' && parameterInputs.length === 0) || control instanceof ModuleParameterAddControl,
+    ([key, control]) => (Boolean(sourceNameControl) && key === 'value' && parameterInputs.length === 0) || control instanceof ModuleParameterAddControl || (control instanceof ModuleParameterEditControl && control.open),
   )
   const expandableStandaloneControls = standaloneControls.filter(([key]) => !alwaysVisibleControls.some(([primary]) => primary === key))
 
@@ -496,6 +497,12 @@ function renderNode(
     for (const [key, output] of parameterOutputs) {
       const row = renderPort(area, node.id, 'output', key, output.label, output.socket.name)
       row.classList.add('node-param-output-row')
+      if (node instanceof ModuleInputsNode) {
+        const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'node-param-edit'; edit.textContent = '✎'; edit.setAttribute('aria-label', `Edit ${output.label ?? key}`)
+        edit.addEventListener('pointerdown', (event) => event.stopPropagation())
+        edit.addEventListener('click', () => node.beginParameterEdit(key.slice('parameter:'.length)))
+        row.appendChild(edit)
+      }
       rows.appendChild(row)
     }
     element.appendChild(rows)
@@ -749,6 +756,7 @@ function renderParamControlValue(control: ClassicPreset.Control, overridden: boo
 }
 
 function renderControl(key: string, control: ClassicPreset.Control, hideLabel = false): HTMLElement | null {
+  if (control instanceof ModuleParameterEditControl) return control.open ? renderModuleParameterEditControl(control) : null
   if (control instanceof ModuleParameterAddControl) return renderModuleParameterAddControl(control)
   if (control instanceof ParameterActionsControl) {
     const wrapper = document.createElement('div')
@@ -843,6 +851,19 @@ function renderControl(key: string, control: ClassicPreset.Control, hideLabel = 
   return null
 }
 
+function renderModuleParameterEditControl(control: ModuleParameterEditControl): HTMLElement {
+  const wrapper = renderModuleParameterAddControl(control)
+  if (!control.open || !control.parameterId) return wrapper
+  const id = control.parameterId
+  const up = document.createElement('button'); up.type = 'button'; up.textContent = '↑'; up.setAttribute('aria-label', 'Move parameter up'); up.disabled = control.order === 0
+  up.addEventListener('click', () => { void Promise.resolve(control.onMove(id, -1)).then(() => control.hide()) })
+  const down = document.createElement('button'); down.type = 'button'; down.textContent = '↓'; down.setAttribute('aria-label', 'Move parameter down')
+  down.addEventListener('click', () => { void Promise.resolve(control.onMove(id, 1)).then(() => control.hide()) })
+  const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = t('definition.deleteParameter'); remove.addEventListener('click', () => { void Promise.resolve(control.onDelete(id)).then(() => control.hide()) })
+  wrapper.append(up, down, remove)
+  return wrapper
+}
+
 function renderModuleParameterAddControl(control: ModuleParameterAddControl): HTMLElement {
   const wrapper = document.createElement('div')
   wrapper.className = 'node-control node-control--module-parameter'
@@ -861,7 +882,16 @@ function renderModuleParameterAddControl(control: ModuleParameterAddControl): HT
   const type = document.createElement('select'); type.setAttribute('aria-label', t('definition.parameterType'))
   for (const value of ['number', 'boolean', 'vector3'] as const) { const option = document.createElement('option'); option.value = value; option.textContent = value === 'vector3' ? 'Vector3' : value[0].toUpperCase() + value.slice(1); option.selected = control.type === value; type.appendChild(option) }
   type.addEventListener('pointerdown', (event) => event.stopPropagation())
-  type.addEventListener('change', () => { control.type = type.value as typeof control.type; control.onChange() })
+  type.addEventListener('change', () => {
+    control.type = type.value as typeof control.type
+    // A type change starts from that type's canonical valid literal; the
+    // user may still edit it before Save, but no stale incompatible default
+    // can accidentally be committed.
+    if (control.type === 'number') control.defaultNumber = 0
+    else if (control.type === 'boolean') control.defaultBoolean = false
+    else control.defaultVector = [0, 0, 0]
+    control.onChange()
+  })
   wrapper.append(name, type)
   const defaultValue = control.type === 'boolean'
     ? (() => { const input = document.createElement('input'); input.type = 'checkbox'; input.checked = control.defaultBoolean; input.setAttribute('aria-label', t('definition.parameterDefault')); input.addEventListener('change', () => { control.defaultBoolean = input.checked }); return input })()
@@ -870,7 +900,7 @@ function renderModuleParameterAddControl(control: ModuleParameterAddControl): HT
       : (() => { const input = document.createElement('input'); input.type = 'number'; input.value = String(control.defaultNumber); input.setAttribute('aria-label', t('definition.parameterDefault')); input.addEventListener('input', () => { control.defaultNumber = input.valueAsNumber }); return input })()
   defaultValue.addEventListener('pointerdown', (event) => event.stopPropagation())
   wrapper.appendChild(defaultValue)
-  const submit = document.createElement('button'); submit.type = 'button'; submit.textContent = t('definition.add')
+  const submit = document.createElement('button'); submit.type = 'button'; submit.textContent = control instanceof ModuleParameterEditControl ? t('definition.save') : t('definition.add')
   submit.addEventListener('pointerdown', (event) => event.stopPropagation())
   submit.addEventListener('click', () => {
     void Promise.resolve(control.onSubmit({ name: control.name, type: control.type, default: control.type === 'number' ? control.defaultNumber : control.type === 'boolean' ? control.defaultBoolean : control.defaultVector }))

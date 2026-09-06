@@ -295,10 +295,17 @@ from its user-editable OpenSCAD-style `name`.
 - `parameters` is an ordered signature. Each item has a stable non-empty
   `id`, a Module-unique OpenSCAD-style name, one of `number`, `boolean`, or
   `vector3`, and a matching finite literal default. Missing `parameters` in
-  an older v3 parameterless record is normalized to `[]`; writers include it.
+  a historically written parameterless v3 record is normalized to `[]`;
+  writers always include the array. The `module-inputs` node's own
+  `parameters` remains `{}` in both forms: its dynamic ports are derived from
+  the enclosing definition signature, never copied into node state.
 - Parameter port IDs are `parameter:<id>`, derived from the signature during
   restore rather than serialized as renderer sockets. Future rename/reorder
-  operations therefore preserve existing wires through the stable ID.
+operations therefore preserve existing wires through the stable ID.
+Type changes retain the parameter ID but reset every Call fallback for that ID
+to the new definition default after attached connections are removed. Deletion
+removes the ID and its Call fallback entries entirely. These Phase 4 edits do
+not change the v3 schema.
 - Each Module has exactly one `module-inputs` node and one `module-output`
   node. The latter owns the one stable Geometry input `geometry`.
 - Ordinary catalog nodes may be created in this graph by dropping a static
@@ -706,10 +713,9 @@ version = 1
 
 `parseScadletProject` routes on `version` through a single
 `migrateScadletProject(version, raw)` function
-(`src/persistence/validate.ts`). Today it only has one real branch
-(`version === 1`); a future version 2 would add a branch that converts an
-old-shaped raw object into the current shape before validating it, so
-that no other call site ever needs to know about historical versions:
+(`src/persistence/validate.ts`). v1 first migrates to v2, then v3; v2
+migrates directly to v3; v3 is normalized and validated in its current
+canonical form. No other call site needs to know about historical shapes:
 
 ```text
 v1 → migrate to v2 → migrate to v3 → validate against the current shape
@@ -740,6 +746,21 @@ meaning):
 Do not encode hypothetical future migrations into version-1 files, and do
 not silently accept an unknown future version - both are explicitly
 rejected by the current implementation.
+
+## Restore and local-library failure isolation
+
+Parsing/normalization completes before SCADlet replaces the live editor. It
+also prepares every node and dynamic Module port before clearing the current
+graph; an unexpected error while applying the prepared graph rolls back to the
+previous valid project. A failed load never becomes the active autosave target,
+so opening a project cannot overwrite its IndexedDB record merely by failing.
+
+IndexedDB access failures and individual project failures are intentionally
+separate. An invalid, incompatible, or editor-unrestorable record remains in
+the local library unchanged and visible for explicit deletion, while other
+projects can still be selected and new projects created. Only an actual
+IndexedDB initialization/access failure disables the local library and falls
+back to file-only use.
 
 ## Adding a new persistable node type
 

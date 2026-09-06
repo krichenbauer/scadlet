@@ -1,8 +1,49 @@
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
+const HISTORICAL_MODULE_PARAMETERS = JSON.parse(readFileSync(join(ROOT, 'src/persistence/fixtures/pre-phase4-module-parameters-v3.scadlet'), 'utf8'))
+
+async function replaceLocalProjects(page: Page, records: unknown[], activeProjectId: string) {
+  await page.evaluate(async ({ records, activeProjectId }) => {
+    const request = indexedDB.open('scadlet-projects')
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = database.transaction('projects', 'readwrite')
+    const store = transaction.objectStore('projects')
+    store.clear()
+    for (const record of records) store.put(record)
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+      transaction.onabort = () => reject(transaction.error)
+    })
+    database.close()
+    sessionStorage.setItem('scadlet.activeProjectId', activeProjectId)
+  }, { records, activeProjectId })
+}
+
+async function readLocalRecord(page: Page, id: string) {
+  return page.evaluate(async (projectId) => {
+    const request = indexedDB.open('scadlet-projects')
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = database.transaction('projects', 'readonly')
+    const get = transaction.objectStore('projects').get(projectId)
+    const record = await new Promise<unknown>((resolve, reject) => {
+      get.onsuccess = () => resolve(get.result)
+      get.onerror = () => reject(get.error)
+    })
+    database.close()
+    return record
+  }, id)
+}
 
 async function waitForLocalLibrary(page: Page) {
   await page.goto('/')
@@ -85,6 +126,69 @@ test('header exposes the SCADlet GitHub link', async ({ page }) => {
   await expect(link).toHaveAttribute('href', 'https://github.com/krichenbauer/scadlet')
   await expect(link).toHaveAttribute('target', '_blank')
   await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+})
+
+test('starts from the historical pre-Phase-4 v3 Module fixture without losing parameter ports or fallbacks', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  const project = structuredClone(HISTORICAL_MODULE_PARAMETERS)
+  await replaceLocalProjects(page, [{
+    id: 'historical-module-project', revision: 7,
+    createdAt: '2026-09-05T09:00:00.000Z', updatedAt: '2026-09-05T09:15:00.000Z', project,
+  }], 'historical-module-project')
+
+  await page.reload()
+  await expect(page.locator('scadlet-app .project-picker')).toBeEnabled()
+  await expect(page.locator('scadlet-app .project-picker')).toHaveValue('historical-module-project')
+  const inputs = page.locator('node-editor .node[data-node-id="wheel-inputs"]')
+  const call = page.locator('node-editor .node[data-node-id="main-wheel-call"]')
+  await expect(inputs.locator('.node-port--output')).toHaveCount(3)
+  await call.locator('.node-pin').click()
+  await expect(call.locator('.node-param-row')).toHaveCount(3)
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(3)
+
+  const savedName = page.locator('scadlet-app .project-name')
+  await savedName.fill('Historical wheel saved')
+  await savedName.press('Tab')
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  const saved = await readLocalRecord(page, 'historical-module-project') as { revision: number; project: typeof HISTORICAL_MODULE_PARAMETERS }
+  expect(saved.revision).toBeGreaterThan(7)
+  expect(saved.project.definitions[0].parameters).toEqual(project.definitions[0].parameters)
+  expect(saved.project.graph.nodes.find((node: { id: string }) => node.id === 'main-wheel-call').parameters.arguments).toEqual({
+    'radius-id': 19, 'center-id': false, 'offset-id': [8, 9, 10],
+  })
+})
+
+test('isolates a broken active record from the usable local library and never autosaves over it', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  const broken = structuredClone(HISTORICAL_MODULE_PARAMETERS)
+  broken.metadata.name = 'Broken recovery project'
+  broken.definitions[0].parameters[0].type = 'unsupported'
+  const valid = structuredClone(HISTORICAL_MODULE_PARAMETERS)
+  valid.metadata.name = 'Valid recovery project'
+  const brokenRecord = {
+    id: 'broken-project', revision: 4,
+    createdAt: '2026-09-05T09:00:00.000Z', updatedAt: '2026-09-05T09:15:00.000Z', project: broken,
+  }
+  await replaceLocalProjects(page, [
+    brokenRecord,
+    { id: 'valid-project', revision: 2, createdAt: '2026-09-05T09:00:00.000Z', updatedAt: '2026-09-05T09:16:00.000Z', project: valid },
+  ], 'broken-project')
+
+  await page.reload()
+  await expect(page.locator('scadlet-app .project-picker')).toBeEnabled()
+  await expect(page.locator('scadlet-app .project-picker option')).toHaveCount(2)
+  await expect(page.locator('scadlet-app .persistence-status')).toContainText('Could not load local project "Broken recovery project"')
+  await expect(page.locator('scadlet-app .persistence-status')).not.toContainText('storage is unavailable')
+  await page.waitForTimeout(1_100)
+  expect(await readLocalRecord(page, 'broken-project')).toEqual(brokenRecord)
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(page.locator('scadlet-app .project-picker')).toHaveValue('valid-project')
+  await expect(page.locator('scadlet-app .project-name')).toHaveValue('Valid recovery project')
+  await expect(page.locator('scadlet-app .project-picker option')).toHaveCount(1)
+  await page.getByRole('button', { name: 'New', exact: true }).click()
+  await expect(page.locator('scadlet-app .project-picker option')).toHaveCount(2)
 })
 
 test('creates, displays, protects, and restores a Module definition', async ({ page }) => {

@@ -83,6 +83,21 @@ export class ModuleParameterAddControl extends ClassicPreset.Control {
   hide(): void { this.open = false; this.onChange() }
 }
 
+export class ModuleParameterEditControl extends ModuleParameterAddControl {
+  parameterId: string | null = null
+  order = 0
+  onDelete: (id: string) => void | Promise<void> = () => {}
+  onMove: (id: string, direction: -1 | 1) => void | Promise<void> = () => {}
+  openParameter(parameter: { id: string; name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }, order: number): void {
+    this.parameterId = parameter.id; this.name = parameter.name; this.type = parameter.type; this.order = order; this.error = null; this.open = true
+    if (parameter.type === 'number') this.defaultNumber = parameter.default as number
+    else if (parameter.type === 'boolean') this.defaultBoolean = parameter.default as boolean
+    else this.defaultVector = [...parameter.default as [number, number, number]] as [number, number, number]
+    this.onChange()
+  }
+  override hide(): void { this.parameterId = null; super.hide() }
+}
+
 /**
  * A labeled dropdown for choosing between a fixed set of mutually
  * exclusive modes (e.g. a cylinder's radius/diameter/tapered sizing).

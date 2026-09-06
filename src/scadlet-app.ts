@@ -9,7 +9,7 @@ import './components/node-palette'
 import type { NodeEditorElement } from './components/node-editor'
 import type { GeometryViewer } from './components/geometry-viewer'
 import type { SCADletEditor } from './editor/editor'
-import { ActiveProjectSession, createBrowserActiveProjectSession, resolveStartupProject } from './persistence/active-project'
+import { ActiveProjectSession, createBrowserActiveProjectSession, resolveStartupProject, StartupProjectLoadError } from './persistence/active-project'
 import { AutosaveController, type AutosaveStatus } from './persistence/autosave'
 import { toScadletFilename } from './persistence/filename'
 import { createBrowserFileSystemCapability, pickFileWithInput, ProjectFileService } from './persistence/file-service'
@@ -312,6 +312,11 @@ export class ScadletApp extends LitElement {
   @state()
   private activeProjectId: string | null = null
 
+  /** A project which could not be opened remains a library record, but is
+   * never treated as the currently reconstructed editor state. */
+  @state()
+  private failedProject: ProjectSummary | null = null
+
   @state()
   private localInitializing = true
 
@@ -393,7 +398,7 @@ export class ScadletApp extends LitElement {
         <button
           type="button"
           @click=${this._deleteCurrentProject}
-          ?disabled=${this.localInitializing || !this.localStore || !this.activeProjectId}
+          ?disabled=${this.localInitializing || !this.localStore || (!this.activeProjectId && !this.failedProject)}
         >
           ${t('toolbar.delete')}
         </button>
@@ -493,12 +498,8 @@ export class ScadletApp extends LitElement {
     try {
       const store = new IndexedDBLocalProjectStore()
       const session = createBrowserActiveProjectSession()
-      const stored = await resolveStartupProject(store, session)
-
       this.localStore = store
       this.activeProjectSession = session
-      await this._applyStoredProject(stored, false)
-      this.moduleDefinitions = instance.getDefinitions()
 
       try {
         this.localEvents = new LocalProjectEvents()
@@ -507,6 +508,24 @@ export class ScadletApp extends LitElement {
         // Cross-tab notification is optional. IndexedDB's atomic
         // revision check still prevents stale writes without it.
         this.localEvents = null
+      }
+
+      let stored: StoredProject
+      try {
+        stored = await resolveStartupProject(store, session)
+        await this._applyStoredProject(stored, false)
+        this.moduleDefinitions = instance.getDefinitions()
+      } catch (error) {
+        await this._refreshProjectList()
+        const failedId = error instanceof StartupProjectLoadError ? error.projectId : this.activeProjectSession?.get() ?? null
+        const summary = this.localProjects.find((project) => project.id === failedId)
+        if (summary || error instanceof StartupProjectLoadError) {
+          this._recordStartupProjectLoadFailure(summary ?? {
+            id: failedId ?? 'unknown', name: 'Unreadable project', revision: 0, createdAt: '', updatedAt: '',
+          }, error)
+          return
+        }
+        throw error
       }
       await this._refreshProjectList()
       void this._requestPersistentStorageOnce()
@@ -526,6 +545,22 @@ export class ScadletApp extends LitElement {
       this.unsubscribeCameraDirty = this.viewer.onCameraChange(() => this._markDirty())
       this.localInitializing = false
     }
+  }
+
+  /** Keeps IndexedDB usable after one record fails validation or editor
+   * reconstruction. No active ID/autosave controller means this blank safe
+   * fallback can never write over the failed record. */
+  private _recordStartupProjectLoadFailure(project: ProjectSummary, error: unknown): void {
+    this.autosave?.destroy()
+    this.autosave = undefined
+    this.activeProjectId = null
+    this.activeRevision = 0
+    this.activeProjectSession?.clear()
+    this.failedProject = project
+    this.dirty = false
+    this.autosaveStatus = 'idle'
+    this.persistenceMessage = `Could not load local project "${project.name}". It was not changed: ${this._errorMessage(error)}`
+    this._clearRenderedOutput()
   }
 
   private _enableAutosave(instance: SCADletEditor): void {
@@ -575,6 +610,7 @@ export class ScadletApp extends LitElement {
     if (!this.editorInstance) throw new Error('The node editor is not ready.')
     await this._restoreProject(stored.project)
     this.activeProjectId = stored.id
+    this.failedProject = null
     this.activeRevision = stored.revision
     this.activeProjectSession?.set(stored.id)
     this.projectMetadata = stored.project.metadata
@@ -590,6 +626,7 @@ export class ScadletApp extends LitElement {
 
   private async _restoreProject(project: ScadletProjectV1): Promise<void> {
     const instance = this.editorInstance ?? (await this.nodeEditor.whenReady())
+    const rollbackProject = this._buildProject(instance)
     await instance.withDirtyTrackingSuspended(() =>
       restoreProject(project, {
         editor: instance.editor,
@@ -606,6 +643,7 @@ export class ScadletApp extends LitElement {
         clearDefinitions: () => instance.clearDefinitions(),
         registerDefinition: (definition) => instance.registerDefinition(definition),
         assignNodeToDefinition: (definitionId, nodeId) => instance.assignNodeToDefinition(definitionId, nodeId),
+        rollbackProject,
       }),
     )
   }
@@ -670,15 +708,18 @@ export class ScadletApp extends LitElement {
   }
 
   private async _deleteActiveProject(): Promise<void> {
-    if (!this.localStore || !this.activeProjectId) return
-    if (!window.confirm(`Delete "${this.projectMetadata.name}" from this browser? Exported files are not affected.`)) return
+    const projectId = this.activeProjectId ?? this.failedProject?.id
+    const projectName = this.activeProjectId ? this.projectMetadata.name : this.failedProject?.name
+    if (!this.localStore || !projectId || !projectName) return
+    if (!window.confirm(`Delete "${projectName}" from this browser? Exported files are not affected.`)) return
     if (!(await this._canLeaveCurrentProject())) return
 
-    const deletedId = this.activeProjectId
+    const deletedId = projectId
     try {
       await this.localStore.deleteProject(deletedId)
       this.activeProjectSession?.clear()
       this.localEvents?.publish({ type: 'project-deleted', projectId: deletedId })
+      this.failedProject = null
       const replacement = await resolveStartupProject(this.localStore, this.activeProjectSession!)
       await this._applyStoredProject(replacement)
       await this._refreshProjectList()

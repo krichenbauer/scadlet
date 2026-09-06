@@ -189,4 +189,39 @@ describe('restoreProject', () => {
 
     expect(notifyDirty).not.toHaveBeenCalled()
   })
+
+  it('rolls back to the previously valid project when applying a prepared replacement fails', async () => {
+    const { editor } = createGraph()
+    const original = parseScadletProject({
+      ...createEmptyProject('Original'),
+      graph: {
+        nodes: [{ id: 'original-cube', type: 'cube', position: { x: 1, y: 2 }, parameters: { size: 4 } }],
+        connections: [],
+      },
+    })
+    const replacement = parseScadletProject({
+      ...createEmptyProject('Replacement'),
+      graph: {
+        nodes: [{ id: 'replacement-cube', type: 'cube', position: { x: 3, y: 4 }, parameters: { size: 9 } }],
+        connections: [],
+      },
+    })
+    await restoreProject(original, { editor, creationContext: noopContext, setNodePosition: () => {} })
+
+    let failReplacementPosition = true
+    await expect(restoreProject(replacement, {
+      editor,
+      creationContext: noopContext,
+      rollbackProject: original,
+      setNodePosition: (id) => {
+        if (id === 'replacement-cube' && failReplacementPosition) {
+          failReplacementPosition = false
+          throw new Error('simulated position failure')
+        }
+      },
+    })).rejects.toThrow('simulated position failure')
+
+    expect(editor.getNodes().map((node) => node.id)).toEqual(['original-cube'])
+    expect(editor.getConnections()).toEqual([])
+  })
 })

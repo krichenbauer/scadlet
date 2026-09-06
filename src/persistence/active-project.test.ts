@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { ActiveProjectSession, resolveStartupProject, type SessionStorageLike } from './active-project'
-import type { LocalProjectStore, StoredProject } from './local-project-store'
+import { ActiveProjectSession, resolveStartupProject, StartupProjectLoadError, type SessionStorageLike } from './active-project'
+import { CorruptLocalProjectError, type LocalProjectStore, type StoredProject } from './local-project-store'
 import { createEmptyProject } from './project'
 
 class MemorySessionStorage implements SessionStorageLike {
@@ -84,5 +84,31 @@ describe('resolveStartupProject', () => {
     expect(result.id).toBe('new-id')
     expect(result.project.graph.nodes).toEqual([])
     expect(session.get()).toBe('new-id')
+  })
+
+  it('reports a corrupt active record as a project-load failure, not a store failure', async () => {
+    const session = new ActiveProjectSession(new MemorySessionStorage())
+    session.set('broken')
+    const store = fakeStore([stored('valid', 'Valid')])
+    vi.mocked(store.getProject).mockImplementation(async (id) => {
+      if (id === 'broken') throw new CorruptLocalProjectError(id, new Error('bad payload'))
+      return null
+    })
+    await expect(resolveStartupProject(store, session)).rejects.toMatchObject({
+      name: StartupProjectLoadError.name,
+      projectId: 'broken',
+    })
+  })
+
+  it('skips a corrupt non-active record and opens the next valid project', async () => {
+    const session = new ActiveProjectSession(new MemorySessionStorage())
+    const broken = stored('broken', 'Broken')
+    const valid = stored('valid', 'Valid')
+    const store = fakeStore([broken, valid])
+    vi.mocked(store.getProject).mockImplementation(async (id) => {
+      if (id === 'broken') throw new CorruptLocalProjectError(id, new Error('bad payload'))
+      return id === 'valid' ? valid : null
+    })
+    await expect(resolveStartupProject(store, session)).resolves.toMatchObject({ id: 'valid' })
   })
 })

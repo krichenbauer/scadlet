@@ -35,10 +35,23 @@ export class ModuleCallNode extends ClassicPreset.Node<Record<string, ClassicPre
     this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, t('input.geometry')))
   }
 
-  syncSignature(parameters: readonly ModuleParameter[]): void {
+  syncSignature(parameters: readonly ModuleParameter[], resetFallbackIds: ReadonlySet<string> = new Set()): void {
     const fallbacks = this.getArguments()
+    for (const id of resetFallbackIds) delete fallbacks[id]
+    const next = new Map(parameters.map((parameter) => [moduleParameterPortId(parameter.id), parameter]))
+    for (const key of Object.keys(this.inputs)) {
+      const parameter = next.get(key)
+      if (!parameter || this.inputs[key]?.socket.name !== parameter.type) {
+        this.removeInput(key)
+        this.removeControl(key)
+      }
+    }
     this.parameters = parameters
     this.materializeInputs(fallbacks)
+    for (const parameter of parameters) {
+      const input = this.inputs[moduleParameterPortId(parameter.id)]
+      if (input) input.label = parameter.name
+    }
     this.onControlsChanged?.(this.id)
   }
 

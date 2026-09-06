@@ -709,7 +709,7 @@ Project persistence (Milestone 5) is implemented and remains fully client-side. 
 
 ### Canonical `.scadlet` project format
 
-The canonical current `.scadlet` format (v2 after Milestone 6 migration) is documented in detail in
+The canonical current `.scadlet` format (v3 after Milestone 8 Modules migration) is documented in detail in
 `docs/scadlet-format.md`, generated from and kept aligned with the actual
 implementation (`src/persistence/`, `src/editor/node-catalog.ts`). Keep
 implementation, validation, and any future migrations consistent with
@@ -848,6 +848,18 @@ Current implementation choices:
 - Revision comparison and update happen atomically in one IndexedDB read/write transaction. Web Locks are not used because they do not add correctness beyond this transaction plus the authoritative revision check.
 - `BroadcastChannel` carries only create/save/delete identity and revision notifications. A same-project update blocks autosave and offers explicit reload or save-as-local-copy recovery; it never merges or overwrites automatically.
 - `navigator.storage.persist()` is requested once per tab after local storage is successfully established. Absence or denial is non-fatal, as is BroadcastChannel absence.
+- v3 Module parameter signatures are canonical at `definitions[].parameters`; the
+  corresponding `module-inputs` node intentionally persists `{}` and derives its
+  typed `parameter:<id>` outputs from that signature during restore. Historical
+  v3 parameterless definitions that omit `parameters` normalize to `[]`.
+- Project restore first validates and prepares all semantic nodes/ports before
+  replacing the live editor. An unexpected apply-time failure rolls the editor
+  back to its prior valid project. A failed record is never made active for
+  autosave.
+- A malformed/incompatible project record is a project-load failure, not a local
+  storage failure. The IndexedDB library remains available to select another
+  project, create a new one, or explicitly delete the failed record; only an
+  actual IndexedDB access/initialization failure enables degraded file-only mode.
 
 ### Multiple tabs/windows
 
@@ -1371,9 +1383,13 @@ border and outputs use the **right** border, while labels and inline editors
 remain inside the node body. Module Inputs, Module Call, and Module Output
 reuse exactly the same renderer convention as Translate and other existing
 nodes. Phase 4 may rename/reorder through stable IDs without retargeting
-wires; delete/type-change must first remove every affected wire cleanly. Its
-mutation UI is not implemented yet. Nested Module Calls, Functions, and other
-parameter types remain later work.
+wires; delete/type-change first preflight and, when connections are affected,
+ask for confirmation before removing only those affected wires through Rete's
+normal lifecycle. Rename, reorder, and default edits retain stable ports,
+wires, and Call fallbacks. A type change retains the ID but resets that
+parameter's Call fallbacks to its new definition default; deletion removes its
+ports, fallbacks, and attached wires. Nested Module Calls, Functions, and
+other parameter types remain later work.
 
 Phase 2.1 interaction: ordinary transferable nodes/groups may change their
 explicit scope only on a completed ordinary-node drag. Dropping into a Module

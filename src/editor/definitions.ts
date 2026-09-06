@@ -128,6 +128,16 @@ export class DefinitionRegistry {
     this.emit()
   }
 
+  /** Replaces one already-validated signature atomically. Stable IDs are
+   * deliberately retained by callers for every edit except deletion. */
+  setParameters(definitionId: string, parameters: readonly ModuleParameter[]): void {
+    const definition = this.definitions.get(definitionId)
+    if (!definition) throw new Error(`Unknown Module definition "${definitionId}".`)
+    validateModuleParameters(parameters)
+    this.definitions.set(definitionId, { ...definition, parameters: [...parameters] })
+    this.emit()
+  }
+
   clear(): void {
     if (this.definitions.size === 0) return
     this.definitions.clear()
