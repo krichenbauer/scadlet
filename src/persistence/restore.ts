@@ -6,6 +6,7 @@ import type { Position } from '../editor/coordinates'
 import type { Schemes } from '../editor/schemes'
 import type { ModuleDefinition } from '../editor/definitions'
 import { ModuleInputsNode } from '../editor/nodes/module-interface-nodes'
+import { FunctionInputsNode, FunctionOutputNode } from '../editor/nodes/function-interface-nodes'
 import type { ScadletProjectV1, ScadletViewerCamera } from './project'
 
 /** Removes every node (and, transitively, every connection) currently in `editor`, one at a time, so per-node cleanup (presentation/inspect state - see `editor/editor.ts`'s `noderemoved` pipe) runs for each. */
@@ -101,7 +102,8 @@ function prepareRestorePlan(project: ScadletProjectV1, deps: RestoreProjectDeps)
     inputsNodeId: definition.interface.inputs,
     outputNodeId: definition.interface.output,
     parameters: definition.parameters,
-    geometryInputs: definition.geometryInputs,
+    geometryInputs: definition.kind === 'module' ? definition.geometryInputs : undefined,
+    resultType: definition.kind === 'function' ? definition.resultType : undefined,
   }))
   const definitionsById = new Map(definitions.map((definition) => [definition.id, definition]))
   const context: NodeCreationContext = {
@@ -116,7 +118,11 @@ function prepareRestorePlan(project: ScadletProjectV1, deps: RestoreProjectDeps)
     if (!entry) throw new Error(`Cannot restore node "${dto.id}": unknown type "${dto.type}"`)
     const node = dto.type === 'module-inputs'
       ? new ModuleInputsNode(definition?.parameters ?? [], definition?.geometryInputs ?? [])
-      : entry.create(context, dto.parameters)
+      : dto.type === 'function-inputs'
+        ? new FunctionInputsNode(definition?.parameters ?? [])
+        : dto.type === 'function-output'
+          ? new FunctionOutputNode(definition?.resultType)
+          : entry.create(context, dto.parameters)
     node.id = dto.id
     nodes.push({ dto, node, definitionId })
   }

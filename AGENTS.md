@@ -1498,6 +1498,54 @@ Persistence is part of Milestone 8. Extend/version `.scadlet` deliberately for p
 
 Do not expand this milestone into variables, `children()`, iteration, function literals/closures, generic macros, or a broad type system merely because the shared definition infrastructure makes them conceivable.
 
+Phase 7 adds user-defined Functions alongside Modules, sharing the same
+`DefinitionRegistry`/parameter-signature infrastructure (`kind: 'function'`).
+A Function has no Geometry inputs/`children()` semantics; its single Function
+Output input starts on a neutral/grey `unresolvedSocket` and is a deliberate,
+narrow exception to the generic diagonal-only compatibility rule
+(`connection-compatibility.ts`): it stays reachable for a Number, Boolean, or
+Vector3 source regardless of its own currently nominal socket, so
+`editor.ts`'s dedicated `connectioncreate` handler can run the actual
+infer/replace/confirm decision (rather than the generic rule silently
+rejecting a type-changing reconnection before that flow ever runs). Once
+resolved, the Output's real socket (and every Call's output socket) is
+swapped to match, exactly mirroring how a Module Call's parameter ports are
+swapped on a signature type change.
+
+Disconnecting a Function's only result connection returns it to the
+unresolved state. The chosen, documented behavior: existing Function Calls
+are **not deleted** - they remain in the graph with their output port reset
+to the same neutral/unresolved socket, and their own outgoing connections
+that become incompatible are removed through the same preflight/confirm flow
+used for an ordinary result-type change. New Calls cannot be created for an
+unresolved Function (the sidebar entry is visibly non-callable, and the
+`function-call` catalog entry's `create()` throws if asked to construct one
+against an unresolved definition) - this keeps "no misleading usable Call
+with an unknown output type" true without deleting a user's existing Call
+node/wiring the moment they're mid-edit on the Function body.
+
+Function scope validation reuses the same closed-vocabulary allowlist
+(`FUNCTION_GRAPH_ALLOWED_NODE_TYPES` in `node-catalog.ts`) at both node
+creation/drag-transfer time (`editor.ts`/`scope-transfer.ts`) and `.scadlet`
+file-validation time (`persistence/validate.ts`), so a Function's graph can
+never contain Geometry-producing/consuming nodes or any Module/Function Call
+through either path. Function Calls remain Main-only, exactly like Module
+Calls, and nested Module/Function Calls inside a Module or Function are
+Phase 8 work.
+
+Generated OpenSCAD emits every resolved Function's `function name(...) =
+expr;` declaration before Module declarations and Main (`evaluate.ts`), so
+generated source stays ready for Phase 8's cross-definition dependencies. An
+unresolved Function is a valid, saveable editor draft but is never emitted
+and cannot back a Call.
+
+The canonical `.scadlet` format is version 5 (`persistence/project.ts`):
+`ScadletFunctionDefinition` adds `kind: 'function'` and an optional
+`resultType`, omits `geometryInputs`, and otherwise reuses the exact same
+parameter-signature/interface-role shape as `ScadletModuleDefinition`. v4
+projects (Modules only) migrate to v5 unchanged, with an empty Function
+registry.
+
 ### Milestone 9 — Iteration
 
 Add a visual representation of repetition / OpenSCAD `for`.

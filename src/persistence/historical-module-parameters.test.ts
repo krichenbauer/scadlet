@@ -27,6 +27,7 @@ describe('historical v3 Module parameter persistence', () => {
   it('normalizes, restores, evaluates, and reserializes the pre-Phase-4 fixture without losing signature data', async () => {
     const project = historicalProject()
     const [definition] = project.definitions
+    if (definition.kind !== 'module') throw new Error('Expected a Module definition fixture.')
     expect(definition).toMatchObject({
       id: 'definition-wheel', name: 'wheel',
       parameters: [

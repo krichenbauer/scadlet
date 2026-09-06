@@ -13,6 +13,14 @@ export const numberSocket = new ClassicPreset.Socket('number')
 export const vector3Socket = new ClassicPreset.Socket('vector3')
 /** A boolean OpenSCAD expression input, used for flags such as `center`. */
 export const booleanSocket = new ClassicPreset.Socket('boolean')
+/** Function Output's single input before its result type is inferred. Never
+ * a real diagonal-compatible type: `connection-compatibility.ts` special-
+ * cases this exact port to accept any of Number/Boolean/Vector3, so the
+ * general diagonal-only rule below never needs to know about it. Purely a
+ * neutral/grey rendering marker (see `node-editor.ts`'s socket CSS) until
+ * the Function's result is resolved and this port is swapped for a real
+ * typed socket. */
+export const unresolvedSocket = new ClassicPreset.Socket('unresolved')
 
 /** The small, closed socket vocabulary supported before Milestone 7 adds
  * production value nodes. Connections are deliberately diagonal only:

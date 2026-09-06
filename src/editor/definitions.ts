@@ -2,9 +2,13 @@ import type { NodeEditor } from 'rete'
 
 import type { Schemes } from './schemes'
 
-export type DefinitionKind = 'module'
+export type DefinitionKind = 'module' | 'function'
 export type ModuleParameterType = 'number' | 'boolean' | 'vector3'
 export type ModuleParameterDefault = number | boolean | [number, number, number]
+/** A Function's result type is drawn from the same closed value vocabulary
+ * as a parameter's type. Kept as a distinct alias for readability at
+ * Function-specific call sites, not a different underlying type. */
+export type FunctionResultType = ModuleParameterType
 
 /** Ordered semantic signature entry. Its id, rather than the mutable name,
  * is the durable identity of the corresponding Inputs/Call port. */
@@ -33,8 +37,15 @@ export interface ModuleDefinition {
   /** Always present for newly-created/restored definitions. Optional only at
    * this TypeScript boundary so older test/embedder fixtures remain valid. */
   parameters?: readonly ModuleParameter[]
-  /** Ordered, named child-block inputs. Kept separate from value parameters. */
+  /** Ordered, named child-block inputs. Kept separate from value parameters.
+   * Only ever populated for `kind: 'module'`; a Function has no Geometry
+   * children or `children()` semantics. */
   geometryInputs?: readonly ModuleGeometryInput[]
+  /** Only meaningful for `kind: 'function'`. `undefined` means the Function
+   * is a valid, saveable draft whose result expression hasn't been
+   * connected yet - it cannot be emitted as OpenSCAD or called until this
+   * is set (see `DefinitionRegistry.setResultType`). */
+  resultType?: FunctionResultType
 }
 
 export type ModuleNameProblem = 'empty' | 'identifier' | 'duplicate'
@@ -161,6 +172,17 @@ export class DefinitionRegistry {
     if (!definition) throw new Error(`Unknown Module definition "${definitionId}".`)
     validateModuleGeometryInputs(geometryInputs)
     this.definitions.set(definitionId, { ...definition, geometryInputs: [...geometryInputs] })
+    this.emit()
+  }
+
+  /** Resolves, changes, or clears (`undefined`) a Function's inferred result
+   * type. Callers preflight every affected Call connection before invoking
+   * this - the registry itself only records the already-decided outcome. */
+  setResultType(definitionId: string, resultType: FunctionResultType | undefined): void {
+    const definition = this.definitions.get(definitionId)
+    if (!definition) throw new Error(`Unknown Function definition "${definitionId}".`)
+    if (definition.kind !== 'function') throw new Error(`Definition "${definitionId}" is not a Function.`)
+    this.definitions.set(definitionId, { ...definition, resultType })
     this.emit()
   }
 

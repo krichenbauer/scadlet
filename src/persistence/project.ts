@@ -1,11 +1,11 @@
 import type { Position } from '../editor/coordinates'
-import type { ModuleGeometryInput, ModuleParameter } from '../editor/definitions'
+import type { FunctionResultType, ModuleGeometryInput, ModuleParameter } from '../editor/definitions'
 
 /** SCADlet's own project-file format identifier (see `parseScadletProject` in `validate.ts`). */
 export const SCADLET_FORMAT = 'scadlet' as const
 
 /** Current `.scadlet` schema version this build writes and fully supports reading. */
-export const SCADLET_VERSION = 4 as const
+export const SCADLET_VERSION = 5 as const
 
 export interface ScadletProjectMetadata {
   /** Required before the first explicit Save/Save As/export - see `filename.ts`. */
@@ -74,6 +74,26 @@ export interface ScadletModuleDefinition {
   graph: ScadletGraph
 }
 
+/** A named project-level Function scope (version 5). Shares the exact same
+ * stable-id parameter-signature shape as a Module, but has no
+ * `geometryInputs` and instead an optional `resultType` - absent while the
+ * Function is still an unresolved, uncallable draft (see AGENTS.md's
+ * Function Output/result-type inference requirements). */
+export interface ScadletFunctionDefinition {
+  id: string
+  kind: 'function'
+  name: string
+  interface: {
+    inputs: string
+    output: string
+  }
+  parameters: ModuleParameter[]
+  resultType?: FunctionResultType
+  graph: ScadletGraph
+}
+
+export type ScadletDefinition = ScadletModuleDefinition | ScadletFunctionDefinition
+
 /** The node-editor's infinite-canvas pan/zoom state - editor presentation, not OpenSCAD semantics. */
 export interface ScadletViewport {
   x: number
@@ -96,25 +116,26 @@ export interface ScadletViewerState {
 }
 
 /**
- * SCADlet's own versioned project schema (Milestone 5). Deliberately
- * independent of Rete/DOM/Three.js internals - see AGENTS.md's
- * "Canonical `.scadlet` project format" section. Inspect Node state and
- * transient editor state (selection, marquee, hover timers, drag state,
- * node foreground order) are intentionally never part of this shape.
+ * SCADlet's own versioned project schema (Milestone 5, extended by
+ * Milestone 8 Function definitions). Deliberately independent of
+ * Rete/DOM/Three.js internals - see AGENTS.md's "Canonical `.scadlet`
+ * project format" section. Inspect Node state and transient editor state
+ * (selection, marquee, hover timers, drag state, node foreground order)
+ * are intentionally never part of this shape.
  */
-export interface ScadletProjectV4 {
+export interface ScadletProjectV5 {
   format: typeof SCADLET_FORMAT
   version: typeof SCADLET_VERSION
   metadata: ScadletProjectMetadata
   graph: ScadletGraph
-  definitions: ScadletModuleDefinition[]
+  definitions: ScadletDefinition[]
   editor: ScadletEditorState
   viewer: ScadletViewerState
 }
 
 /** Current canonical project type. The old exported name remains an alias
  * for application adapters while v1 remains an input-only migration shape. */
-export type ScadletProjectV1 = ScadletProjectV4
+export type ScadletProjectV1 = ScadletProjectV5
 
 /** The viewer's own default camera state (matches `GeometryViewer`'s initial, pre-fit camera position/target). */
 export const DEFAULT_VIEWER_CAMERA: ScadletViewerCamera = {
@@ -126,7 +147,7 @@ export const DEFAULT_VIEWER_CAMERA: ScadletViewerCamera = {
 export const UNTITLED_PROJECT_NAME = 'Untitled Project'
 
 /** Builds a fresh, empty project: no nodes/connections, a centered/unzoomed viewport, and the viewer's default camera. */
-export function createEmptyProject(name: string = UNTITLED_PROJECT_NAME, now: () => string = () => new Date().toISOString()): ScadletProjectV4 {
+export function createEmptyProject(name: string = UNTITLED_PROJECT_NAME, now: () => string = () => new Date().toISOString()): ScadletProjectV5 {
   const timestamp = now()
   return {
     format: SCADLET_FORMAT,

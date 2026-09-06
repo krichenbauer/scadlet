@@ -363,6 +363,21 @@ export class ScadletApp extends LitElement {
   @state()
   private editingModuleId: string | null = null
 
+  @state()
+  private functionDefinitions: readonly ModuleDefinition[] = []
+
+  @state()
+  private functionDialogOpen = false
+
+  @state()
+  private functionName = ''
+
+  @state()
+  private functionError: string | null = null
+
+  @state()
+  private editingFunctionId: string | null = null
+
   /** Width, in pixels, of the node-editor pane. 0 means "not measured yet". */
   @state()
   private editorWidth = 0
@@ -433,10 +448,15 @@ export class ScadletApp extends LitElement {
         <node-palette
           .inert=${this.localInitializing}
           .modules=${this.moduleDefinitions}
+          .functions=${this.functionDefinitions.map((definition) => ({ id: definition.id, name: definition.name, callable: definition.resultType !== undefined }))}
           @new-module=${this._openModuleDialog}
           @focus-module=${this._focusModule}
           @edit-module=${this._openRenameModuleDialog}
           @delete-module=${this._deleteModule}
+          @new-function=${this._openFunctionDialog}
+          @focus-function=${this._focusFunction}
+          @edit-function=${this._openRenameFunctionDialog}
+          @delete-function=${this._deleteFunction}
         ></node-palette>
         <main style=${styleMap({ '--editor-width': this.editorWidth ? `${this.editorWidth}px` : undefined })}>
           <node-editor .inert=${this.localInitializing}></node-editor>
@@ -481,6 +501,22 @@ export class ScadletApp extends LitElement {
           </form>
         </div>
       ` : nothing}
+      ${this.functionDialogOpen ? html`
+        <div class="module-dialog-backdrop" @click=${this._cancelFunctionDialog}>
+          <form class="module-dialog" aria-label=${this.editingFunctionId ? t('definition.renameFunction') : t('definition.createFunction')} @submit=${this._submitFunction} @click=${(event: Event) => event.stopPropagation()}>
+            <h2>${this.editingFunctionId ? t('definition.renameFunction') : t('definition.createFunction')}</h2>
+            <label>
+              ${t('definition.functionName')}
+              <input type="text" .value=${this.functionName} @input=${this._onFunctionNameInput} autofocus />
+            </label>
+            ${this.functionError ? html`<p class="module-error" role="alert">${this.functionError}</p>` : nothing}
+            <div class="module-dialog-actions">
+              <button type="button" @click=${this._cancelFunctionDialog}>${t('definition.cancel')}</button>
+              <button type="submit">${this.editingFunctionId ? t('definition.save') : t('definition.create')}</button>
+            </div>
+          </form>
+        </div>
+      ` : nothing}
     `
   }
 
@@ -498,7 +534,7 @@ export class ScadletApp extends LitElement {
     await this.viewer.updateComplete
     this.editorInstance = instance
     this.unsubscribeDefinitions = instance.onDefinitionsChange(() => {
-      this.moduleDefinitions = instance.getDefinitions()
+      this._refreshDefinitions(instance)
     })
 
     try {
@@ -520,7 +556,7 @@ export class ScadletApp extends LitElement {
       try {
         stored = await resolveStartupProject(store, session)
         await this._applyStoredProject(stored, false)
-        this.moduleDefinitions = instance.getDefinitions()
+        this._refreshDefinitions(instance)
       } catch (error) {
         await this._refreshProjectList()
         const failedId = error instanceof StartupProjectLoadError ? error.projectId : this.activeProjectSession?.get() ?? null
@@ -870,7 +906,7 @@ export class ScadletApp extends LitElement {
     try {
       if (this.editingModuleId) await instance.renameModule(this.editingModuleId, this.moduleName)
       else await instance.createModule(this.moduleName)
-      this.moduleDefinitions = instance.getDefinitions()
+      this._refreshDefinitions(instance)
       this.moduleDialogOpen = false
       this.moduleError = null
       this.editingModuleId = null
@@ -900,7 +936,79 @@ export class ScadletApp extends LitElement {
     const instance = this.editorInstance ?? (await this.nodeEditor.whenReady())
     try {
       await instance.deleteModule(definitionId)
-      this.moduleDefinitions = instance.getDefinitions()
+      this._refreshDefinitions(instance)
+    } catch (error) {
+      this.persistenceMessage = this._errorMessage(error)
+    }
+  }
+
+  /** Splits the shared definition registry into Modules and Functions for
+   * the sidebar's separate `MY MODULES`/`MY FUNCTIONS` sections. */
+  private _refreshDefinitions(instance: SCADletEditor): void {
+    const all = instance.getDefinitions()
+    this.moduleDefinitions = all.filter((definition) => definition.kind === 'module')
+    this.functionDefinitions = all.filter((definition) => definition.kind === 'function')
+  }
+
+  private readonly _openFunctionDialog = (): void => {
+    this.editingFunctionId = null
+    this.functionName = ''
+    this.functionError = null
+    this.functionDialogOpen = true
+  }
+
+  private readonly _cancelFunctionDialog = (): void => {
+    this.functionDialogOpen = false
+    this.functionError = null
+    this.editingFunctionId = null
+  }
+
+  private readonly _onFunctionNameInput = (event: Event): void => {
+    this.functionName = (event.target as HTMLInputElement).value
+    this.functionError = null
+  }
+
+  private readonly _submitFunction = (event: SubmitEvent): void => {
+    event.preventDefault()
+    void this._createFunction()
+  }
+
+  private async _createFunction(): Promise<void> {
+    const instance = this.editorInstance ?? (await this.nodeEditor.whenReady())
+    try {
+      if (this.editingFunctionId) await instance.renameFunction(this.editingFunctionId, this.functionName)
+      else await instance.createFunction(this.functionName)
+      this._refreshDefinitions(instance)
+      this.functionDialogOpen = false
+      this.functionError = null
+      this.editingFunctionId = null
+    } catch (error) {
+      this.functionError = this._errorMessage(error)
+    }
+  }
+
+  private readonly _openRenameFunctionDialog = (event: CustomEvent<{ definitionId: string }>): void => {
+    const definition = this.functionDefinitions.find((item) => item.id === event.detail.definitionId)
+    if (!definition) return
+    this.editingFunctionId = definition.id
+    this.functionName = definition.name
+    this.functionError = null
+    this.functionDialogOpen = true
+  }
+
+  private readonly _focusFunction = (event: CustomEvent<{ definitionId: string }>): void => {
+    void this.editorInstance?.focusFunction(event.detail.definitionId)
+  }
+
+  private readonly _deleteFunction = (event: CustomEvent<{ definitionId: string }>): void => {
+    void this._deleteFunctionById(event.detail.definitionId)
+  }
+
+  private async _deleteFunctionById(definitionId: string): Promise<void> {
+    const instance = this.editorInstance ?? (await this.nodeEditor.whenReady())
+    try {
+      await instance.deleteFunction(definitionId)
+      this._refreshDefinitions(instance)
     } catch (error) {
       this.persistenceMessage = this._errorMessage(error)
     }

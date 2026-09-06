@@ -1,13 +1,15 @@
-import { findCatalogEntry } from '../editor/node-catalog'
-import { defaultModuleGeometryInput, moduleGeometryInputPortId, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterPortId, moduleParameterNameProblem, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterType } from '../editor/definitions'
+import { findCatalogEntry, FUNCTION_GRAPH_ALLOWED_NODE_TYPES } from '../editor/node-catalog'
+import { defaultModuleGeometryInput, moduleGeometryInputPortId, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterPortId, moduleParameterNameProblem, type FunctionResultType, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterType } from '../editor/definitions'
 import {
   SCADLET_FORMAT,
   SCADLET_VERSION,
   type ScadletConnectionDTO,
+  type ScadletDefinition,
   type ScadletEditorState,
   type ScadletGraph,
   type ScadletNodeDTO,
   type ScadletProjectMetadata,
+  type ScadletFunctionDefinition,
   type ScadletModuleDefinition,
   type ScadletProjectV1,
   type ScadletViewerCamera,
@@ -76,10 +78,18 @@ export function parseScadletProject(raw: unknown): ScadletProjectV1 {
  */
 function migrateScadletProject(version: number, raw: Record<string, unknown>): ScadletProjectV1 {
   if (version === SCADLET_VERSION) return validateV1(raw)
-  if (version === 3) return validateV1(migrateV3ToV4(raw))
-  if (version === 2) return validateV1(migrateV3ToV4(migrateV2ToV3(raw)))
-  if (version === 1) return validateV1(migrateV3ToV4(migrateV2ToV3(migrateV1ToV2(raw))))
+  if (version === 4) return validateV1(migrateV4ToV5(raw))
+  if (version === 3) return validateV1(migrateV4ToV5(migrateV3ToV4(raw)))
+  if (version === 2) return validateV1(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(raw))))
+  if (version === 1) return validateV1(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(migrateV1ToV2(raw)))))
   throw new ScadletProjectError(`Unsupported SCADlet project version: ${version}`)
+}
+
+/** v5 adds Function definitions alongside Modules. Every existing v4 record
+ * is already a valid `kind: 'module'` definition; only the version number
+ * and the (already-empty-by-default) Function registry are new. */
+function migrateV4ToV5(raw: Record<string, unknown>): Record<string, unknown> {
+  return { ...raw, version: SCADLET_VERSION }
 }
 
 /** Converts the former fixed-parameter/fixed-two-child representation into
@@ -160,7 +170,7 @@ function validateV1(raw: Record<string, unknown>): ScadletProjectV1 {
       }
     }
   }
-  validateModuleCalls(graph, definitions)
+  validateDefinitionCalls(graph, definitions)
   const editorState = validateEditorState(raw.editor)
   const viewer = validateViewerState(raw.viewer)
   return { format: SCADLET_FORMAT, version: SCADLET_VERSION, metadata, graph, definitions, editor: editorState, viewer }
@@ -191,7 +201,20 @@ function validatePosition(raw: unknown, nodeId: string): { x: number; y: number 
   }
 }
 
-function validateNode(raw: unknown, index: number, seenIds: Set<string>, graphKind: 'main' | 'definition'): ScadletNodeDTO {
+/** `'main'` is the top-level project graph; `'module'`/`'function'` are a
+ * definition's own graph, gated to their respective supported vocabulary. */
+type GraphKind = 'main' | 'module' | 'function'
+
+/** The subset of a definition's signature a connection/node validator needs,
+ * shared by Module and Function definitions (a Function has no `geometryInputs`/has an optional `resultType`). */
+interface DefinitionContext {
+  interface: { inputs: string; output: string }
+  parameters: readonly ModuleParameter[]
+  geometryInputs?: readonly ModuleGeometryInput[]
+  resultType?: FunctionResultType
+}
+
+function validateNode(raw: unknown, index: number, seenIds: Set<string>, graphKind: GraphKind): ScadletNodeDTO {
   if (!isPlainObject(raw)) throw new ScadletProjectError(`Node at index ${index} must be an object.`)
 
   if (typeof raw.id !== 'string' || raw.id.length === 0) {
@@ -203,11 +226,18 @@ function validateNode(raw: unknown, index: number, seenIds: Set<string>, graphKi
   if (typeof raw.type !== 'string') throw new ScadletProjectError(`Node "${raw.id}" is missing a "type".`)
   const entry = findCatalogEntry(raw.type)
   if (!entry) throw new ScadletProjectError(`Unknown node type: "${raw.type}"`)
-  if (graphKind === 'main' && entry.palette === false && entry.type !== 'module-call') {
-    throw new ScadletProjectError(`Interface node "${raw.id}" belongs inside a Module definition, not Main.`)
+  const isCall = entry.type === 'module-call' || entry.type === 'function-call'
+  if (graphKind === 'main' && entry.palette === false && !isCall) {
+    throw new ScadletProjectError(`Interface node "${raw.id}" belongs inside a definition, not Main.`)
   }
-  if (graphKind === 'definition' && entry.type === 'module-call') {
-    throw new ScadletProjectError(`Module Call node "${raw.id}" belongs in Main, not inside a Module definition.`)
+  if (graphKind !== 'main' && isCall) {
+    throw new ScadletProjectError(`Call node "${raw.id}" belongs in Main, not inside a definition.`)
+  }
+  if (graphKind === 'function' && !FUNCTION_GRAPH_ALLOWED_NODE_TYPES.has(entry.type)) {
+    throw new ScadletProjectError(`Node "${raw.id}" (${entry.type}) is not a supported node type inside a Function definition.`)
+  }
+  if (graphKind === 'module' && (entry.type === 'function-inputs' || entry.type === 'function-output')) {
+    throw new ScadletProjectError(`Node "${raw.id}" (${entry.type}) belongs inside a Function definition, not a Module.`)
   }
 
   const position = validatePosition(raw.position, raw.id)
@@ -233,8 +263,8 @@ function validateConnection(
   index: number,
   seenIds: Set<string>,
   nodesById: Map<string, ScadletNodeDTO>,
-  definition?: Pick<ScadletModuleDefinition, 'interface' | 'parameters' | 'geometryInputs'>,
-  definitions: readonly ScadletModuleDefinition[] = [],
+  definition?: DefinitionContext,
+  definitions: readonly ScadletDefinition[] = [],
 ): ScadletConnectionDTO {
   if (!isPlainObject(raw)) throw new ScadletProjectError(`Connection at index ${index} must be an object.`)
 
@@ -259,13 +289,24 @@ function validateConnection(
 
   const sourceEntry = findCatalogEntry(sourceNode.type)!
   const targetEntry = findCatalogEntry(targetNode.type)!
+  const sourceCalledDefinition = sourceNode.type === 'function-call'
+    ? definitions.find((item) => item.id === sourceNode.parameters.definitionId)
+    : undefined
   const sourceDynamicType = sourceNode.type === 'module-inputs' && definition && sourceNode.id === definition.interface.inputs
-    ? (geometryInputPort(definition.geometryInputs, sourceOutput) ? 'geometry' : parameterSocketType(definition.parameters, sourceOutput))
+    ? (geometryInputPort(definition.geometryInputs ?? [], sourceOutput) ? 'geometry' : parameterSocketType(definition.parameters, sourceOutput))
+    : sourceNode.type === 'function-inputs' && definition && sourceNode.id === definition.interface.inputs
+      ? parameterSocketType(definition.parameters, sourceOutput)
+      : sourceCalledDefinition && sourceOutput === 'value'
+        ? sourceCalledDefinition.kind === 'function' ? sourceCalledDefinition.resultType : undefined
+        : undefined
+  const targetCalledDefinition = targetNode.type === 'module-call' || targetNode.type === 'function-call'
+    ? definitions.find((item) => item.id === targetNode.parameters.definitionId)
     : undefined
-  const targetDefinition = targetNode.type === 'module-call'
-    ? definitions.find((definition) => definition.id === targetNode.parameters.definitionId)
-    : undefined
-  const targetDynamicType = targetDefinition ? (geometryInputPort(targetDefinition.geometryInputs, targetInput) ? 'geometry' : parameterSocketType(targetDefinition.parameters, targetInput)) : undefined
+  const targetDynamicType = targetNode.type === 'function-output' && definition && targetNode.id === definition.interface.output && targetInput === 'result'
+    ? definition.resultType
+    : targetCalledDefinition
+      ? (targetCalledDefinition.kind === 'module' && geometryInputPort(targetCalledDefinition.geometryInputs, targetInput) ? 'geometry' : parameterSocketType(targetCalledDefinition.parameters, targetInput))
+      : undefined
   if (!sourceEntry.outputs.includes(sourceOutput) && !sourceDynamicType) {
     throw new ScadletProjectError(`Connection "${raw.id}" references unknown source port "${sourceOutput}" on node "${source}"`)
   }
@@ -284,7 +325,7 @@ function validateConnection(
   return { id: raw.id, source, sourceOutput, target, targetInput }
 }
 
-function validateGraph(raw: unknown, graphKind: 'main' | 'definition', definition?: Pick<ScadletModuleDefinition, 'interface' | 'parameters' | 'geometryInputs'>, definitions: readonly ScadletModuleDefinition[] = []): ScadletGraph {
+function validateGraph(raw: unknown, graphKind: GraphKind, definition?: DefinitionContext, definitions: readonly ScadletDefinition[] = []): ScadletGraph {
   if (!isPlainObject(raw)) throw new ScadletProjectError('Project "graph" must be an object.')
 
   if (!Array.isArray(raw.nodes)) throw new ScadletProjectError('Project "graph.nodes" must be an array.')
@@ -301,72 +342,122 @@ function validateGraph(raw: unknown, graphKind: 'main' | 'definition', definitio
   return { nodes, connections }
 }
 
-function validateDefinitions(raw: unknown): ScadletModuleDefinition[] {
+function validateDefinitions(raw: unknown): ScadletDefinition[] {
   if (!Array.isArray(raw)) throw new ScadletProjectError('Project "definitions" must be an array.')
   const seenDefinitionIds = new Set<string>()
   const seenNames = new Set<string>()
   const seenNodeIds = new Set<string>()
-  const definitions: ScadletModuleDefinition[] = []
+  const definitions: ScadletDefinition[] = []
   for (const item of raw) {
     if (!isPlainObject(item)) throw new ScadletProjectError('Each definition must be an object.')
     if (typeof item.id !== 'string' || !item.id) throw new ScadletProjectError('A definition is missing a valid "id".')
     if (seenDefinitionIds.has(item.id)) throw new ScadletProjectError(`Duplicate definition id: "${item.id}"`)
     seenDefinitionIds.add(item.id)
-    if (item.kind !== 'module') throw new ScadletProjectError(`Definition "${item.id}" has an invalid "kind".`)
+    if (item.kind !== 'module' && item.kind !== 'function') throw new ScadletProjectError(`Definition "${item.id}" has an invalid "kind".`)
     if (typeof item.name !== 'string' || moduleNameProblem(item.name, seenNames) !== null) {
-      throw new ScadletProjectError(`Definition "${item.id}" has an invalid or duplicate Module name.`)
+      throw new ScadletProjectError(`Definition "${item.id}" has an invalid or duplicate name.`)
     }
     seenNames.add(item.name)
     const interfaceRoles = item.interface
     if (!isPlainObject(interfaceRoles) || typeof interfaceRoles.inputs !== 'string' || typeof interfaceRoles.output !== 'string') {
-      throw new ScadletProjectError(`Module definition "${item.id}" has invalid interface roles.`)
+      throw new ScadletProjectError(`Definition "${item.id}" has invalid interface roles.`)
     }
+
+    if (item.kind === 'module') {
+      const parameters = validateModuleParameters(item.parameters)
+      const geometryInputs = validateModuleGeometryInputs(item.geometryInputs)
+      const graph = validateGraph(item.graph, 'module', { interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output }, parameters, geometryInputs }, definitions)
+      for (const node of graph.nodes) {
+        if (seenNodeIds.has(node.id)) throw new ScadletProjectError(`Duplicate node id across definition graphs: "${node.id}"`)
+        seenNodeIds.add(node.id)
+      }
+      const allInputs = graph.nodes.filter((node) => node.type === 'module-inputs')
+      const allOutputs = graph.nodes.filter((node) => node.type === 'module-output')
+      const inputs = allInputs.filter((node) => node.id === interfaceRoles.inputs)
+      const outputs = allOutputs.filter((node) => node.id === interfaceRoles.output)
+      if (allInputs.length !== 1 || inputs.length !== 1) throw new ScadletProjectError(`Module definition "${item.id}" must contain exactly one Inputs interface node.`)
+      if (allOutputs.length !== 1 || outputs.length !== 1) throw new ScadletProjectError(`Module definition "${item.id}" must contain exactly one Output interface node.`)
+      const output = outputs[0]
+      if (output.type !== 'module-output') throw new ScadletProjectError(`Module definition "${item.id}" has an invalid Output interface node.`)
+      const definition: ScadletModuleDefinition = {
+        id: item.id,
+        kind: 'module',
+        name: item.name,
+        interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output },
+        parameters,
+        geometryInputs,
+        graph,
+      }
+      definitions.push(definition)
+      continue
+    }
+
     const parameters = validateModuleParameters(item.parameters)
-    const geometryInputs = validateModuleGeometryInputs(item.geometryInputs)
-    const graph = validateGraph(item.graph, 'definition', { interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output }, parameters, geometryInputs }, definitions)
+    let resultType: FunctionResultType | undefined
+    if (item.resultType !== undefined) {
+      if (item.resultType !== 'number' && item.resultType !== 'boolean' && item.resultType !== 'vector3') {
+        throw new ScadletProjectError(`Function definition "${item.id}" has an invalid "resultType".`)
+      }
+      resultType = item.resultType
+    }
+    const graph = validateGraph(item.graph, 'function', { interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output }, parameters, resultType }, definitions)
     for (const node of graph.nodes) {
       if (seenNodeIds.has(node.id)) throw new ScadletProjectError(`Duplicate node id across definition graphs: "${node.id}"`)
       seenNodeIds.add(node.id)
     }
-    const allInputs = graph.nodes.filter((node) => node.type === 'module-inputs')
-    const allOutputs = graph.nodes.filter((node) => node.type === 'module-output')
+    const allInputs = graph.nodes.filter((node) => node.type === 'function-inputs')
+    const allOutputs = graph.nodes.filter((node) => node.type === 'function-output')
     const inputs = allInputs.filter((node) => node.id === interfaceRoles.inputs)
     const outputs = allOutputs.filter((node) => node.id === interfaceRoles.output)
-    if (allInputs.length !== 1 || inputs.length !== 1) throw new ScadletProjectError(`Module definition "${item.id}" must contain exactly one Inputs interface node.`)
-    if (allOutputs.length !== 1 || outputs.length !== 1) throw new ScadletProjectError(`Module definition "${item.id}" must contain exactly one Output interface node.`)
+    if (allInputs.length !== 1 || inputs.length !== 1) throw new ScadletProjectError(`Function definition "${item.id}" must contain exactly one Inputs interface node.`)
+    if (allOutputs.length !== 1 || outputs.length !== 1) throw new ScadletProjectError(`Function definition "${item.id}" must contain exactly one Output interface node.`)
     const output = outputs[0]
-    if (output.type !== 'module-output') throw new ScadletProjectError(`Module definition "${item.id}" has an invalid Output interface node.`)
-    definitions.push({
+    if (output.type !== 'function-output') throw new ScadletProjectError(`Function definition "${item.id}" has an invalid Output interface node.`)
+    const outputConnections = graph.connections.filter((connection) => connection.target === interfaceRoles.output && connection.targetInput === 'result')
+    if (resultType === undefined && outputConnections.length > 0) {
+      throw new ScadletProjectError(`Function definition "${item.id}" has a Function Output connection but no resolved result type.`)
+    }
+    if (resultType !== undefined && outputConnections.length !== 1) {
+      throw new ScadletProjectError(`Function definition "${item.id}" must have exactly one connection into Function Output when its result type is resolved.`)
+    }
+    const definition: ScadletFunctionDefinition = {
       id: item.id,
-      kind: 'module',
+      kind: 'function',
       name: item.name,
       interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output },
       parameters,
-      geometryInputs,
+      ...(resultType !== undefined ? { resultType } : {}),
       graph,
-    })
+    }
+    definitions.push(definition)
   }
   return definitions
 }
 
-/** Calls are normal Main Geometry nodes, but their durable target is a
+/** Calls are normal Main Geometry/value nodes, but their durable target is a
  * project definition ID rather than a copied display name. Resolve this only
- * after all definitions have been fully validated. */
-function validateModuleCalls(graph: ScadletGraph, definitions: readonly ScadletModuleDefinition[]): void {
-  const definitionIds = new Set(definitions.filter((definition) => definition.kind === 'module').map((definition) => definition.id))
+ * after all definitions have been fully validated. Shared by Module Calls
+ * (Geometry-producing) and Function Calls (typed-value-producing, and only
+ * ever valid against an already-resolved Function). */
+function validateDefinitionCalls(graph: ScadletGraph, definitions: readonly ScadletDefinition[]): void {
+  const definitionsById = new Map(definitions.map((definition) => [definition.id, definition]))
   for (const node of graph.nodes) {
-    if (node.type !== 'module-call') continue
+    if (node.type !== 'module-call' && node.type !== 'function-call') continue
     const definitionId = node.parameters.definitionId
-    if (typeof definitionId !== 'string' || !definitionIds.has(definitionId)) {
-      throw new ScadletProjectError(`Module Call node "${node.id}" references unknown Module definition "${String(definitionId)}".`)
+    const definition = typeof definitionId === 'string' ? definitionsById.get(definitionId) : undefined
+    const expectedKind = node.type === 'module-call' ? 'module' : 'function'
+    if (!definition || definition.kind !== expectedKind) {
+      throw new ScadletProjectError(`${node.type === 'module-call' ? 'Module' : 'Function'} Call node "${node.id}" references unknown ${expectedKind === 'module' ? 'Module' : 'Function'} definition "${String(definitionId)}".`)
     }
-    const definition = definitions.find((item) => item.id === definitionId)!
+    if (definition.kind === 'function' && definition.resultType === undefined) {
+      throw new ScadletProjectError(`Function Call node "${node.id}" references Function "${definition.name}", which has no resolved result type and cannot be called.`)
+    }
     const argumentsValue = node.parameters.arguments ?? {}
-    if (typeof argumentsValue !== 'object' || argumentsValue === null || Array.isArray(argumentsValue)) throw new ScadletProjectError(`Module Call node "${node.id}" has invalid argument fallbacks.`)
+    if (typeof argumentsValue !== 'object' || argumentsValue === null || Array.isArray(argumentsValue)) throw new ScadletProjectError(`Call node "${node.id}" has invalid argument fallbacks.`)
     for (const [parameterId, value] of Object.entries(argumentsValue)) {
       const parameter = definition.parameters.find((item) => item.id === parameterId)
-      if (!parameter) throw new ScadletProjectError(`Module Call node "${node.id}" has a fallback for unknown parameter "${parameterId}".`)
-      if (!moduleParameterDefaultIsValid(parameter.type, value)) throw new ScadletProjectError(`Module Call node "${node.id}" has an invalid fallback for parameter "${parameter.name}".`)
+      if (!parameter) throw new ScadletProjectError(`Call node "${node.id}" has a fallback for unknown parameter "${parameterId}".`)
+      if (!moduleParameterDefaultIsValid(parameter.type, value)) throw new ScadletProjectError(`Call node "${node.id}" has an invalid fallback for parameter "${parameter.name}".`)
     }
   }
 }

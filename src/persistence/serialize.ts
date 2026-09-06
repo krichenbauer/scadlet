@@ -7,6 +7,7 @@ import type { ModuleDefinition } from '../editor/definitions'
 import {
   SCADLET_FORMAT,
   SCADLET_VERSION,
+  type ScadletDefinition,
   type ScadletProjectMetadata,
   type ScadletProjectV1,
   type ScadletViewerCamera,
@@ -76,18 +77,17 @@ export function serializeProject(options: SerializeProjectOptions): ScadletProje
   }
   const mainNodes = nodes.filter((node) => scopeOf(node.id) === null)
   const mainConnections = connections.filter((connection) => scopeOf(connection.source) === null && scopeOf(connection.target) === null)
-  const definitions = (options.definitions ?? []).map((definition) => ({
-    id: definition.id,
-    kind: definition.kind,
-    name: definition.name,
-    interface: { inputs: definition.inputsNodeId, output: definition.outputNodeId },
-    parameters: [...(definition.parameters ?? [])],
-    geometryInputs: [...(definition.geometryInputs ?? [])],
-    graph: {
+  const definitions: ScadletDefinition[] = (options.definitions ?? []).map((definition) => {
+    const graph = {
       nodes: nodes.filter((node) => scopeOf(node.id) === definition.id),
       connections: connections.filter((connection) => scopeOf(connection.source) === definition.id && scopeOf(connection.target) === definition.id),
-    },
-  }))
+    }
+    const interfaceRoles = { inputs: definition.inputsNodeId, output: definition.outputNodeId }
+    const parameters = [...(definition.parameters ?? [])]
+    return definition.kind === 'function'
+      ? { id: definition.id, kind: 'function' as const, name: definition.name, interface: interfaceRoles, parameters, ...(definition.resultType !== undefined ? { resultType: definition.resultType } : {}), graph }
+      : { id: definition.id, kind: 'module' as const, name: definition.name, interface: interfaceRoles, parameters, geometryInputs: [...(definition.geometryInputs ?? [])], graph }
+  })
   // A stale scope provider must never make a node disappear from the saved
   // project. Definitions are a closed registry, so unknown scopes remain in
   // Main where they retain ordinary graph semantics.

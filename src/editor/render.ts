@@ -6,6 +6,8 @@ import { classicConnectionPath, getDOMSocketPosition } from 'rete-render-utils'
 
 import { CheckboxControl, LabeledNumberControl, LabeledTextControl, ModuleGeometryInputAddControl, ModuleGeometryInputEditControl, ModuleParameterAddControl, ModuleParameterEditControl, ParameterActionsControl, RepresentationSelectControl, SelectControl, Vector3Control, type ParameterAction } from './controls'
 import { ModuleInputsNode } from './nodes/module-interface-nodes'
+import { ModuleOutputNode } from './nodes/module-interface-nodes'
+import { FunctionOutputNode } from './nodes/function-interface-nodes'
 import { isEditableTarget } from './deletion'
 import { t } from '../i18n/translate'
 import type { InspectManager } from './inspect'
@@ -18,7 +20,6 @@ import { compatiblePortKeys, type ConnectionGestureManager } from './connection-
 import { nearestSnapTarget, type SnapCandidate } from './connection-gesture'
 import type { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData } from './connection-compatibility'
-import { ModuleOutputNode } from './nodes/module-interface-nodes'
 
 type Position = { x: number; y: number }
 type Side = 'input' | 'output'
@@ -93,6 +94,9 @@ export function classifyOutputPorts<T extends { socket: { name: string } }>(
 export function geometryInputPresentation(node: Schemes['Node'], key: string): PortPresentation | undefined {
   if (node instanceof ModuleOutputNode && key === 'geometry') {
     return { visibleLabel: t('input.geometry'), accessibleLabel: t('input.geometry') }
+  }
+  if (node instanceof FunctionOutputNode && key === 'result') {
+    return { visibleLabel: t('input.functionResult'), accessibleLabel: t('input.functionResult') }
   }
   if (!(node instanceof BooleanOpNode) || !node.isInputPort(key)) return undefined
   return node.isExtensionPort(key)
@@ -368,7 +372,11 @@ function renderNode(
   const parameterInputs: [string, ClassicPreset.Input<ClassicPreset.Socket>][] = []
   for (const [key, input] of Object.entries(node.inputs)) {
     if (!input) continue
-    if (input.socket.name === 'geometry') {
+    // Function Output's single `result` port is never geometry-typed, but
+    // (like Module Output's `geometry` input) is structural interface
+    // infrastructure that must stay visible regardless of hover/pin state,
+    // not a collapsible parameter row.
+    if (input.socket.name === 'geometry' || (node instanceof FunctionOutputNode && key === 'result')) {
       geometryInputs.push([key, input])
     } else {
       parameterInputs.push([key, input])

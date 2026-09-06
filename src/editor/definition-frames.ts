@@ -74,17 +74,18 @@ export function attachDefinitionFrames(
       if (scopeTransferState) frame.classList.add(`definition-frame--scope-${scopeTransferState}`)
       frame.dataset.definitionId = definition.id
       frame.setAttribute('role', 'group')
-      frame.setAttribute('aria-label', `${t('definition.moduleFrame')} ${definition.name}`)
+      const frameLabel = definition.kind === 'function' ? t('definition.functionFrame') : t('definition.moduleFrame')
+      frame.setAttribute('aria-label', `${frameLabel} ${definition.name}`)
       frame.style.left = `${bounds.minX * transform.k + transform.x}px`
       frame.style.top = `${bounds.minY * transform.k + transform.y}px`
       frame.style.width = `${(bounds.maxX - bounds.minX) * transform.k}px`
       frame.style.height = `${(bounds.maxY - bounds.minY) * transform.k}px`
       const heading = document.createElement('div')
       heading.className = 'definition-frame-title'
-      heading.textContent = `module ${definition.name}`
+      heading.textContent = definition.kind === 'function' ? `function ${definition.name}(...)` : `module ${definition.name}`
       heading.tabIndex = 0
       heading.setAttribute('role', 'button')
-      heading.setAttribute('aria-label', `${t('definition.moduleFrame')} ${definition.name}`)
+      heading.setAttribute('aria-label', `${frameLabel} ${definition.name}`)
       attachHeaderInteraction(heading, definition.id, area, interactions)
       frame.appendChild(heading)
       layer.appendChild(frame)

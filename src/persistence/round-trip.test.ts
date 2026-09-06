@@ -93,7 +93,7 @@ describe('per-node semantic round trip (serialize -> restore -> evaluate)', () =
 
     const { editor: dst, engine } = createGraph()
     const { project } = await roundTrip({ editor: src, positions: {} }, dst)
-    expect(project.version).toBe(4)
+    expect(project.version).toBe(5)
     expect(project.graph.nodes.find((node) => node.id === number.id)?.parameters).toEqual({ value: 5, name: 'Width' })
     expect(project.graph.nodes.find((node) => node.id === vector.id)?.parameters).toEqual({ x: 1, y: 2, z: 3, name: 'Vector3' })
     expect(project.graph.nodes.find((node) => node.id === add.id)?.parameters).toEqual({ a: 1, b: 10 })

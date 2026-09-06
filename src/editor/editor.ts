@@ -9,7 +9,7 @@ import { isEditableTarget, removeNodeWithConnections } from './deletion'
 import { isDirtyAreaSignal, isDirtyEditorSignal } from './dirty'
 import { InspectManager } from './inspect'
 import { attachMarqueeSelection } from './marquee'
-import { findCatalogEntry, type NodeCreationContext } from './node-catalog'
+import { findCatalogEntry, FUNCTION_GRAPH_ALLOWED_NODE_TYPES, type NodeCreationContext, type NodeTypeId } from './node-catalog'
 import { NodePresentationManager } from './presentation'
 import { attachRenderer } from './render'
 import type { AreaExtra, Schemes } from './schemes'
@@ -20,10 +20,12 @@ import { socketType, type SocketType } from './sockets'
 import { guardPortRemoval, hasConnectedInputs, removeInputSafely, removeOutputSafely } from './port-lifecycle'
 import { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData } from './connection-compatibility'
-import { DefinitionRegistry, bindDefinitionRegistry, defaultModuleGeometryInput, moduleGeometryInputPortId, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterNameProblem, type ModuleDefinition, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterDefault, type ModuleParameterType } from './definitions'
+import { DefinitionRegistry, bindDefinitionRegistry, defaultModuleGeometryInput, moduleGeometryInputPortId, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterNameProblem, moduleParameterPortId, type FunctionResultType, type ModuleDefinition, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterDefault, type ModuleParameterType } from './definitions'
 import { attachDefinitionFrames, definitionFrameBounds, type DefinitionFrameBounds } from './definition-frames'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
 import { ModuleCallNode } from './nodes/module-call-node'
+import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interface-nodes'
+import { FunctionCallNode } from './nodes/function-call-node'
 import { scopeTransferProblem, type ScopeTransferProblem } from './scope-transfer'
 import { t } from '../i18n/translate'
 
@@ -75,6 +77,16 @@ export interface SCADletEditor {
   addModuleGeometryInput(definitionId: string, name?: string): Promise<void>
   editModuleGeometryInput(definitionId: string, inputId: string, update: { name?: string; move?: -1 | 1 }): Promise<boolean>
   deleteModuleGeometryInput(definitionId: string, inputId: string): Promise<boolean>
+  /** Creates a generic Call node for a project Function in Main only. The
+   * Function must already have a resolved result type. */
+  addFunctionCallAt(definitionId: string, clientPosition: Position): Promise<boolean>
+  createFunction(name: string): Promise<ModuleDefinition>
+  renameFunction(definitionId: string, name: string): Promise<boolean>
+  deleteFunction(definitionId: string): Promise<boolean>
+  focusFunction(definitionId: string): Promise<void>
+  addFunctionParameter(definitionId: string, parameter: { name: string; type: ModuleParameterType; default: ModuleParameterDefault }): Promise<void>
+  editFunctionParameter(definitionId: string, parameterId: string, update: { name?: string; type?: ModuleParameterType; default?: ModuleParameterDefault; move?: -1 | 1 }): Promise<boolean>
+  deleteFunctionParameter(definitionId: string, parameterId: string): Promise<boolean>
   getDefinitions(): readonly ModuleDefinition[]
   getNodeScope(nodeId: string): string | null
   clearDefinitions(): void
@@ -227,6 +239,23 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // `ClassicPreset.Connection` directly cannot insert Geometry→Number,
   // Geometry→Vector3, Geometry→Boolean, or any other implicit conversion.
   attachSocketCompatibilityGuard(editor)
+
+  // Function Output's single `result` port stays reachable for any of the
+  // three supported value types even while already connected to a
+  // different type (see `connection-compatibility.ts`'s special case), so
+  // this second, Function-specific gate can run the confirm/preflight
+  // replacement flow itself instead of the generic diagonal-only check
+  // silently rejecting the new connection before that flow ever runs. This
+  // pipe is registered after the generic guard, so an incompatible type has
+  // already been rejected by the time this one ever sees the signal.
+  editor.addPipe(async (context) => {
+    if (context.type !== 'connectioncreate') return context
+    const target = editor.getNode(context.data.target)
+    if (target instanceof FunctionOutputNode && context.data.targetInput === 'result') {
+      return (await handleFunctionResultConnectionAttempt(context.data)) ? context : undefined
+    }
+    return context
+  })
   editor.addPipe((context) => {
     if (context.type === 'nodecreated') {
       const node = editor.getNode(context.data.id)
@@ -248,6 +277,19 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
             async (inputId, name) => editModuleGeometryInput(definitionId, inputId, { name }),
             (inputId) => deleteModuleGeometryInput(definitionId, inputId),
             (inputId, move) => editModuleGeometryInput(definitionId, inputId, { move }),
+          )
+        }
+      }
+      if (node instanceof FunctionInputsNode) {
+        const definitionId = definitions.scopeOf(node.id)
+        if (definitionId) {
+          const update = () => void area.update('node', node.id)
+          node.configureParameterCreation(update, (parameter) => addFunctionParameter(definitionId, parameter))
+          node.configureParameterEditing(
+            update,
+            async (parameterId, change) => { await editFunctionParameter(definitionId, parameterId, change) },
+            (parameterId) => deleteFunctionParameter(definitionId, parameterId),
+            async (parameterId, move) => { await editFunctionParameter(definitionId, parameterId, { move }) },
           )
         }
       }
@@ -397,7 +439,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
 
   AreaExtensions.simpleNodesOrder(area)
 
-  attachDeletion(editor, area, container, connectionSelection, (nodeId) => !definitions.isProtectedNode(nodeId))
+  attachDeletion(editor, area, container, connectionSelection, (nodeId) => !definitions.isProtectedNode(nodeId), (connectionId) => void removeConnectionOrConfirm(connectionId))
   const selectConnectionOnPointerDown = (event: PointerEvent): void => {
     if (event.button !== 0) return
     const wire = event.composedPath().find((item): item is Element =>
@@ -688,6 +730,223 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return true
   }
 
+  // ---- Function parameter signature (mirrors the Module parameter
+  // functions above; Functions never have Geometry inputs) ----
+
+  async function addFunctionParameter(definitionId: string, input: { name: string; type: ModuleParameterType; default: ModuleParameterDefault }): Promise<void> {
+    const definition = definitions.get(definitionId)
+    if (!definition) throw new Error(`Unknown Function definition "${definitionId}".`)
+    const nameProblem = moduleParameterNameProblem(input.name, (definition.parameters ?? []).map((parameter) => parameter.name))
+    if (nameProblem) throw new Error(nameProblem === 'duplicate' ? t('definition.duplicateFunctionParameter') : t('definition.invalidParameter'))
+    const parameter: ModuleParameter = { id: crypto.randomUUID(), name: input.name, type: input.type, default: input.default }
+    definitions.addParameter(definitionId, parameter)
+    const updated = definitions.get(definitionId)!
+    const inputs = editor.getNode(updated.inputsNodeId)
+    if (inputs instanceof FunctionInputsNode) {
+      inputs.syncSignature(updated.parameters ?? [])
+      await area.update('node', inputs.id)
+    }
+    for (const node of editor.getNodes()) {
+      if (!(node instanceof FunctionCallNode) || node.definitionId !== definitionId) continue
+      node.syncSignature(updated.parameters ?? [])
+      await area.update('node', node.id)
+    }
+  }
+
+  const functionSignatureConnections = (definition: ModuleDefinition, parameterId: string) => {
+    const key = moduleParameterPortId(parameterId)
+    return editor.getConnections().filter((connection) =>
+      (connection.source === definition.inputsNodeId && connection.sourceOutput === key)
+      || (editor.getNode(connection.target) instanceof FunctionCallNode
+        && (editor.getNode(connection.target) as FunctionCallNode).definitionId === definition.id
+        && connection.targetInput === key),
+    )
+  }
+
+  async function synchronizeFunctionSignature(
+    definition: ModuleDefinition,
+    resetFallbackIds: ReadonlySet<string> = new Set(),
+    fallbackOverrides: ReadonlyMap<string, Readonly<Record<string, ModuleParameterDefault>>> = new Map(),
+  ): Promise<void> {
+    const inputs = editor.getNode(definition.inputsNodeId)
+    if (inputs instanceof FunctionInputsNode) { inputs.syncSignature(definition.parameters ?? []); await area.update('node', inputs.id) }
+    for (const node of editor.getNodes()) {
+      if (node instanceof FunctionCallNode && node.definitionId === definition.id) {
+        node.syncSignature(definition.parameters ?? [], resetFallbackIds, fallbackOverrides.get(node.id))
+        await area.update('node', node.id)
+      }
+    }
+  }
+
+  async function editFunctionParameter(definitionId: string, parameterId: string, update: { name?: string; type?: ModuleParameterType; default?: ModuleParameterDefault; move?: -1 | 1 }): Promise<boolean> {
+    const definition = definitions.get(definitionId)
+    const parameters = definition?.parameters ?? []
+    const index = parameters.findIndex((parameter) => parameter.id === parameterId)
+    if (!definition || index < 0) return false
+    const previous = parameters[index]
+    const { move, ...changes } = update
+    const next = { ...previous, ...changes }
+    const typeChanged = next.type !== previous.type
+    const nextParameters = [...parameters]
+    nextParameters[index] = next
+    if (move) {
+      const destination = index + move
+      if (destination >= 0 && destination < nextParameters.length) {
+        const [moved] = nextParameters.splice(index, 1)
+        nextParameters.splice(destination, 0, moved)
+      }
+    }
+    const nameProblem = moduleParameterNameProblem(next.name, nextParameters.filter((parameter) => parameter.id !== parameterId).map((parameter) => parameter.name))
+    if (nameProblem) throw new Error(nameProblem === 'duplicate' ? t('definition.duplicateFunctionParameter') : t('definition.invalidParameter'))
+    if (!['number', 'boolean', 'vector3'].includes(next.type) || !moduleParameterDefaultIsValid(next.type, next.default)) throw new Error(t('definition.invalidParameterDefault'))
+    const doomed = typeChanged ? functionSignatureConnections(definition, parameterId) : []
+    if (doomed.length > 0 && !window.confirm(t('definition.confirmTypeChange').replace('{name}', previous.name).replace('{count}', String(doomed.length)))) return false
+    if (doomed.length > 0) {
+      connection.drop(); connectionGesture.cancel()
+      for (const item of doomed) await editor.removeConnection(item.id)
+    }
+    definitions.setParameters(definitionId, nextParameters)
+    await synchronizeFunctionSignature(definitions.get(definitionId)!, typeChanged ? new Set([parameterId]) : new Set())
+    return true
+  }
+
+  async function deleteFunctionParameter(definitionId: string, parameterId: string): Promise<boolean> {
+    const definition = definitions.get(definitionId)
+    const parameter = definition?.parameters?.find((item) => item.id === parameterId)
+    if (!definition || !parameter) throw new Error(t('definition.deleteParameterFailed'))
+    const doomed = functionSignatureConnections(definition, parameterId)
+    try {
+      if (doomed.length > 0 && !window.confirm(t('definition.confirmDeleteParameter').replace('{name}', parameter.name).replace('{count}', String(doomed.length)))) return false
+    } catch {
+      throw new Error(t('definition.deleteParameterFailed'))
+    }
+    const key = moduleParameterPortId(parameterId)
+    const inputs = editor.getNode(definition.inputsNodeId)
+    const calls = editor.getNodes().filter((node): node is FunctionCallNode => node instanceof FunctionCallNode && node.definitionId === definition.id)
+    if (!(inputs instanceof FunctionInputsNode) || !inputs.outputs[key]
+      || calls.some((call) => !call.inputs[key])) throw new Error(t('definition.deleteParameterFailed'))
+
+    const previousParameters = definition.parameters ?? []
+    const previousDirtySuspended = dirtySuspended
+    dirtySuspended = true
+    try {
+      if (doomed.length > 0) {
+        connection.drop()
+        connectionGesture.cancel()
+        for (const item of doomed) {
+          if (!await editor.removeConnection(item.id)) throw new Error(`Could not remove connection ${item.id}.`)
+        }
+      }
+      definitions.setParameters(definitionId, previousParameters.filter((item) => item.id !== parameterId))
+      await synchronizeFunctionSignature(definitions.get(definitionId)!)
+    } catch {
+      dirtySuspended = previousDirtySuspended
+      throw new Error(t('definition.deleteParameterFailed'))
+    }
+    dirtySuspended = previousDirtySuspended
+    if (!previousDirtySuspended) notifySemanticDirty()
+    return true
+  }
+
+  // ---- Function result type: inference, controlled replacement, and
+  // unresolve-on-disconnect (AGENTS.md Milestone 8 Phase 7, sections 3-4)
+  // ----
+
+  /** Every outgoing connection from any Call of this Function - the exact
+   * set that becomes incompatible whenever the Function's result type
+   * changes or is cleared. */
+  function functionCallOutgoingConnections(definition: ModuleDefinition): Schemes['Connection'][] {
+    const callIds = new Set(editor.getNodes().filter((node) => node instanceof FunctionCallNode && node.definitionId === definition.id).map((node) => node.id))
+    return editor.getConnections().filter((connection) => callIds.has(connection.source) && connection.sourceOutput === 'value')
+  }
+
+  /** Applies an already-decided result type (or `undefined` to unresolve) to
+   * the Function Output port and every Call's output port. Callers must
+   * have already removed any now-incompatible connections. */
+  async function applyFunctionResultType(definitionId: string, resultType: FunctionResultType | undefined): Promise<void> {
+    definitions.setResultType(definitionId, resultType)
+    const definition = definitions.get(definitionId)!
+    const output = editor.getNode(definition.outputNodeId)
+    if (output instanceof FunctionOutputNode) { output.setResultType(resultType); await area.update('node', output.id) }
+    for (const node of editor.getNodes()) {
+      if (node instanceof FunctionCallNode && node.definitionId === definitionId) {
+        node.setResultType(resultType)
+        await area.update('node', node.id)
+      }
+    }
+  }
+
+  /** Runs entirely inside the `connectioncreate` pre-signal so a cancelled
+   * replacement never lets Rete add the new wire at all - the previous
+   * connection, inferred type, Calls, and generated source stay untouched.
+   * Async so every removal (and the resulting socket swap) completes before
+   * Rete is allowed to add the new connection - `FunctionOutputNode`'s own
+   * port-removal guard (`guardPortRemoval`) would otherwise reject a
+   * same-tick `removeInput('result')` race against the not-yet-resolved
+   * old-connection removal. */
+  async function handleFunctionResultConnectionAttempt(data: { source: string; sourceOutput: string; target: string; targetInput: string }): Promise<boolean> {
+    const definitionId = definitions.scopeOf(data.target)
+    const definition = definitionId ? definitions.get(definitionId) : undefined
+    if (!definition || definition.kind !== 'function') return false
+    const sourceSocket = editor.getNode(data.source)?.outputs[data.sourceOutput]?.socket
+    const newType = socketType(sourceSocket)
+    if (newType !== 'number' && newType !== 'boolean' && newType !== 'vector3') return false
+    const previousType = definition.resultType
+    const oldResultConnections = editor.getConnections().filter((item) => item.target === data.target && item.targetInput === 'result')
+    const doomed = previousType !== undefined && previousType !== newType ? functionCallOutgoingConnections(definition) : []
+    if (doomed.length > 0) {
+      let confirmed: boolean
+      try {
+        confirmed = window.confirm(t('definition.confirmFunctionResultTypeChange').replace('{name}', definition.name).replace('{count}', String(doomed.length)))
+      } catch {
+        return false
+      }
+      if (!confirmed) return false
+    }
+    for (const old of oldResultConnections) await editor.removeConnection(old.id)
+    for (const item of doomed) await editor.removeConnection(item.id)
+    if (previousType !== newType) await applyFunctionResultType(definitionId!, newType)
+    else notifySemanticDirty()
+    return true
+  }
+
+  /** Routes ordinary connection deletion (Delete/Backspace on a selected
+   * wire) through the Function unresolve flow only for the one connection
+   * that matters: the sole wire into a Function Output's `result` port.
+   * Every other connection deletes exactly as before. */
+  async function removeConnectionOrConfirm(connectionId: string): Promise<void> {
+    const target = editor.getConnections().find((item) => item.id === connectionId)
+    const targetNode = target ? editor.getNode(target.target) : undefined
+    if (!target || !(targetNode instanceof FunctionOutputNode) || target.targetInput !== 'result') {
+      await editor.removeConnection(connectionId)
+      return
+    }
+    const definitionId = definitions.scopeOf(target.target)
+    const definition = definitionId ? definitions.get(definitionId) : undefined
+    if (!definition || definition.kind !== 'function') {
+      await editor.removeConnection(connectionId)
+      return
+    }
+    const remainingAfterRemoval = editor.getConnections().some((item) => item.id !== connectionId && item.target === target.target && item.targetInput === 'result')
+    if (remainingAfterRemoval) {
+      await editor.removeConnection(connectionId)
+      return
+    }
+    const doomed = functionCallOutgoingConnections(definition)
+    if (doomed.length > 0) {
+      let confirmed: boolean
+      try {
+        confirmed = window.confirm(t('definition.confirmFunctionUnresolve').replace('{name}', definition.name).replace('{count}', String(doomed.length)))
+      } catch {
+        return
+      }
+      if (!confirmed) return
+    }
+    await editor.removeConnection(connectionId)
+    for (const item of doomed) await editor.removeConnection(item.id)
+    await applyFunctionResultType(definitionId!, undefined)
+  }
+
   const definitionAt = (clientPosition: Position): string | null => {
     const rect = area.container.getBoundingClientRect()
     const graphPosition = clientToGraphPosition(clientPosition, rect, area.area.transform)
@@ -728,7 +987,11 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   container.appendChild(feedback)
   let feedbackTimer: number | undefined
   const showScopeTransferFeedback = (problem: ScopeTransferProblem): void => {
-    feedback.textContent = t(problem === 'module-call' ? 'definition.moduleCallsMainOnly' : 'definition.invalidScopeTransfer')
+    feedback.textContent = t(
+      problem === 'module-call' ? 'definition.moduleCallsMainOnly'
+        : problem === 'function-incompatible' ? 'definition.functionScopeIncompatible'
+          : 'definition.invalidScopeTransfer',
+    )
     feedback.hidden = false
     if (feedbackTimer !== undefined) window.clearTimeout(feedbackTimer)
     feedbackTimer = window.setTimeout(() => { feedback.hidden = true }, 3500)
@@ -801,10 +1064,18 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const entry = findCatalogEntry(type)
     if (!entry) return
 
-    const node = entry.create(creationContext)
     // Palette click supplies Main explicitly; palette drag may assign a
-    // Module scope exactly once from its creation-time frame hit test.
+    // Module/Function scope exactly once from its creation-time frame hit
+    // test. A Function's graph may only ever contain its own closed
+    // value-expression vocabulary (AGENTS.md Milestone 8 Phase 7, section 6)
+    // - reject before ever constructing/adding the incompatible node.
     const owner = scope === undefined ? definitionAt(clientPosition) : scope
+    if (owner !== null && definitions.get(owner)?.kind === 'function' && !FUNCTION_GRAPH_ALLOWED_NODE_TYPES.has(type as NodeTypeId)) {
+      showScopeTransferFeedback('function-incompatible')
+      return
+    }
+
+    const node = entry.create(creationContext)
     if (owner !== null) definitions.assignNode(owner, node.id)
     await editor.addNode(node)
 
@@ -903,6 +1174,95 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return true
   }
 
+  async function addFunctionCallAt(definitionId: string, clientPosition: Position): Promise<boolean> {
+    const definition = definitions.get(definitionId)
+    if (!definition || definition.kind !== 'function' || !definition.resultType || definitionAt(clientPosition) !== null) return false
+    const entry = findCatalogEntry('function-call')!
+    const node = entry.create(creationContext, { definitionId })
+    await editor.addNode(node)
+    const rect = area.container.getBoundingClientRect()
+    await area.translate(node.id, clientToGraphPosition(clientPosition, rect, area.area.transform))
+    return true
+  }
+
+  async function createFunction(name: string): Promise<ModuleDefinition> {
+    const normalized = name.trim()
+    const problem = moduleNameProblem(normalized, definitions.list().map((definition) => definition.name))
+    if (problem === 'duplicate') throw new Error(t('definition.duplicateName'))
+    if (problem) throw new Error(t('definition.invalidName'))
+
+    const definition: ModuleDefinition = {
+      id: crypto.randomUUID(),
+      kind: 'function',
+      name: normalized,
+      inputsNodeId: crypto.randomUUID(),
+      outputNodeId: crypto.randomUUID(),
+      parameters: [],
+    }
+    definitions.add(definition)
+    const inputs = new FunctionInputsNode(definition.parameters)
+    inputs.id = definition.inputsNodeId
+    const output = new FunctionOutputNode()
+    output.id = definition.outputNodeId
+    await editor.addNode(inputs)
+    await editor.addNode(output)
+    const rect = area.container.getBoundingClientRect()
+    const center = clientToGraphPosition(
+      { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+      rect,
+      area.area.transform,
+    )
+    await area.translate(inputs.id, { x: center.x - 230, y: center.y - 30 })
+    await area.translate(output.id, { x: center.x + 90, y: center.y - 30 })
+    return definition
+  }
+
+  async function renameFunction(definitionId: string, rawName: string): Promise<boolean> {
+    const definition = definitions.get(definitionId)
+    if (!definition) throw new Error(t('definition.renameFailed'))
+    const name = rawName.trim()
+    const problem = moduleNameProblem(name, definitions.list().filter((item) => item.id !== definitionId).map((item) => item.name))
+    if (problem === 'duplicate') throw new Error(t('definition.duplicateName'))
+    if (problem) throw new Error(t('definition.invalidName'))
+    if (name === definition.name) return false
+    const calls = editor.getNodes().filter((node): node is FunctionCallNode => node instanceof FunctionCallNode && node.definitionId === definitionId)
+    definitions.rename(definitionId, name)
+    for (const call of calls) {
+      call.syncDefinitionName(name)
+      await area.update('node', call.id)
+    }
+    return true
+  }
+
+  async function deleteFunction(definitionId: string): Promise<boolean> {
+    const definition = definitions.get(definitionId)
+    if (!definition) throw new Error(t('definition.deleteFunctionFailed'))
+    const memberIds = definitions.nodeIds(definitionId)
+    const calls = editor.getNodes().filter((node): node is FunctionCallNode => node instanceof FunctionCallNode && node.definitionId === definitionId)
+    const nodeIds = new Set([...memberIds, ...calls.map((call) => call.id)])
+    if (memberIds.some((id) => !editor.getNode(id)) || calls.some((call) => !editor.getNode(call.id))) throw new Error(t('definition.deleteFunctionFailed'))
+    const connections = editor.getConnections().filter((connection) => nodeIds.has(connection.source) || nodeIds.has(connection.target))
+    const message = t('definition.confirmDeleteFunction')
+      .replace('{name}', definition.name)
+      .replace('{calls}', String(calls.length))
+      .replace('{connections}', String(connections.length))
+    try { if (!window.confirm(message)) return false } catch { throw new Error(t('definition.deleteFunctionFailed')) }
+    const previousDirtySuspended = dirtySuspended
+    dirtySuspended = true
+    try {
+      connection.drop(); connectionGesture.cancel()
+      for (const connection of connections) if (!await editor.removeConnection(connection.id)) throw new Error(`Could not remove connection ${connection.id}.`)
+      for (const nodeId of nodeIds) if (!await editor.removeNode(nodeId)) throw new Error(`Could not remove node ${nodeId}.`)
+      definitions.remove(definitionId)
+    } catch {
+      dirtySuspended = previousDirtySuspended
+      throw new Error(t('definition.deleteFunctionFailed'))
+    }
+    dirtySuspended = previousDirtySuspended
+    if (!previousDirtySuspended) notifySemanticDirty()
+    return true
+  }
+
   return {
     editor,
     area,
@@ -932,6 +1292,14 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     addModuleGeometryInput,
     editModuleGeometryInput,
     deleteModuleGeometryInput,
+    addFunctionCallAt,
+    createFunction,
+    renameFunction,
+    deleteFunction,
+    focusFunction: selectDefinition,
+    addFunctionParameter,
+    editFunctionParameter,
+    deleteFunctionParameter,
     getDefinitions: () => definitions.list(),
     getNodeScope: (nodeId) => definitions.scopeOf(nodeId),
     clearDefinitions: () => definitions.clear(),
@@ -1080,6 +1448,7 @@ function attachDeletion(
   container: HTMLElement,
   connectionSelection: ConnectionSelectionManager,
   canDeleteNode: (nodeId: string) => boolean,
+  removeConnection: (connectionId: string) => void,
 ): void {
   // Not part of the tab order (a big pan/zoom canvas isn't a meaningful
   // tab stop) but focusable programmatically, so a following
@@ -1102,7 +1471,7 @@ function attachDeletion(
     if (selectedConnection) {
       event.preventDefault()
       connectionSelection.clear()
-      void editor.removeConnection(selectedConnection)
+      removeConnection(selectedConnection)
       return
     }
 

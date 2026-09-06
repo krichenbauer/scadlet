@@ -1,7 +1,7 @@
 import { LitElement, css, html, nothing } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 
-import { MODULE_CALL_DRAG_MIME_TYPE, NODE_CATALOG, NODE_CATEGORIES, NODE_DRAG_MIME_TYPE, type NodeCategory } from '../editor/node-catalog'
+import { FUNCTION_CALL_DRAG_MIME_TYPE, MODULE_CALL_DRAG_MIME_TYPE, NODE_CATALOG, NODE_CATEGORIES, NODE_DRAG_MIME_TYPE, type NodeCategory } from '../editor/node-catalog'
 import { t } from '../i18n/translate'
 
 /**
@@ -25,6 +25,11 @@ export class NodePaletteElement extends LitElement {
    * after the Module's display name. */
   @property({ attribute: false })
   modules: readonly { id: string; name: string }[] = []
+  /** Same placement/interaction pattern as `modules`, but a Function entry
+   * is only a real (draggable) Call source once its result type is
+   * resolved - an unresolved Function's entry stays visibly non-callable. */
+  @property({ attribute: false })
+  functions: readonly { id: string; name: string; callable: boolean }[] = []
   static styles = css`
     :host {
       display: block;
@@ -80,6 +85,11 @@ export class NodePaletteElement extends LitElement {
     .module-entry { display: flex; align-items: center; gap: 4px; margin: 0 8px 4px; }
     .module-entry .module-item { margin: 0; flex: 1; }
     .module-action { padding: 4px 6px; }
+
+    .module-item[aria-disabled='true'] {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
   `
 
   render() {
@@ -98,6 +108,19 @@ export class NodePaletteElement extends LitElement {
           </div>
         `)}
         <button type="button" class="node-item" @click=${this._onNewModule}>${t('definition.newModule')}</button>
+      </div>
+      <div class="category" aria-label=${t('definition.myFunctions')}>
+        <div class="category-title">${t('definition.myFunctions')}</div>
+        ${this.functions.map((functionDef) => html`
+          <div class="module-entry" data-definition-id=${functionDef.id}>
+            <div role="listitem" class="node-item module-item" draggable=${functionDef.callable} aria-disabled=${!functionDef.callable}
+              @dragstart=${(event: DragEvent) => this._onFunctionDragStart(event, functionDef.id, functionDef.callable)} aria-label=${functionDef.name}>${functionDef.name}</div>
+            <button type="button" class="module-action" aria-label=${t('definition.focusFunction').replace('{name}', functionDef.name)} @click=${() => this._functionAction('focus-function', functionDef.id)}>⌖</button>
+            <button type="button" class="module-action" aria-label=${t('definition.editFunction').replace('{name}', functionDef.name)} @click=${() => this._functionAction('edit-function', functionDef.id)}>✎</button>
+            <button type="button" class="module-action" aria-label=${t('definition.deleteFunction').replace('{name}', functionDef.name)} @click=${() => this._functionAction('delete-function', functionDef.id)}>×</button>
+          </div>
+        `)}
+        <button type="button" class="node-item" @click=${this._onNewFunction}>${t('definition.newFunction')}</button>
       </div>
     `
   }
@@ -138,11 +161,26 @@ export class NodePaletteElement extends LitElement {
     event.dataTransfer.setData(MODULE_CALL_DRAG_MIME_TYPE, definitionId)
   }
 
+  private _onFunctionDragStart(event: DragEvent, definitionId: string, callable: boolean): void {
+    if (!callable) { event.preventDefault(); return }
+    if (!event.dataTransfer) return
+    event.dataTransfer.effectAllowed = 'copy'
+    event.dataTransfer.setData(FUNCTION_CALL_DRAG_MIME_TYPE, definitionId)
+  }
+
   private _onNewModule(): void {
     this.dispatchEvent(new CustomEvent('new-module', { bubbles: true, composed: true }))
   }
 
+  private _onNewFunction(): void {
+    this.dispatchEvent(new CustomEvent('new-function', { bubbles: true, composed: true }))
+  }
+
   private _moduleAction(type: 'focus-module' | 'edit-module' | 'delete-module', definitionId: string): void {
+    this.dispatchEvent(new CustomEvent(type, { detail: { definitionId }, bubbles: true, composed: true }))
+  }
+
+  private _functionAction(type: 'focus-function' | 'edit-function' | 'delete-function', definitionId: string): void {
     this.dispatchEvent(new CustomEvent(type, { detail: { definitionId }, bubbles: true, composed: true }))
   }
 }

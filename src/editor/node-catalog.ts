@@ -24,6 +24,8 @@ import type { SocketType } from './sockets'
 import { t } from '../i18n/translate'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
 import { ModuleCallNode, type ModuleCallParams } from './nodes/module-call-node'
+import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interface-nodes'
+import { FunctionCallNode, type FunctionCallParams } from './nodes/function-call-node'
 import type { ModuleDefinition, ModuleParameterDefault } from './definitions'
 
 /** MIME type used to carry a node-catalog `type` id through native HTML drag-and-drop (see `node-palette.ts`/`node-editor.ts`). */
@@ -31,6 +33,9 @@ export const NODE_DRAG_MIME_TYPE = 'application/x-scadlet-node-type'
 /** Carries a stable project definition ID for dynamic Module Call palette
  * entries. This intentionally differs from static catalog node types. */
 export const MODULE_CALL_DRAG_MIME_TYPE = 'application/x-scadlet-module-call'
+/** The Function Call counterpart of `MODULE_CALL_DRAG_MIME_TYPE`. Kept as a
+ * distinct MIME type since it resolves to a different generic node type. */
+export const FUNCTION_CALL_DRAG_MIME_TYPE = 'application/x-scadlet-function-call'
 
 /**
  * Stable, language-independent category ids. Display text lives in
@@ -60,6 +65,9 @@ export type NodeTypeId =
   | 'module-inputs'
   | 'module-output'
   | 'module-call'
+  | 'function-inputs'
+  | 'function-output'
+  | 'function-call'
 
 export interface NodeCategory {
   readonly id: NodeCategoryId
@@ -142,6 +150,10 @@ function validateModuleCallParams(value: unknown): ModuleCallParams {
   return { definitionId: raw.definitionId as string, ...(raw.arguments ? { arguments: raw.arguments as Record<string, ModuleParameterDefault> } : {}) }
 }
 
+/** Function Call parameters share Module Call's exact shape; validated
+ * separately only so a Function-specific error path stays possible later. */
+function validateFunctionCallParams(value: unknown): FunctionCallParams { return validateModuleCallParams(value) }
+
 function validateVariadicBooleanParams(value: unknown): VariadicBooleanParams {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Invalid parameters: expected an object')
   const children = (value as Record<string, unknown>).children
@@ -218,6 +230,16 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
   { id: 'math', labelKey: 'category.math' },
 ]
 
+/** The closed value-expression vocabulary a Function definition graph may
+ * contain (AGENTS.md Milestone 8 Phase 7, section 6): Function's own
+ * interface nodes plus the existing value/math nodes. Geometry-producing/
+ * consuming nodes and any Module/Function Call are deliberately excluded.
+ * Shared by `persistence/validate.ts` (file validation) and `editor.ts`
+ * (live node-creation/scope-transfer gating) so both enforce identically. */
+export const FUNCTION_GRAPH_ALLOWED_NODE_TYPES: ReadonlySet<NodeTypeId> = new Set([
+  'function-inputs', 'function-output', 'number', 'boolean', 'vector3', 'add', 'subtract', 'multiply', 'divide',
+])
+
 /**
  * The single source of truth for "what node types exist and how are they
  * created". The palette UI, the canvas drop handler, and the click
@@ -261,6 +283,37 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     outputSocketType: () => undefined,
     create: () => new ModuleOutputNode(),
     matches: (node) => node instanceof ModuleOutputNode,
+    serializeParams: validateEmptyParams,
+    validateParams: validateEmptyParams,
+  },
+  {
+    type: 'function-call', category: 'values', labelKey: 'node.functionCall', palette: false, inputs: [], outputs: ['value'],
+    inputSocketType: () => undefined, outputSocketType: (port) => port === 'value' ? 'number' : undefined,
+    create: (context, params) => {
+      const call = validateFunctionCallParams(params)
+      const definition = context.getModuleDefinition?.(call.definitionId)
+      if (!definition || definition.kind !== 'function') throw new Error(`Unknown Function definition "${call.definitionId}".`)
+      if (!definition.resultType) throw new Error(`Function "${definition.name}" has no resolved result type and cannot be called.`)
+      return new FunctionCallNode(definition, call, (id) => context.onControlsChanged(id))
+    },
+    matches: (node) => node instanceof FunctionCallNode,
+    serializeParams: (node) => (node as FunctionCallNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateFunctionCallParams(value) as unknown as Record<string, unknown>,
+  },
+  {
+    type: 'function-inputs', category: 'values', labelKey: 'node.functionInputs', palette: false, inputs: [], outputs: [],
+    inputSocketType: () => undefined, outputSocketType: () => undefined,
+    create: () => new FunctionInputsNode(),
+    matches: (node) => node instanceof FunctionInputsNode,
+    serializeParams: validateEmptyParams,
+    validateParams: validateEmptyParams,
+  },
+  {
+    type: 'function-output', category: 'values', labelKey: 'node.functionOutput', palette: false, inputs: ['result'], outputs: [],
+    inputSocketType: () => undefined,
+    outputSocketType: () => undefined,
+    create: () => new FunctionOutputNode(),
+    matches: (node) => node instanceof FunctionOutputNode,
     serializeParams: validateEmptyParams,
     validateParams: validateEmptyParams,
   },

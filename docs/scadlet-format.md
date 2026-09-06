@@ -1,10 +1,16 @@
-# The `.scadlet` project file format (v4)
+# The `.scadlet` project file format (v5)
 
 This document specifies the `.scadlet` project file format as it is
 **actually implemented** in this repository, not as originally sketched in
 `AGENTS.md`. If you find a discrepancy between this document and the code,
 the code under `src/persistence/` and `src/editor/node-catalog.ts` is the
 source of truth until this document is updated to match it.
+
+## Version 5: Function definitions
+
+Version 5 adds user-defined Functions alongside Modules - see "Function
+definitions (version 5)" below. Existing v4 (Module-only) projects migrate
+to v5 unchanged, with an empty Function registry.
 
 ## Version 4 definitions and semantic signatures
 
@@ -223,6 +229,9 @@ divide
 module-inputs
 module-output
 module-call
+function-inputs
+function-output
+function-call
 ```
 
 An unrecognized `type` fails with `Unknown node type: "<value>"`. See
@@ -361,6 +370,83 @@ duplicated as authoritative call state. A connected typed value overrides but
 does not erase the stored fallback.
 Calls are not permitted inside definition graphs in this parameterless Phase 2
 slice, so nested calls and recursive dependency ordering are not represented.
+
+## Function definitions (version 5)
+
+Version 5 adds a second `kind` to `definitions`: `"function"`, sharing the
+exact same stable-id parameter-signature and interface-role shape as a
+Module (`interface.inputs`/`interface.output`, ordered `parameters`), but
+with two differences: there is no `geometryInputs` field, and an optional
+`resultType` records the Function's inferred value type once resolved.
+
+```json
+{
+  "id": "definition-double-size",
+  "kind": "function",
+  "name": "double_size",
+  "interface": { "inputs": "double-size-inputs", "output": "double-size-output" },
+  "parameters": [
+    { "id": "parameter-x", "name": "x", "type": "number", "default": 1 }
+  ],
+  "resultType": "number",
+  "graph": {
+    "nodes": [
+      { "id": "double-size-inputs", "type": "function-inputs", "position": { "x": 10, "y": 20 }, "parameters": {} },
+      { "id": "double-size-multiply", "type": "multiply", "position": { "x": 170, "y": 20 }, "parameters": { "a": 0, "b": 2 } },
+      { "id": "double-size-output", "type": "function-output", "position": { "x": 330, "y": 20 }, "parameters": {} }
+    ],
+    "connections": [
+      { "id": "x-to-a", "source": "double-size-inputs", "sourceOutput": "parameter:parameter-x", "target": "double-size-multiply", "targetInput": "a" },
+      { "id": "multiply-to-output", "source": "double-size-multiply", "sourceOutput": "value", "target": "double-size-output", "targetInput": "result" }
+    ]
+  }
+}
+```
+
+- `resultType` is one of `"number"`, `"boolean"`, or `"vector3"`, or omitted
+  entirely while the Function is still an unresolved editor draft. It is
+  never written as `null`.
+- `resultType` and the graph's connections into `function-output`'s `result`
+  input must agree: a resolved `resultType` requires exactly one such
+  connection; an unresolved Function must have none. Either mismatch is
+  rejected at load time.
+- `function-inputs` has no Geometry outputs, only the same
+  `parameter:<id>` typed value outputs Module Inputs uses for its own value
+  parameters - a Function's parameter signature never includes a Geometry
+  type.
+- `function-output` has exactly one input, the stable port id `result`. Its
+  socket type is the owning Function's `resultType` when resolved; while
+  unresolved it accepts no real connection at all (see above), and is
+  rendered as a neutral/grey socket rather than any of the three real types.
+- A Function definition graph may only contain `function-inputs`,
+  `function-output`, and the existing value/math vocabulary (`number`,
+  `boolean`, `vector3`, `add`, `subtract`, `multiply`, `divide`). Any
+  Geometry-producing/consuming node type, `module-inputs`/`module-output`,
+  or a `module-call`/`function-call` inside a Function graph is rejected.
+- Functions are emitted before Module declarations and Main in generated
+  OpenSCAD (`function double_size(x = 1) = (x * 2);`), so generated source
+  stays ready for a later cross-definition-dependency phase. An unresolved
+  Function is never emitted and cannot back a `function-call`.
+
+### `function-call`
+
+`function-call` is a generic Main-only value-producing node, exactly parallel
+to `module-call` but producing one typed value output (port id `value`)
+instead of Geometry:
+
+```json
+{ "definitionId": "definition-double-size", "arguments": { "parameter-x": 10 } }
+```
+
+The referenced definition must exist, have `kind: "function"`, and have a
+resolved `resultType` - a Call to an unresolved Function is rejected, since
+its output type would otherwise be unknown. Function Calls are Main-only,
+exactly like Module Calls: they are rejected inside any definition graph
+(Module or Function). Nested Module/Function Calls inside a Module or
+Function body are not yet represented.
+
+Existing v4 projects (Modules only, no Functions) migrate to v5 unchanged,
+with an empty Function entries in the shared `definitions` array.
 
 ## Per-node parameter schemas
 
@@ -731,13 +817,17 @@ version = 1
 
 `parseScadletProject` routes on `version` through a single
 `migrateScadletProject(version, raw)` function
-(`src/persistence/validate.ts`). v1 first migrates to v2, then v3, then v4;
-v2 migrates through v3 to v4; v3's legacy `children` connections are remapped
-to the deterministic first Geometry signature entry before validation.
+(`src/persistence/validate.ts`). v1 first migrates to v2, then v3, then v4,
+then v5; v2 migrates through v3/v4 to v5; v3's legacy `children` connections
+are remapped to the deterministic first Geometry signature entry before
+validation. v4 → v5 is a pure version-number bump: every existing v4 record
+is already a valid `kind: "module"` definition, and the (already-empty
+unless populated) `definitions` array simply gains the ability to also
+contain `kind: "function"` entries going forward.
 canonical form. No other call site needs to know about historical shapes:
 
 ```text
-v1 → migrate to v2 → migrate to v3 → migrate to v4 → validate against the current shape
+v1 → migrate to v2 → migrate to v3 → migrate to v4 → migrate to v5 → validate against the current shape
 ```
 
 Rules of thumb for whether a change needs a version bump:

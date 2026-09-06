@@ -3,7 +3,7 @@ import { customElement, query } from 'lit/decorators.js'
 
 import { createEditor, type SCADletEditor } from '../editor/editor'
 import type { InspectEvaluation } from '../editor/evaluate'
-import { MODULE_CALL_DRAG_MIME_TYPE, NODE_DRAG_MIME_TYPE } from '../editor/node-catalog'
+import { FUNCTION_CALL_DRAG_MIME_TYPE, MODULE_CALL_DRAG_MIME_TYPE, NODE_DRAG_MIME_TYPE } from '../editor/node-catalog'
 
 /**
  * Hosts the Rete node graph. Owns the lifecycle of the underlying
@@ -295,6 +295,14 @@ export class NodeEditorElement extends LitElement {
       border-color: #2f8240;
     }
 
+    /* Function Output's result port before its type is resolved (see
+       function-interface-nodes.ts's unresolvedSocket) - deliberately
+       neutral/grey, distinct from every real value type. */
+    .node-socket[data-socket-type='unresolved'] {
+      background: #888;
+      border-color: #555;
+    }
+
     .node-socket--snap-target {
       outline: 3px solid rgb(255 255 255 / 0.8);
       outline-offset: 2px;
@@ -552,9 +560,9 @@ export class NodeEditorElement extends LitElement {
     this.instance?.destroy()
   }
 
-  /** Allows static-node or Module-Call palette drags on the canvas. */
+  /** Allows static-node or Module/Function-Call palette drags on the canvas. */
   private readonly _onDragOver = (event: DragEvent): void => {
-    if (!event.dataTransfer?.types.some((type) => type === NODE_DRAG_MIME_TYPE || type === MODULE_CALL_DRAG_MIME_TYPE)) return
+    if (!event.dataTransfer?.types.some((type) => type === NODE_DRAG_MIME_TYPE || type === MODULE_CALL_DRAG_MIME_TYPE || type === FUNCTION_CALL_DRAG_MIME_TYPE)) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
   }
@@ -562,11 +570,13 @@ export class NodeEditorElement extends LitElement {
   /** Reads the dropped node type and places it under the pointer, converted to graph coordinates by the editor. */
   private readonly _onDrop = (event: DragEvent): void => {
     const type = event.dataTransfer?.getData(NODE_DRAG_MIME_TYPE)
-    const definitionId = event.dataTransfer?.getData(MODULE_CALL_DRAG_MIME_TYPE)
-    if (!type && !definitionId) return
+    const moduleDefinitionId = event.dataTransfer?.getData(MODULE_CALL_DRAG_MIME_TYPE)
+    const functionDefinitionId = event.dataTransfer?.getData(FUNCTION_CALL_DRAG_MIME_TYPE)
+    if (!type && !moduleDefinitionId && !functionDefinitionId) return
     event.preventDefault()
     if (type) void this.addNodeAt(type, { x: event.clientX, y: event.clientY })
-    else if (definitionId) void this.addModuleCallAt(definitionId, { x: event.clientX, y: event.clientY })
+    else if (moduleDefinitionId) void this.addModuleCallAt(moduleDefinitionId, { x: event.clientX, y: event.clientY })
+    else if (functionDefinitionId) void this.addFunctionCallAt(functionDefinitionId, { x: event.clientX, y: event.clientY })
   }
 
   async addNodeAt(type: string, clientPosition: { x: number; y: number }): Promise<void> {
@@ -575,6 +585,10 @@ export class NodeEditorElement extends LitElement {
 
   async addModuleCallAt(definitionId: string, clientPosition: { x: number; y: number }): Promise<boolean> {
     return (await this.instance?.addModuleCallAt(definitionId, clientPosition)) ?? false
+  }
+
+  async addFunctionCallAt(definitionId: string, clientPosition: { x: number; y: number }): Promise<boolean> {
+    return (await this.instance?.addFunctionCallAt(definitionId, clientPosition)) ?? false
   }
 
   async evaluate(rootNodeId?: string): Promise<string> {

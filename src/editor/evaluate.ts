@@ -71,9 +71,28 @@ async function evaluateModuleBody(editor: NodeEditor<Schemes>, engine: DataflowE
   return connection ? evaluateGeometryRoot(engine, connection.source, connection.sourceOutput) : ''
 }
 
+/** A Function's single expression is whatever ordinary value dataflow feeds
+ * its Output's `result` input - reusing the exact same recursive fetch as
+ * Geometry evaluation, just rooted at a value-typed output key. Returns
+ * `''` when nothing is connected (an unresolved draft, never emitted). */
+async function evaluateFunctionBody(editor: NodeEditor<Schemes>, engine: DataflowEngine<Schemes>, definition: ModuleDefinition): Promise<string> {
+  const connection = editor.getConnections().find((item) => item.target === definition.outputNodeId && item.targetInput === 'result')
+  return connection ? evaluateGeometryRoot(engine, connection.source, connection.sourceOutput) : ''
+}
+
+/** Functions are emitted before Modules and Main (AGENTS.md Milestone 8
+ * Phase 7, section 8) so generated source stays ready for Phase 8's
+ * cross-definition dependencies. An unresolved Function is a valid editor
+ * draft and is never emitted as a usable declaration. */
 async function evaluateDefinitions(editor: NodeEditor<Schemes>, engine: DataflowEngine<Schemes>, definitions: DefinitionRegistry): Promise<string> {
   const fragments: string[] = []
   for (const definition of definitions.list()) {
+    if (definition.kind !== 'function' || definition.resultType === undefined) continue
+    const body = await evaluateFunctionBody(editor, engine, definition)
+    fragments.push(`function ${definition.name}(${moduleParameterDeclaration(definition.parameters ?? [])}) = ${body || 'undef'};`)
+  }
+  for (const definition of definitions.list()) {
+    if (definition.kind !== 'module') continue
     const body = await evaluateModuleBody(editor, engine, definition)
     const indented = body ? `\n${body.split('\n').map((line) => `  ${line}`).join('\n')}\n` : '\n'
     fragments.push(`module ${definition.name}(${moduleParameterDeclaration(definition.parameters ?? [])}) {${indented}}`)
