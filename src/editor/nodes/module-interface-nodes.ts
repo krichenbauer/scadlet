@@ -3,8 +3,8 @@ import type { DataflowNode } from 'rete-engine'
 
 import { t } from '../../i18n/translate'
 import { ModuleParameterAddControl, ModuleParameterEditControl } from '../controls'
-import { booleanSocket, geometrySocket, numberSocket, vector3Socket, type BooleanValue, type NumberValue, type Vector3Value } from '../sockets'
-import { moduleParameterPortId, type ModuleParameter } from '../definitions'
+import { booleanSocket, geometrySocket, numberSocket, vector3Socket, type BooleanValue, type GeometryValue, type NumberValue, type Vector3Value } from '../sockets'
+import { MODULE_CHILD_PORT_ID, moduleParameterPortId, type ModuleParameter } from '../definitions'
 
 /** The fixed parameter interface of a Module definition. Phase 1 has no
  * parameters yet, but the node is a real, stable part of that definition's
@@ -14,6 +14,7 @@ export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, 
   constructor(parameters: readonly ModuleParameter[] = []) {
     super(t('node.moduleInputs'))
     this.parameters = parameters
+    this.addOutput(MODULE_CHILD_PORT_ID, new ClassicPreset.Output(geometrySocket, t('input.children')))
     this.materializeOutputs()
     this.addControl('addParameter', new ModuleParameterAddControl(
       () => {},
@@ -43,6 +44,7 @@ export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, 
   syncSignature(parameters: readonly ModuleParameter[]): void {
     const next = new Map(parameters.map((parameter) => [moduleParameterPortId(parameter.id), parameter]))
     for (const key of Object.keys(this.outputs)) {
+      if (key === MODULE_CHILD_PORT_ID) continue
       if (!next.has(key)) this.removeOutput(key)
       else if (this.outputs[key]?.socket.name !== socketName(next.get(key)!)) {
         this.removeOutput(key)
@@ -64,8 +66,11 @@ export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, 
     }
   }
 
-  data(): Record<string, NumberValue | BooleanValue | Vector3Value> {
-    return Object.fromEntries(this.parameters.map((parameter) => [moduleParameterPortId(parameter.id), { code: parameter.name }]))
+  data(): Record<string, GeometryValue | NumberValue | BooleanValue | Vector3Value> {
+    return {
+      [MODULE_CHILD_PORT_ID]: { code: 'children()' },
+      ...Object.fromEntries(this.parameters.map((parameter) => [moduleParameterPortId(parameter.id), { code: parameter.name }])),
+    }
   }
 }
 

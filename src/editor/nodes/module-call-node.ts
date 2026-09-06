@@ -4,7 +4,7 @@ import type { DataflowNode } from 'rete-engine'
 import { booleanSocket, geometrySocket, numberSocket, vector3Socket, type BooleanValue, type GeometryValue, type NumberValue, type Vector3Value } from '../sockets'
 import { t } from '../../i18n/translate'
 import { CheckboxControl, LabeledNumberControl, Vector3Control } from '../controls'
-import { moduleParameterPortId, type ModuleDefinition, type ModuleParameter, type ModuleParameterDefault } from '../definitions'
+import { MODULE_CHILD_PORT_ID, moduleParameterPortId, type ModuleDefinition, type ModuleParameter, type ModuleParameterDefault } from '../definitions'
 
 /** A project-defined Module use. Its stable definition ID is the semantic
  * reference; the visible/OpenSCAD name is resolved from that definition at
@@ -31,6 +31,7 @@ export class ModuleCallNode extends ClassicPreset.Node<Record<string, ClassicPre
     this.moduleName = resolved.name
     this.parameters = resolved.parameters ?? []
     this.onControlsChanged = onControlsChanged
+    this.addInput(MODULE_CHILD_PORT_ID, new ClassicPreset.Input(geometrySocket, t('input.children')))
     this.materializeInputs(callParams.arguments ?? {})
     this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, t('input.geometry')))
   }
@@ -44,6 +45,7 @@ export class ModuleCallNode extends ClassicPreset.Node<Record<string, ClassicPre
     for (const id of resetFallbackIds) delete fallbacks[id]
     const next = new Map(parameters.map((parameter) => [moduleParameterPortId(parameter.id), parameter]))
     for (const key of Object.keys(this.inputs)) {
+      if (key === MODULE_CHILD_PORT_ID) continue
       const parameter = next.get(key)
       if (!parameter || this.inputs[key]?.socket.name !== parameter.type) {
         this.removeInput(key)
@@ -87,7 +89,7 @@ export class ModuleCallNode extends ClassicPreset.Node<Record<string, ClassicPre
 
   getPersistedParams(): ModuleCallParams { return { definitionId: this.definitionId, arguments: this.getArguments() } }
 
-  data(inputs: Record<string, (NumberValue | BooleanValue | Vector3Value)[] | undefined>): { geometry: GeometryValue } {
+  data(inputs: Record<string, (GeometryValue | NumberValue | BooleanValue | Vector3Value)[] | undefined>): { geometry: GeometryValue } {
     const argumentsSource = this.parameters.map((parameter) => {
       const key = moduleParameterPortId(parameter.id)
       const connected = inputs[key]?.[0]?.code
@@ -95,6 +97,10 @@ export class ModuleCallNode extends ClassicPreset.Node<Record<string, ClassicPre
       const literal = Array.isArray(fallback) ? `[${fallback.join(', ')}]` : String(fallback)
       return `${parameter.name} = ${connected ?? literal}`
     })
-    return { geometry: { code: `${this.moduleName}(${argumentsSource.join(', ')});` } }
+    const invocation = `${this.moduleName}(${argumentsSource.join(', ')})`
+    const child = inputs[MODULE_CHILD_PORT_ID]?.[0] as GeometryValue | undefined
+    return { geometry: { code: child
+      ? `${invocation} {\n${child.code.split('\n').map((line) => `  ${line}`).join('\n')}\n}`
+      : `${invocation};` } }
   }
 }

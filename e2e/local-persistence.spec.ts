@@ -141,7 +141,7 @@ test('starts from the historical pre-Phase-4 v3 Module fixture without losing pa
   await expect(page.locator('scadlet-app .project-picker')).toHaveValue('historical-module-project')
   const inputs = page.locator('node-editor .node[data-node-id="wheel-inputs"]')
   const call = page.locator('node-editor .node[data-node-id="main-wheel-call"]')
-  await expect(inputs.locator('.node-port--output')).toHaveCount(3)
+  await expect(inputs.locator('.node-port--output')).toHaveCount(4)
   await call.locator('.node-pin').click()
   await expect(call.locator('.node-param-row')).toHaveCount(3)
   await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(3)

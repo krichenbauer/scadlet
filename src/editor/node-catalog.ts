@@ -24,7 +24,7 @@ import type { SocketType } from './sockets'
 import { t } from '../i18n/translate'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
 import { ModuleCallNode, type ModuleCallParams } from './nodes/module-call-node'
-import type { ModuleDefinition, ModuleParameterDefault } from './definitions'
+import { MODULE_CHILD_PORT_ID, type ModuleDefinition, type ModuleParameterDefault } from './definitions'
 
 /** MIME type used to carry a node-catalog `type` id through native HTML drag-and-drop (see `node-palette.ts`/`node-editor.ts`). */
 export const NODE_DRAG_MIME_TYPE = 'application/x-scadlet-node-type'
@@ -235,8 +235,8 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
  */
 const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   {
-    type: 'module-call', category: 'values', labelKey: 'node.moduleCall', palette: false, inputs: [], outputs: ['geometry'],
-    inputSocketType: () => undefined, outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
+    type: 'module-call', category: 'values', labelKey: 'node.moduleCall', palette: false, inputs: [MODULE_CHILD_PORT_ID], outputs: ['geometry'],
+    inputSocketType: (port) => port === MODULE_CHILD_PORT_ID ? 'geometry' : undefined, outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
     create: (context, params) => {
       const call = validateModuleCallParams(params)
       const definition = context.getModuleDefinition?.(call.definitionId)
@@ -248,8 +248,8 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     validateParams: (value) => validateModuleCallParams(value) as unknown as Record<string, unknown>,
   },
   {
-    type: 'module-inputs', category: 'values', labelKey: 'node.moduleInputs', palette: false, inputs: [], outputs: [],
-    inputSocketType: () => undefined, outputSocketType: () => undefined,
+    type: 'module-inputs', category: 'values', labelKey: 'node.moduleInputs', palette: false, inputs: [], outputs: [MODULE_CHILD_PORT_ID],
+    inputSocketType: () => undefined, outputSocketType: (port) => port === MODULE_CHILD_PORT_ID ? 'geometry' : undefined,
     create: () => new ModuleInputsNode(),
     matches: (node) => node instanceof ModuleInputsNode,
     serializeParams: validateEmptyParams,

@@ -2,11 +2,13 @@ import { ClassicPreset, NodeEditor } from 'rete'
 import { DataflowEngine } from 'rete-engine'
 import { describe, expect, it } from 'vitest'
 
-import { DefinitionRegistry, moduleParameterPortId, type ModuleDefinition } from './definitions'
+import { DefinitionRegistry, MODULE_CHILD_PORT_ID, moduleParameterPortId, type ModuleDefinition } from './definitions'
 import { evaluateInspectNode, evaluateOpenSCAD } from './evaluate'
 import { ModuleCallNode } from './nodes/module-call-node'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
 import { SphereNode } from './nodes/sphere-node'
+import { TranslateNode } from './nodes/translate-node'
+import { CubeNode } from './nodes/cube-node'
 import { MathNode, NumberNode } from './nodes/value-nodes'
 import { graphEndpointsAreValid } from './port-lifecycle'
 import type { Schemes } from './schemes'
@@ -32,7 +34,8 @@ describe('typed Module parameters', () => {
     const inputs = new ModuleInputsNode(definition.parameters)
     const first = new ModuleCallNode(definition)
     const second = new ModuleCallNode(definition)
-    expect(Object.keys(inputs.outputs)).toEqual((definition.parameters ?? []).map((parameter) => moduleParameterPortId(parameter.id)))
+    expect(Object.keys(inputs.outputs)).toEqual([MODULE_CHILD_PORT_ID, ...(definition.parameters ?? []).map((parameter) => moduleParameterPortId(parameter.id))])
+    expect(first.inputs[MODULE_CHILD_PORT_ID]?.socket.name).toBe('geometry')
     expect(inputs.outputs[moduleParameterPortId('radius-id')]?.socket.name).toBe('number')
     expect(inputs.outputs[moduleParameterPortId('enabled-id')]?.socket.name).toBe('boolean')
     expect(inputs.outputs[moduleParameterPortId('offset-id')]?.socket.name).toBe('vector3')
@@ -58,6 +61,33 @@ describe('typed Module parameters', () => {
     expect(inputs.outputs[key]?.socket.name).toBe('vector3')
     expect(call.inputs[key]?.socket.name).toBe('vector3')
     expect(call.getArguments()['radius-id']).toEqual([1, 2, 3])
+  })
+
+  it('models children as a fixed Geometry boundary rather than a value parameter and emits a normal child block', () => {
+    const inputs = new ModuleInputsNode(definition.parameters)
+    const call = new ModuleCallNode(definition)
+    expect(inputs.data()[MODULE_CHILD_PORT_ID]).toMatchObject({ code: 'children()' })
+    expect(call.getArguments()).not.toHaveProperty(MODULE_CHILD_PORT_ID)
+    expect(call.data({}).geometry.code).toBe('ball(radius = 10, enabled = false, offset = [0, 0, 0]);')
+    expect(call.data({ [MODULE_CHILD_PORT_ID]: [{ code: 'union() {\n  cube();\n  sphere(r=3);\n}' }] }).geometry.code)
+      .toBe('ball(radius = 10, enabled = false, offset = [0, 0, 0]) {\n  union() {\n    cube();\n    sphere(r=3);\n  }\n}')
+  })
+
+  it('flows children through ordinary Rete Geometry connections in a definition and Call', async () => {
+    const { editor, engine } = graph()
+    const definitions = new DefinitionRegistry(); definitions.add(definition)
+    const inputs = new ModuleInputsNode(definition.parameters); inputs.id = definition.inputsNodeId
+    const output = new ModuleOutputNode(); output.id = definition.outputNodeId
+    const translate = new TranslateNode({ x: 0, y: 0, z: 12 }); translate.id = 'child-translate'
+    const call = new ModuleCallNode(definition); call.id = 'ball-call'
+    const cube = new CubeNode(); cube.id = 'child-cube'
+    for (const node of [inputs, output, translate, call, cube]) await editor.addNode(node)
+    definitions.assignNode(definition.id, translate.id)
+    await editor.addConnection(new ClassicPreset.Connection(inputs, MODULE_CHILD_PORT_ID, translate, 'geometry') as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(translate, 'geometry', output, 'geometry') as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(cube, 'geometry', call, MODULE_CHILD_PORT_ID) as Schemes['Connection'])
+    await expect(evaluateOpenSCAD(editor, engine, undefined, definitions)).resolves.toMatch(/translate\(\[0, 0, 12\]\) \{\n\s+children\(\)\n\s+\}/)
+    await expect(evaluateOpenSCAD(editor, engine, undefined, definitions)).resolves.toContain('ball(radius = 10, enabled = false, offset = [0, 0, 0]) {\n  cube(10);\n}')
   })
 
   it('removes a deleted signature id from Inputs and every Call only after its exact wires are removed', async () => {

@@ -1427,6 +1427,15 @@ confirms its Call/connection impact, removes affected Rete connections before
 nodes, then removes the complete definition scope and registry entry. A
 cancelled management action is not dirty and never changes the project.
 
+Phase 6 adds one fixed Geometry child boundary to every Module: Inputs exposes
+the structural `children` Geometry output, which evaluates to OpenSCAD
+`children()`, and every Module Call exposes the matching Geometry input. It is
+not an editable parameter, has no fallback/default, and is never emitted in a
+Module signature. An unconnected Call remains `name(...);`; a connected child
+emits `name(...) { ... }`. The port exists deterministically for new and
+restored v3 Modules/Calls, so child wires use ordinary stable connection data
+without a format bump or cross-scope Rete wire.
+
 Every definition starts with two protected, non-deletable, non-duplicable interface nodes:
 
 1. **Inputs / Parameters** on the left

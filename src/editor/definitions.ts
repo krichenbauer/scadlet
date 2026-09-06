@@ -46,6 +46,9 @@ export function moduleParameterNameProblem(name: string, existingNames: Iterable
 }
 
 export function moduleParameterPortId(id: string): string { return `parameter:${id}` }
+/** Fixed structural Geometry boundary for OpenSCAD `children()`. This is not
+ * part of a Module's editable value-parameter signature. */
+export const MODULE_CHILD_PORT_ID = 'children'
 
 export function defaultForModuleParameterType(type: ModuleParameterType): ModuleParameterDefault {
   if (type === 'number') return 0

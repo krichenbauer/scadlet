@@ -307,6 +307,10 @@ stable definition ID, definition graph, and all `module-call.definitionId`
 references. Deleting a definition removes its definition record, scoped graph,
 and Calls as an ordinary v3 semantic mutation; no format-version change is
 required.
+Every `module-inputs` node and `module-call` node also deterministically owns
+the fixed structural Geometry port `children`. It is not stored in
+`definitions[].parameters` or in Call fallback arguments; ordinary connection
+records persist any wire using that port exactly as for other stable ports.
 Type changes retain the parameter ID but reset every Call fallback for that ID
 to the new definition default after attached connections are removed. Deletion
 preflights the complete dynamic signature and removes the ID, its Call fallback

@@ -68,6 +68,7 @@ const dictionaries: Record<LocaleId, Record<string, string>> = {
     'mode.diameter': 'Diameter',
     'mode.tapered': 'Tapered',
     'input.geometry': 'Geometry',
+    'input.children': 'Children',
     'definition.myModules': 'My Modules',
     'definition.newModule': '+ New module',
     'definition.createModule': 'Create module',

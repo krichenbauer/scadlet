@@ -1,10 +1,13 @@
 import { NodeEditor } from 'rete'
+import { DataflowEngine } from 'rete-engine'
 import { describe, expect, it } from 'vitest'
 
-import { DefinitionRegistry } from '../editor/definitions'
+import { DefinitionRegistry, MODULE_CHILD_PORT_ID } from '../editor/definitions'
+import { evaluateOpenSCAD } from '../editor/evaluate'
 import { ModuleInputsNode, ModuleOutputNode } from '../editor/nodes/module-interface-nodes'
 import { CubeNode } from '../editor/nodes/cube-node'
 import { ModuleCallNode } from '../editor/nodes/module-call-node'
+import { TranslateNode } from '../editor/nodes/translate-node'
 import { ClassicPreset } from 'rete'
 import type { Schemes } from '../editor/schemes'
 import { restoreProject } from './restore'
@@ -96,6 +99,44 @@ describe('v3 Module definition persistence', () => {
     })
     expect(restored.scopeOf(cube.id)).toBe(definition.id)
     expect(target.getNode(call.id)).toBeInstanceOf(ModuleCallNode)
+  })
+
+  it('round-trips structural children connections without serializing them as parameters', async () => {
+    const source = new NodeEditor<Schemes>()
+    const registry = new DefinitionRegistry(); registry.add(definition)
+    const inputs = new ModuleInputsNode(); inputs.id = definition.inputsNodeId
+    const output = new ModuleOutputNode(); output.id = definition.outputNodeId
+    const translate = new TranslateNode({ z: 15 }); translate.id = 'wheel-translate'
+    const call = new ModuleCallNode(definition); call.id = 'main-wheel-call'
+    const cube = new CubeNode(); cube.id = 'main-child-cube'
+    for (const node of [inputs, output, translate, call, cube]) await source.addNode(node)
+    registry.assignNode(definition.id, translate.id)
+    await source.addConnection(new ClassicPreset.Connection(inputs, MODULE_CHILD_PORT_ID, translate, 'geometry') as Schemes['Connection'])
+    await source.addConnection(new ClassicPreset.Connection(translate, 'geometry', output, 'geometry') as Schemes['Connection'])
+    await source.addConnection(new ClassicPreset.Connection(cube, 'geometry', call, MODULE_CHILD_PORT_ID) as Schemes['Connection'])
+
+    const project = parseScadletProject(serializeProject({
+      editor: source, metadata: { name: 'Children' }, getNodePosition: () => ({ x: 0, y: 0 }),
+      viewport: { x: 0, y: 0, k: 1 }, viewerCamera: camera, definitions: registry.list(), getNodeScope: (id) => registry.scopeOf(id),
+    }))
+    expect(project.definitions[0]?.parameters).toEqual([])
+    expect(project.definitions[0]?.graph.connections.some((connection) => connection.sourceOutput === MODULE_CHILD_PORT_ID)).toBe(true)
+    expect(project.graph.connections.some((connection) => connection.targetInput === MODULE_CHILD_PORT_ID)).toBe(true)
+
+    const target = new NodeEditor<Schemes>()
+    const engine = new DataflowEngine<Schemes>((node) => ({ inputs: () => Object.keys(node.inputs), outputs: () => Object.keys(node.outputs) }))
+    target.use(engine)
+    const restored = new DefinitionRegistry()
+    await restoreProject(project, {
+      editor: target,
+      creationContext: { onControlsChanged: () => {}, getModuleDefinition: (id) => restored.get(id) },
+      setNodePosition: () => {}, clearDefinitions: () => restored.clear(), registerDefinition: (item) => restored.add(item),
+      assignNodeToDefinition: (definitionId, nodeId) => restored.assignNode(definitionId, nodeId),
+    })
+    expect(Object.keys((target.getNode(inputs.id) as ModuleInputsNode).outputs)).toEqual([MODULE_CHILD_PORT_ID])
+    expect(Object.keys((target.getNode(call.id) as ModuleCallNode).inputs)).toEqual([MODULE_CHILD_PORT_ID])
+    expect(target.getConnections()).toHaveLength(3)
+    await expect(evaluateOpenSCAD(target, engine, undefined, restored)).resolves.toContain('wheel() {\n  cube(10);\n}')
   })
 
   it('rejects a dangling Main Call and a nested Module Call in persisted graphs', () => {

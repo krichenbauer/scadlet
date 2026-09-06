@@ -2,7 +2,7 @@ import { ClassicPreset, NodeEditor } from 'rete'
 import { describe, expect, it } from 'vitest'
 
 import { attachSocketCompatibilityGuard } from './editor'
-import { DefinitionRegistry, bindDefinitionRegistry, moduleNameProblem } from './definitions'
+import { DefinitionRegistry, MODULE_CHILD_PORT_ID, bindDefinitionRegistry, moduleNameProblem } from './definitions'
 import { removeNodeWithConnections } from './deletion'
 import { CubeNode } from './nodes/cube-node'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
@@ -33,7 +33,8 @@ describe('Module definitions', () => {
     const inputs = new ModuleInputsNode()
     const output = new ModuleOutputNode()
     expect(Object.keys(inputs.inputs)).toEqual([])
-    expect(Object.keys(inputs.outputs)).toEqual([])
+    expect(Object.keys(inputs.outputs)).toEqual([MODULE_CHILD_PORT_ID])
+    expect(inputs.outputs[MODULE_CHILD_PORT_ID]?.socket.name).toBe('geometry')
     expect(Object.keys(output.inputs)).toEqual(['geometry'])
     expect(output.inputs.geometry?.socket.name).toBe('geometry')
   })
