@@ -1419,6 +1419,14 @@ through Rete's normal group-translation mechanism. Frame bounds then remain
 derived from those node positions. Header selection/drag state is transient;
 only the normal persisted node-position changes dirty and save the project.
 
+Phase 5 Module management keeps definition identity stable while names remain
+editable OpenSCAD source names. Sidebar entries remain drag-only Call sources
+and additionally expose separate Focus, Edit, and Delete actions. Rename
+updates the registry, frame, Calls, and generated source in place; deletion
+confirms its Call/connection impact, removes affected Rete connections before
+nodes, then removes the complete definition scope and registry entry. A
+cancelled management action is not dirty and never changes the project.
+
 Every definition starts with two protected, non-deletable, non-duplicable interface nodes:
 
 1. **Inputs / Parameters** on the left

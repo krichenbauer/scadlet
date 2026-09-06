@@ -47,6 +47,21 @@ describe('Module definitions', () => {
     expect(registry.isProtectedNode('wheel-cube')).toBe(false)
   })
 
+  it('renames by stable definition id and removes the entire owned scope only on deletion', () => {
+    const registry = new DefinitionRegistry()
+    registry.add(definition())
+    registry.assignNode('definition-wheel', 'wheel-cube')
+    expect(registry.rename('definition-wheel', 'rim')).toBe(true)
+    expect(registry.rename('definition-wheel', 'rim')).toBe(false)
+    expect(registry.get('definition-wheel')?.name).toBe('rim')
+    expect(registry.scopeOf('wheel-cube')).toBe('definition-wheel')
+    registry.remove('definition-wheel')
+    expect(registry.get('definition-wheel')).toBeUndefined()
+    expect(registry.nodeIds('definition-wheel')).toEqual([])
+    expect(registry.scopeOf('wheel-inputs')).toBeNull()
+    expect(registry.scopeOf('wheel-cube')).toBeNull()
+  })
+
   it('protects both interface nodes through the generic deletion helper', async () => {
     const editor = new NodeEditor<Schemes>()
     const registry = new DefinitionRegistry()

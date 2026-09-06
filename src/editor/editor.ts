@@ -66,6 +66,9 @@ export interface SCADletEditor {
   /** Sets a node's pinned state directly (used by `.scadlet` project restore) rather than toggling. */
   setPinned(nodeId: string, pinned: boolean): void
   createModule(name: string): Promise<ModuleDefinition>
+  renameModule(definitionId: string, name: string): Promise<boolean>
+  deleteModule(definitionId: string): Promise<boolean>
+  focusModule(definitionId: string): Promise<void>
   addModuleParameter(definitionId: string, parameter: { name: string; type: ModuleParameterType; default: ModuleParameterDefault }): Promise<void>
   editModuleParameter(definitionId: string, parameterId: string, update: { name?: string; type?: ModuleParameterType; default?: ModuleParameterDefault; move?: -1 | 1 }): Promise<boolean>
   deleteModuleParameter(definitionId: string, parameterId: string): Promise<boolean>
@@ -772,6 +775,52 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return definition
   }
 
+  async function renameModule(definitionId: string, rawName: string): Promise<boolean> {
+    const definition = definitions.get(definitionId)
+    if (!definition) throw new Error(t('definition.renameFailed'))
+    const name = rawName.trim()
+    const problem = moduleNameProblem(name, definitions.list().filter((item) => item.id !== definitionId).map((item) => item.name))
+    if (problem === 'duplicate') throw new Error(t('definition.duplicateName'))
+    if (problem) throw new Error(t('definition.invalidName'))
+    if (name === definition.name) return false
+    const calls = editor.getNodes().filter((node): node is ModuleCallNode => node instanceof ModuleCallNode && node.definitionId === definitionId)
+    definitions.rename(definitionId, name)
+    for (const call of calls) {
+      call.syncDefinitionName(name)
+      await area.update('node', call.id)
+    }
+    return true
+  }
+
+  async function deleteModule(definitionId: string): Promise<boolean> {
+    const definition = definitions.get(definitionId)
+    if (!definition) throw new Error(t('definition.deleteModuleFailed'))
+    const memberIds = definitions.nodeIds(definitionId)
+    const calls = editor.getNodes().filter((node): node is ModuleCallNode => node instanceof ModuleCallNode && node.definitionId === definitionId)
+    const nodeIds = new Set([...memberIds, ...calls.map((call) => call.id)])
+    if (memberIds.some((id) => !editor.getNode(id)) || calls.some((call) => !editor.getNode(call.id))) throw new Error(t('definition.deleteModuleFailed'))
+    const connections = editor.getConnections().filter((connection) => nodeIds.has(connection.source) || nodeIds.has(connection.target))
+    const message = t('definition.confirmDeleteModule')
+      .replace('{name}', definition.name)
+      .replace('{calls}', String(calls.length))
+      .replace('{connections}', String(connections.length))
+    try { if (!window.confirm(message)) return false } catch { throw new Error(t('definition.deleteModuleFailed')) }
+    const previousDirtySuspended = dirtySuspended
+    dirtySuspended = true
+    try {
+      connection.drop(); connectionGesture.cancel()
+      for (const connection of connections) if (!await editor.removeConnection(connection.id)) throw new Error(`Could not remove connection ${connection.id}.`)
+      for (const nodeId of nodeIds) if (!await editor.removeNode(nodeId)) throw new Error(`Could not remove node ${nodeId}.`)
+      definitions.remove(definitionId)
+    } catch {
+      dirtySuspended = previousDirtySuspended
+      throw new Error(t('definition.deleteModuleFailed'))
+    }
+    dirtySuspended = previousDirtySuspended
+    if (!previousDirtySuspended) notifySemanticDirty()
+    return true
+  }
+
   return {
     editor,
     area,
@@ -792,6 +841,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       notifyDirty()
     },
     createModule,
+    renameModule,
+    deleteModule,
+    focusModule: selectDefinition,
     addModuleParameter,
     editModuleParameter,
     deleteModuleParameter,

@@ -76,6 +76,10 @@ export class NodePaletteElement extends LitElement {
     .node-item:active {
       cursor: grabbing;
     }
+
+    .module-entry { display: flex; align-items: center; gap: 4px; margin: 0 8px 4px; }
+    .module-entry .module-item { margin: 0; flex: 1; }
+    .module-action { padding: 4px 6px; }
   `
 
   render() {
@@ -85,14 +89,13 @@ export class NodePaletteElement extends LitElement {
       <div class="category" aria-label=${t('definition.myModules')}>
         <div class="category-title">${t('definition.myModules')}</div>
         ${this.modules.map((module) => html`
-          <div
-            role="listitem"
-            class="node-item module-item"
-            data-definition-id=${module.id}
-            draggable="true"
-            @dragstart=${(event: DragEvent) => this._onModuleDragStart(event, module.id)}
-            aria-label=${module.name}
-          >${module.name}</div>
+          <div class="module-entry" data-definition-id=${module.id}>
+            <div role="listitem" class="node-item module-item" draggable="true"
+              @dragstart=${(event: DragEvent) => this._onModuleDragStart(event, module.id)} aria-label=${module.name}>${module.name}</div>
+            <button type="button" class="module-action" aria-label=${t('definition.focusModule').replace('{name}', module.name)} @click=${() => this._moduleAction('focus-module', module.id)}>⌖</button>
+            <button type="button" class="module-action" aria-label=${t('definition.editModule').replace('{name}', module.name)} @click=${() => this._moduleAction('edit-module', module.id)}>✎</button>
+            <button type="button" class="module-action" aria-label=${t('definition.deleteModule').replace('{name}', module.name)} @click=${() => this._moduleAction('delete-module', module.id)}>×</button>
+          </div>
         `)}
         <button type="button" class="node-item" @click=${this._onNewModule}>${t('definition.newModule')}</button>
       </div>
@@ -137,6 +140,10 @@ export class NodePaletteElement extends LitElement {
 
   private _onNewModule(): void {
     this.dispatchEvent(new CustomEvent('new-module', { bubbles: true, composed: true }))
+  }
+
+  private _moduleAction(type: 'focus-module' | 'edit-module' | 'delete-module', definitionId: string): void {
+    this.dispatchEvent(new CustomEvent(type, { detail: { definitionId }, bubbles: true, composed: true }))
   }
 }
 

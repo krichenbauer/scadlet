@@ -360,6 +360,9 @@ export class ScadletApp extends LitElement {
   @state()
   private moduleError: string | null = null
 
+  @state()
+  private editingModuleId: string | null = null
+
   /** Width, in pixels, of the node-editor pane. 0 means "not measured yet". */
   @state()
   private editorWidth = 0
@@ -431,6 +434,9 @@ export class ScadletApp extends LitElement {
           .inert=${this.localInitializing}
           .modules=${this.moduleDefinitions}
           @new-module=${this._openModuleDialog}
+          @focus-module=${this._focusModule}
+          @edit-module=${this._openRenameModuleDialog}
+          @delete-module=${this._deleteModule}
         ></node-palette>
         <main style=${styleMap({ '--editor-width': this.editorWidth ? `${this.editorWidth}px` : undefined })}>
           <node-editor .inert=${this.localInitializing}></node-editor>
@@ -461,8 +467,8 @@ export class ScadletApp extends LitElement {
       </div>
       ${this.moduleDialogOpen ? html`
         <div class="module-dialog-backdrop" @click=${this._cancelModuleDialog}>
-          <form class="module-dialog" aria-label=${t('definition.createModule')} @submit=${this._submitModule} @click=${(event: Event) => event.stopPropagation()}>
-            <h2>${t('definition.createModule')}</h2>
+          <form class="module-dialog" aria-label=${this.editingModuleId ? t('definition.renameModule') : t('definition.createModule')} @submit=${this._submitModule} @click=${(event: Event) => event.stopPropagation()}>
+            <h2>${this.editingModuleId ? t('definition.renameModule') : t('definition.createModule')}</h2>
             <label>
               ${t('definition.moduleName')}
               <input type="text" .value=${this.moduleName} @input=${this._onModuleNameInput} autofocus />
@@ -470,7 +476,7 @@ export class ScadletApp extends LitElement {
             ${this.moduleError ? html`<p class="module-error" role="alert">${this.moduleError}</p>` : nothing}
             <div class="module-dialog-actions">
               <button type="button" @click=${this._cancelModuleDialog}>${t('definition.cancel')}</button>
-              <button type="submit">${t('definition.create')}</button>
+              <button type="submit">${this.editingModuleId ? t('definition.save') : t('definition.create')}</button>
             </div>
           </form>
         </div>
@@ -837,6 +843,7 @@ export class ScadletApp extends LitElement {
   }
 
   private readonly _openModuleDialog = (): void => {
+    this.editingModuleId = null
     this.moduleName = ''
     this.moduleError = null
     this.moduleDialogOpen = true
@@ -845,6 +852,7 @@ export class ScadletApp extends LitElement {
   private readonly _cancelModuleDialog = (): void => {
     this.moduleDialogOpen = false
     this.moduleError = null
+    this.editingModuleId = null
   }
 
   private readonly _onModuleNameInput = (event: Event): void => {
@@ -860,12 +868,41 @@ export class ScadletApp extends LitElement {
   private async _createModule(): Promise<void> {
     const instance = this.editorInstance ?? (await this.nodeEditor.whenReady())
     try {
-      await instance.createModule(this.moduleName)
+      if (this.editingModuleId) await instance.renameModule(this.editingModuleId, this.moduleName)
+      else await instance.createModule(this.moduleName)
       this.moduleDefinitions = instance.getDefinitions()
       this.moduleDialogOpen = false
       this.moduleError = null
+      this.editingModuleId = null
     } catch (error) {
       this.moduleError = this._errorMessage(error)
+    }
+  }
+
+  private readonly _openRenameModuleDialog = (event: CustomEvent<{ definitionId: string }>): void => {
+    const definition = this.moduleDefinitions.find((item) => item.id === event.detail.definitionId)
+    if (!definition) return
+    this.editingModuleId = definition.id
+    this.moduleName = definition.name
+    this.moduleError = null
+    this.moduleDialogOpen = true
+  }
+
+  private readonly _focusModule = (event: CustomEvent<{ definitionId: string }>): void => {
+    void this.editorInstance?.focusModule(event.detail.definitionId)
+  }
+
+  private readonly _deleteModule = (event: CustomEvent<{ definitionId: string }>): void => {
+    void this._deleteModuleById(event.detail.definitionId)
+  }
+
+  private async _deleteModuleById(definitionId: string): Promise<void> {
+    const instance = this.editorInstance ?? (await this.nodeEditor.whenReady())
+    try {
+      await instance.deleteModule(definitionId)
+      this.moduleDefinitions = instance.getDefinitions()
+    } catch (error) {
+      this.persistenceMessage = this._errorMessage(error)
     }
   }
 

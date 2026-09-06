@@ -138,6 +138,27 @@ export class DefinitionRegistry {
     this.emit()
   }
 
+  rename(definitionId: string, name: string): boolean {
+    const definition = this.definitions.get(definitionId)
+    if (!definition) throw new Error(`Unknown Module definition "${definitionId}".`)
+    if (definition.name === name) return false
+    this.definitions.set(definitionId, { ...definition, name })
+    this.emit()
+    return true
+  }
+
+  /** Removes the registry-owned scope after the editor has removed every
+   * member through Rete's normal node/connection lifecycle. */
+  remove(definitionId: string): void {
+    const definition = this.definitions.get(definitionId)
+    if (!definition) throw new Error(`Unknown Module definition "${definitionId}".`)
+    this.definitions.delete(definitionId)
+    for (const [nodeId, scope] of this.scopes) if (scope === definitionId) this.scopes.delete(nodeId)
+    this.protectedNodeIds.delete(definition.inputsNodeId)
+    this.protectedNodeIds.delete(definition.outputNodeId)
+    this.emit()
+  }
+
   clear(): void {
     if (this.definitions.size === 0) return
     this.definitions.clear()

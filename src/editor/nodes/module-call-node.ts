@@ -13,7 +13,7 @@ export interface ModuleCallParams { definitionId: string; arguments?: Record<str
 
 export class ModuleCallNode extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { geometry: ClassicPreset.Socket }, Record<string, LabeledNumberControl | CheckboxControl | Vector3Control>> implements DataflowNode {
   readonly definitionId: string
-  private readonly moduleName: string
+  private moduleName: string
   private parameters: readonly ModuleParameter[]
   private readonly onControlsChanged?: (nodeId: string) => void
 
@@ -56,6 +56,12 @@ export class ModuleCallNode extends ClassicPreset.Node<Record<string, ClassicPre
       const input = this.inputs[moduleParameterPortId(parameter.id)]
       if (input) input.label = parameter.name
     }
+    this.onControlsChanged?.(this.id)
+  }
+
+  syncDefinitionName(name: string): void {
+    this.moduleName = name
+    this.label = name
     this.onControlsChanged?.(this.id)
   }
 

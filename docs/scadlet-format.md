@@ -302,6 +302,11 @@ from its user-editable OpenSCAD-style `name`.
 - Parameter port IDs are `parameter:<id>`, derived from the signature during
   restore rather than serialized as renderer sockets. Future rename/reorder
 operations therefore preserve existing wires through the stable ID.
+Module names are mutable source labels: renaming a definition preserves its
+stable definition ID, definition graph, and all `module-call.definitionId`
+references. Deleting a definition removes its definition record, scoped graph,
+and Calls as an ordinary v3 semantic mutation; no format-version change is
+required.
 Type changes retain the parameter ID but reset every Call fallback for that ID
 to the new definition default after attached connections are removed. Deletion
 preflights the complete dynamic signature and removes the ID, its Call fallback
