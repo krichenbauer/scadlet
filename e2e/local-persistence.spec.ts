@@ -111,6 +111,16 @@ async function dragNodeTo(page: Page, node: Locator, target: { x: number; y: num
   await page.mouse.up()
 }
 
+async function connectSockets(page: Page, source: Locator, target: Locator) {
+  const sourceBox = await source.boundingBox()
+  const targetBox = await target.boundingBox()
+  if (!sourceBox || !targetBox) throw new Error('Expected source/target socket bounds')
+  await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, { steps: 8 })
+  await page.mouse.up()
+}
+
 test.beforeEach(async ({ context }) => {
   await context.addInitScript(() => {
     // Exercise SCADlet's baseline file-input/download implementation;
@@ -440,6 +450,100 @@ test('adds a typed Module parameter and materializes matching border-anchored Ca
   if (!callBox || !callInputBox) throw new Error('Expected Call socket bounds')
   expect(callInputBox.x).toBeLessThan(callBox.x + 8)
   await expect(call.locator('.node-param-row input[type="number"]')).toHaveValue('10')
+})
+
+test('two Geometry inputs with the second wired to Output render exactly one Geometry socket per built-in node and generate children(1);', async ({ page }) => {
+  // Regression for the reported screenshot bug: Cube/Sphere gaining a
+  // second (unusable) Geometry output socket, and a direct Module Inputs
+  // Geometry input -> Module Output connection producing an empty body.
+  await waitForLocalLibrary(page)
+  const editorBox = await page.locator('node-editor').boundingBox()
+  if (!editorBox) throw new Error('Expected node editor')
+  await page.getByRole('button', { name: '+ New module', exact: true }).click()
+  const dialog = page.getByRole('form', { name: 'Create module' })
+  await dialog.getByLabel('Module name').fill('test123')
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+  const frame = page.locator('node-editor .definition-frame').filter({ hasText: 'module test123' })
+  const definitionId = await frame.getAttribute('data-definition-id')
+  if (!definitionId) throw new Error('Expected Module definition id')
+  const inputs = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Inputs' }) })
+  const output = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Output' }) })
+
+  await inputs.getByRole('button', { name: '+ Geometry input', exact: true }).click()
+  await inputs.getByLabel('Geometry input name').fill('Fnord')
+  await inputs.getByRole('button', { name: 'Add', exact: true }).click()
+  await inputs.getByRole('button', { name: 'Edit Geometry 1', exact: true }).click()
+  await inputs.getByLabel('Geometry input name').fill('Foobar')
+  await inputs.getByRole('button', { name: 'Save', exact: true }).click()
+  await inputs.getByRole('button', { name: '+ Parameter', exact: true }).click()
+  await inputs.getByLabel('Name').fill('foo')
+  await inputs.getByLabel('Default').fill('-2')
+  await inputs.getByRole('button', { name: 'Add', exact: true }).click()
+
+  // No duplicate/extra rows: exactly 2 Geometry + 1 typed parameter output, in order.
+  await expect(inputs.locator('.node-port--output')).toHaveCount(3)
+  await expect(inputs.locator('.node-geometry-output-rows .node-socket')).toHaveCount(2)
+  const geometryLabels = await inputs.locator('.node-geometry-output-rows .node-socket').evaluateAll(
+    (nodes) => nodes.map((node) => node.getAttribute('aria-label')),
+  )
+  expect(geometryLabels).toEqual(['Foobar', 'Fnord'])
+
+  await connectSockets(
+    page,
+    inputs.locator('.node-geometry-output-rows .node-socket[aria-label="Fnord"]'),
+    output.locator('.node-port--input .node-socket[aria-label="Geometry"]'),
+  )
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(1)
+
+  await dropModuleCall(page, definitionId)
+  const call = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'test123' }) })
+  // Placed relative to the frame's current bounds (grown by the signature
+  // edits above), well clear of it and of each other/pane edges - avoids
+  // the known "socket sits under an invisible pane overlap zone" gotcha.
+  const frameBox = await frame.boundingBox()
+  if (!frameBox) throw new Error('Expected Module frame bounds')
+  await dropPaletteNode(page, 'cube', { x: editorBox.x + 40, y: frameBox.y + frameBox.height + 60 })
+  const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
+  await dropPaletteNode(page, 'sphere', { x: editorBox.x + 40, y: frameBox.y + frameBox.height + 180 })
+  const sphere = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Sphere' }) })
+
+  // The core regression assertion: built-in nodes keep exactly one Geometry output.
+  await expect(cube.locator('.node-port--output .node-socket[aria-label="Geometry"]')).toHaveCount(1)
+  await expect(sphere.locator('.node-port--output .node-socket[aria-label="Geometry"]')).toHaveCount(1)
+  await expect(call.locator('.node-port--input .node-socket[aria-label="Foobar"]')).toHaveCount(1)
+  await expect(call.locator('.node-port--input .node-socket[aria-label="Fnord"]')).toHaveCount(1)
+  await expect(call.locator('.node-port--output .node-socket[aria-label="Geometry"]')).toHaveCount(1)
+
+  await connectSockets(
+    page,
+    cube.locator('.node-port--output .node-socket[aria-label="Geometry"]'),
+    call.locator('.node-port--input .node-socket[aria-label="Foobar"]'),
+  )
+  await connectSockets(
+    page,
+    sphere.locator('.node-port--output .node-socket[aria-label="Geometry"]'),
+    call.locator('.node-port--input .node-socket[aria-label="Fnord"]'),
+  )
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(3)
+
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('module test123(foo = -2)', { timeout: 15_000 })
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('children(1);')
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('cube();')
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('sphere();')
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+
+  // Reload after autosave: sockets and codegen must not duplicate on restore.
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await page.reload()
+  await expect(inputs.locator('.node-port--output')).toHaveCount(3)
+  await expect(cube.locator('.node-port--output .node-socket[aria-label="Geometry"]')).toHaveCount(1)
+  await expect(sphere.locator('.node-port--output .node-socket[aria-label="Geometry"]')).toHaveCount(1)
+  await expect(call.locator('.node-port--input .node-socket[aria-label="Foobar"]')).toHaveCount(1)
+  await expect(call.locator('.node-port--input .node-socket[aria-label="Fnord"]')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('children(1);', { timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
 })
 
 test('renames and deletes a Module through its sidebar actions', async ({ page }) => {

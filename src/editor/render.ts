@@ -52,6 +52,42 @@ export function parameterRowPresentation(
   }))
 }
 
+export interface ClassifiedOutputPorts<T> {
+  /** The single conventional output rendered in the stable `.node-outputs`
+   * main row: every built-in geometry node's/`ModuleCallNode`'s `geometry`
+   * key, plus a value source's `value` key. */
+  main: [string, T][]
+  /** Module Inputs's dynamic, per-Geometry-input `geometry:<id>` outputs -
+   * rendered as their own typed-output rows, never in the main row. */
+  dynamicGeometry: [string, T][]
+  /** Module Inputs's dynamic, per-parameter typed (Number/Boolean/Vector3)
+   * outputs, rendered as their own typed-output rows. */
+  parameter: [string, T][]
+}
+
+/**
+ * Single source of truth for where an output port renders. Root cause of
+ * the duplicate Geometry output sockets on ordinary built-in nodes
+ * (Cube/Sphere/etc.): the dynamic Module-Inputs typed-output row classified
+ * ANY `geometry`-typed output (not just its own `geometry:<id>` keys) into
+ * a second row, so every built-in node's single conventional `geometry`
+ * output rendered once in the main row and once more in that second row.
+ */
+export function classifyOutputPorts<T extends { socket: { name: string } }>(
+  outputs: Readonly<Record<string, T | undefined>>,
+): ClassifiedOutputPorts<T> {
+  const main: [string, T][] = []
+  const dynamicGeometry: [string, T][] = []
+  const parameter: [string, T][] = []
+  for (const [key, output] of Object.entries(outputs)) {
+    if (!output) continue
+    if (key === 'geometry' || key === 'value') { main.push([key, output]); continue }
+    if (key.startsWith('geometry:')) { dynamicGeometry.push([key, output]); continue }
+    if (output.socket.name !== 'geometry') parameter.push([key, output])
+  }
+  return { main, dynamicGeometry, parameter }
+}
+
 /** Dynamic child slots keep their stable semantic ids while this supplies
  * the compact, localized visual/accessibility distinction. */
 export function geometryInputPresentation(node: Schemes['Node'], key: string): PortPresentation | undefined {
@@ -330,8 +366,6 @@ function renderNode(
   // expand whenever their geometry input was connected.
   const geometryInputs: [string, ClassicPreset.Input<ClassicPreset.Socket>][] = []
   const parameterInputs: [string, ClassicPreset.Input<ClassicPreset.Socket>][] = []
-  const parameterOutputs: [string, ClassicPreset.Output<ClassicPreset.Socket>][] = []
-  const geometryOutputs: [string, ClassicPreset.Output<ClassicPreset.Socket>][] = []
   for (const [key, input] of Object.entries(node.inputs)) {
     if (!input) continue
     if (input.socket.name === 'geometry') {
@@ -340,11 +374,8 @@ function renderNode(
       parameterInputs.push([key, input])
     }
   }
-  for (const [key, output] of Object.entries(node.outputs)) {
-    if (!output || key === 'value') continue
-    if (output.socket.name === 'geometry') geometryOutputs.push([key, output])
-    else parameterOutputs.push([key, output])
-  }
+  const outputClasses = classifyOutputPorts(node.outputs)
+  const { dynamicGeometry: geometryOutputs, parameter: parameterOutputs } = outputClasses
 
   // Keys of parameter inputs that map 1-to-1 to a control of the same key.
   const paramInputKeys = new Set(parameterInputs.map(([key]) => key))
@@ -437,11 +468,10 @@ function renderNode(
   body.appendChild(renderHeader(node, presentation, hasCollapsibleContent, inspected, notifyDirty, sourceNameControl))
   main.appendChild(body)
 
-  if (Object.entries(node.outputs).some(([key, output]) => Boolean(output) && (output!.socket.name === 'geometry' || key === 'value'))) {
+  if (outputClasses.main.length > 0) {
     const outputs = document.createElement('div')
     outputs.className = 'node-outputs'
-    for (const [key, output] of Object.entries(node.outputs)) {
-      if (!output || (output.socket.name !== 'geometry' && key !== 'value')) continue
+    for (const [key, output] of outputClasses.main) {
       outputs.appendChild(renderPort(area, node.id, 'output', key, output.label, output.socket.name, key === 'value' ? { visibleLabel: '', accessibleLabel: output.label } : undefined))
     }
     main.appendChild(outputs)

@@ -54,18 +54,21 @@ export async function evaluateOpenSCAD(
   return definitions ? joinDefinitions(await evaluateDefinitions(editor, engine, definitions), main) : main
 }
 
-async function evaluateGeometryRoot(engine: DataflowEngine<Schemes>, nodeId: string): Promise<string> {
+async function evaluateGeometryRoot(engine: DataflowEngine<Schemes>, nodeId: string, outputKey = 'geometry'): Promise<string> {
   engine.reset()
-  const output = (await engine.fetch(nodeId)) as { geometry?: GeometryValue }
-  return output.geometry?.code ?? ''
+  const output = (await engine.fetch(nodeId)) as Record<string, GeometryValue | undefined>
+  return output[outputKey]?.code ?? ''
 }
 
 /** Module bodies reuse ordinary upstream Geometry evaluation. Output is a
  * sink/root marker, not an OpenSCAD-producing node, so follow its one input
- * to the existing Geometry producer. */
+ * to the existing Geometry producer. The source's own output port key must
+ * be used (not a hardcoded `geometry`) since a Module Inputs Geometry input
+ * feeding Output directly exposes its value under a dynamic `geometry:<id>`
+ * key, not `geometry`. */
 async function evaluateModuleBody(editor: NodeEditor<Schemes>, engine: DataflowEngine<Schemes>, definition: ModuleDefinition): Promise<string> {
   const connection = editor.getConnections().find((item) => item.target === definition.outputNodeId && item.targetInput === 'geometry')
-  return connection ? evaluateGeometryRoot(engine, connection.source) : ''
+  return connection ? evaluateGeometryRoot(engine, connection.source, connection.sourceOutput) : ''
 }
 
 async function evaluateDefinitions(editor: NodeEditor<Schemes>, engine: DataflowEngine<Schemes>, definitions: DefinitionRegistry): Promise<string> {

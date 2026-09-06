@@ -113,6 +113,52 @@ describe('typed Module parameters', () => {
     await expect(evaluateOpenSCAD(editor, engine, undefined, definitions)).resolves.toContain('ball(radius = 10, enabled = false, offset = [0, 0, 0]) {\n  cube(10);\n}')
   })
 
+  it('emits children(index); as the Module body when a Geometry input connects directly to Module Output', async () => {
+    // Regression: `evaluateModuleBody` used to always read the fetched
+    // source's `geometry` field, but a Module Inputs Geometry output is
+    // keyed `geometry:<id>`, not `geometry` - a direct connection (no
+    // intermediate ordinary Geometry node) therefore evaluated to `''` and
+    // produced an empty Module body.
+    const { editor, engine } = graph()
+    const definitions = new DefinitionRegistry(); definitions.add(definition)
+    const childKey = moduleGeometryInputPortId('child-id')
+    const inputs = new ModuleInputsNode(definition.parameters, definition.geometryInputs); inputs.id = definition.inputsNodeId
+    const output = new ModuleOutputNode(); output.id = definition.outputNodeId
+    for (const node of [inputs, output]) await editor.addNode(node)
+    await editor.addConnection(new ClassicPreset.Connection(inputs, childKey, output, 'geometry') as Schemes['Connection'])
+
+    const source = await evaluateOpenSCAD(editor, engine, undefined, definitions)
+    expect(source).toContain('module ball(radius = 10, enabled = false, offset = [0, 0, 0]) {\n  children(0);\n}')
+    expect(source).not.toContain('{\n\n}')
+  })
+
+  it('generates the reported screenshot scenario: two Geometry inputs, the second wired to Output, produce children(1); and preserve Call child order', async () => {
+    const scenario: ModuleDefinition = {
+      id: 'test123', kind: 'module', name: 'test123', inputsNodeId: 'test123-inputs', outputNodeId: 'test123-output',
+      parameters: [{ id: 'foo-id', name: 'foo', type: 'number', default: -2 }],
+      geometryInputs: [{ id: 'foobar-id', name: 'Foobar' }, { id: 'fnord-id', name: 'Fnord' }],
+    }
+    const { editor, engine } = graph()
+    const definitions = new DefinitionRegistry(); definitions.add(scenario)
+    const inputs = new ModuleInputsNode(scenario.parameters, scenario.geometryInputs); inputs.id = scenario.inputsNodeId
+    const output = new ModuleOutputNode(); output.id = scenario.outputNodeId
+    const call = new ModuleCallNode(scenario); call.id = 'main-call'
+    const cube = new CubeNode(); cube.id = 'main-cube'
+    const sphere = new SphereNode(); sphere.id = 'main-sphere'
+    for (const node of [inputs, output, call, cube, sphere]) await editor.addNode(node)
+    const fnordKey = moduleGeometryInputPortId('fnord-id')
+    const foobarKey = moduleGeometryInputPortId('foobar-id')
+    await editor.addConnection(new ClassicPreset.Connection(inputs, fnordKey, output, 'geometry') as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(cube, 'geometry', call, foobarKey) as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(sphere, 'geometry', call, fnordKey) as Schemes['Connection'])
+
+    const source = await evaluateOpenSCAD(editor, engine, undefined, definitions)
+    expect(source).toBe(
+      'module test123(foo = -2) {\n  children(1);\n}\n\n'
+      + 'test123(foo = -2) {\n  cube(10);\n  sphere(r=5);\n}',
+    )
+  })
+
   it('removes a deleted signature id from Inputs and every Call only after its exact wires are removed', async () => {
     const { editor, engine } = graph()
     const definitions = new DefinitionRegistry(); definitions.add(definition)
