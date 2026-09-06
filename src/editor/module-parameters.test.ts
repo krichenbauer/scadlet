@@ -7,7 +7,8 @@ import { evaluateInspectNode, evaluateOpenSCAD } from './evaluate'
 import { ModuleCallNode } from './nodes/module-call-node'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
 import { SphereNode } from './nodes/sphere-node'
-import { MathNode } from './nodes/value-nodes'
+import { MathNode, NumberNode } from './nodes/value-nodes'
+import { graphEndpointsAreValid } from './port-lifecycle'
 import type { Schemes } from './schemes'
 
 function graph() {
@@ -57,6 +58,59 @@ describe('typed Module parameters', () => {
     expect(inputs.outputs[key]?.socket.name).toBe('vector3')
     expect(call.inputs[key]?.socket.name).toBe('vector3')
     expect(call.getArguments()['radius-id']).toEqual([1, 2, 3])
+  })
+
+  it('removes a deleted signature id from Inputs and every Call only after its exact wires are removed', async () => {
+    const { editor, engine } = graph()
+    const definitions = new DefinitionRegistry(); definitions.add(definition)
+    const inputs = new ModuleInputsNode(definition.parameters); inputs.id = definition.inputsNodeId
+    const output = new ModuleOutputNode(); output.id = definition.outputNodeId
+    const sphere = new SphereNode({ mode: 'radius', r: 5 }); sphere.id = 'ball-sphere'
+    const firstCall = new ModuleCallNode(definition); firstCall.id = 'ball-call-one'
+    const secondCall = new ModuleCallNode(definition); secondCall.id = 'ball-call-two'
+    const firstSource = new NumberNode({ value: 21, name: 'First radius' }); firstSource.id = 'radius-one'
+    const secondSource = new NumberNode({ value: 34, name: 'Second radius' }); secondSource.id = 'radius-two'
+    for (const node of [inputs, output, sphere, firstCall, secondCall, firstSource, secondSource]) await editor.addNode(node)
+    definitions.assignNode(definition.id, sphere.id)
+    const radiusKey = moduleParameterPortId('radius-id')
+    await editor.addConnection(new ClassicPreset.Connection(inputs, radiusKey, sphere, 'r') as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(firstSource, 'value', firstCall, radiusKey) as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(secondSource, 'value', secondCall, radiusKey) as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(sphere, 'geometry', output, 'geometry') as Schemes['Connection'])
+
+    const removed = editor.getConnections().filter((connection) =>
+      (connection.source === inputs.id && connection.sourceOutput === radiusKey)
+      || ((connection.target === firstCall.id || connection.target === secondCall.id) && connection.targetInput === radiusKey),
+    )
+    expect(removed).toHaveLength(3)
+    for (const connection of removed) await editor.removeConnection(connection.id)
+    const withoutRadius = (definition.parameters ?? []).filter((parameter) => parameter.id !== 'radius-id')
+    definitions.setParameters(definition.id, withoutRadius)
+    inputs.syncSignature(withoutRadius)
+    firstCall.syncSignature(withoutRadius)
+    secondCall.syncSignature(withoutRadius)
+
+    expect(inputs.outputs[radiusKey]).toBeUndefined()
+    expect(firstCall.inputs[radiusKey]).toBeUndefined()
+    expect(secondCall.inputs[radiusKey]).toBeUndefined()
+    expect(firstCall.getArguments()['radius-id']).toBeUndefined()
+    expect(secondCall.getArguments()['radius-id']).toBeUndefined()
+    expect(editor.getConnections()).toHaveLength(1)
+    expect(graphEndpointsAreValid(editor)).toBe(true)
+    await expect(evaluateOpenSCAD(editor, engine, undefined, definitions)).resolves.not.toContain('radius =')
+  })
+
+  it('removes the last unconnected parameter without leaving an interface or Call fallback behind', () => {
+    const only = [{ id: 'only-id', name: 'only', type: 'number' as const, default: 7 }]
+    const definitionWithOne = { ...definition, parameters: only }
+    const inputs = new ModuleInputsNode(only)
+    const call = new ModuleCallNode(definitionWithOne)
+    const key = moduleParameterPortId('only-id')
+    inputs.syncSignature([])
+    call.syncSignature([])
+    expect(inputs.outputs[key]).toBeUndefined()
+    expect(call.inputs[key]).toBeUndefined()
+    expect(call.getArguments()).toEqual({})
   })
 
   it('generates declarations, identifier expressions, named call arguments, and default-context Inspect source', async () => {

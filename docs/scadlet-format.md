@@ -304,7 +304,9 @@ from its user-editable OpenSCAD-style `name`.
 operations therefore preserve existing wires through the stable ID.
 Type changes retain the parameter ID but reset every Call fallback for that ID
 to the new definition default after attached connections are removed. Deletion
-removes the ID and its Call fallback entries entirely. These Phase 4 edits do
+preflights the complete dynamic signature and removes the ID, its Call fallback
+entries, and only its attached connections as one editor operation; cancellation
+or failure leaves the stored v3 payload unchanged. These Phase 4 edits do
 not change the v3 schema.
 - Each Module has exactly one `module-inputs` node and one `module-output`
   node. The latter owns the one stable Geometry input `geometry`.

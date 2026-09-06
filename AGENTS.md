@@ -1388,7 +1388,11 @@ ask for confirmation before removing only those affected wires through Rete's
 normal lifecycle. Rename, reorder, and default edits retain stable ports,
 wires, and Call fallbacks. A type change retains the ID but resets that
 parameter's Call fallbacks to its new definition default; deletion removes its
-ports, fallbacks, and attached wires. Nested Module Calls, Functions, and
+ports, fallbacks, and attached wires. Parameter deletion preflights every
+Inputs/Call projection before mutating; cancellation and an unsuccessful
+operation leave the complete signature, wires, and Call fallbacks unchanged,
+while a successful operation emits one semantic dirty change for autosave.
+Nested Module Calls, Functions, and
 other parameter types remain later work.
 
 Phase 2.1 interaction: ordinary transferable nodes/groups may change their

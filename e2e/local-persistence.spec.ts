@@ -442,6 +442,99 @@ test('adds a typed Module parameter and materializes matching border-anchored Ca
   await expect(call.locator('.node-param-row input[type="number"]')).toHaveValue('10')
 })
 
+test('deletes a connected Module parameter only after confirmation and persists every projected removal', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  const project = structuredClone(HISTORICAL_MODULE_PARAMETERS)
+  project.editor.viewport = { x: 0, y: 0, zoom: 1 }
+  project.graph.nodes[0].position = { x: 40, y: 420 }
+  project.graph.nodes[1].position = { x: 280, y: 420 }
+  project.definitions[0].graph.nodes[0].position = { x: 80, y: 140 }
+  project.definitions[0].graph.nodes[1].position = { x: 320, y: 140 }
+  project.definitions[0].graph.nodes[2].position = { x: 580, y: 140 }
+  project.graph.nodes.push(
+    { id: 'second-radius-source', type: 'number', position: { x: 40, y: 560 }, parameters: { value: 42, name: 'Second radius' } },
+    {
+      id: 'second-wheel-call', type: 'module-call', position: { x: 280, y: 560 },
+      parameters: { definitionId: 'definition-wheel', arguments: { 'radius-id': 23, 'center-id': true, 'offset-id': [4, 5, 6] } },
+    },
+  )
+  project.graph.connections.push({
+    id: 'second-call-radius-wire', source: 'second-radius-source', sourceOutput: 'value', target: 'second-wheel-call', targetInput: 'parameter:radius-id',
+  })
+  await replaceLocalProjects(page, [{
+    id: 'delete-parameter-project', revision: 4,
+    createdAt: '2026-09-05T09:00:00.000Z', updatedAt: '2026-09-05T09:15:00.000Z', project,
+  }], 'delete-parameter-project')
+  await page.reload()
+
+  const inputs = page.locator('node-editor .node[data-node-id="wheel-inputs"]')
+  const firstCall = page.locator('node-editor .node[data-node-id="main-wheel-call"]')
+  const secondCall = page.locator('node-editor .node[data-node-id="second-wheel-call"]')
+  await firstCall.locator('.node-pin').click()
+  await secondCall.locator('.node-pin').click()
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(4)
+  await inputs.getByRole('button', { name: 'Edit radius' }).click()
+
+  // Cancelling is a true no-op: the parameter editor stays open so the user
+  // can reconsider, and none of its exact connections have been touched.
+  await page.evaluate(() => {
+    Object.defineProperty(window, 'confirm', { configurable: true, value: (message: string) => {
+      document.documentElement.dataset.lastConfirmation = message
+      return false
+    } })
+  })
+  await inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Delete', exact: true }).click()
+  expect(await page.locator('html').getAttribute('data-last-confirmation')).toContain('disconnect 3 connection(s)')
+  await expect(inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Delete', exact: true })).toBeVisible()
+  await expect(inputs.locator('.node-param-output-row .node-socket[aria-label="radius"]')).toHaveCount(1)
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(4)
+
+  await page.evaluate(() => {
+    Object.defineProperty(window, 'confirm', { configurable: true, value: () => true })
+  })
+  await inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(inputs.locator('.node-param-output-row .node-socket[aria-label="radius"]')).toHaveCount(0)
+  await expect(firstCall.locator('.node-param-row', { hasText: 'radius' })).toHaveCount(0)
+  await expect(secondCall.locator('.node-param-row', { hasText: 'radius' })).toHaveCount(0)
+  // The Module body wire is unrelated and remains intact.
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(1)
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+
+  const saved = await readLocalRecord(page, 'delete-parameter-project') as { project: typeof project }
+  expect(saved.project.definitions[0].parameters.map((parameter: { id: string }) => parameter.id)).not.toContain('radius-id')
+  expect(saved.project.graph.connections.map((connection: { id: string }) => connection.id)).not.toContain('call-radius-wire')
+  expect(saved.project.graph.connections.map((connection: { id: string }) => connection.id)).not.toContain('second-call-radius-wire')
+  expect(saved.project.definitions[0].graph.connections.map((connection: { id: string }) => connection.id)).toContain('wheel-body-wire')
+  await page.reload()
+  await expect(inputs.locator('.node-param-output-row .node-socket[aria-label="radius"]')).toHaveCount(0)
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(1)
+})
+
+test('keeps Module parameter editing open and shows a localized error when deletion cannot start', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  const project = structuredClone(HISTORICAL_MODULE_PARAMETERS)
+  project.editor.viewport = { x: 0, y: 0, zoom: 1 }
+  project.graph.nodes[0].position = { x: 40, y: 420 }
+  project.graph.nodes[1].position = { x: 280, y: 420 }
+  project.definitions[0].graph.nodes[0].position = { x: 80, y: 140 }
+  project.definitions[0].graph.nodes[1].position = { x: 320, y: 140 }
+  project.definitions[0].graph.nodes[2].position = { x: 580, y: 140 }
+  await replaceLocalProjects(page, [{
+    id: 'delete-parameter-error-project', revision: 1,
+    createdAt: '2026-09-05T09:00:00.000Z', updatedAt: '2026-09-05T09:15:00.000Z', project,
+  }], 'delete-parameter-error-project')
+  await page.reload()
+  const inputs = page.locator('node-editor .node[data-node-id="wheel-inputs"]')
+  await inputs.getByRole('button', { name: 'Edit radius' }).click()
+  await page.evaluate(() => {
+    Object.defineProperty(window, 'confirm', { configurable: true, value: () => { throw new Error('simulated confirmation failure') } })
+  })
+  await inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(inputs.getByText('Could not delete this Module parameter. No changes were made.')).toBeVisible()
+  await expect(inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Delete', exact: true })).toBeVisible()
+  await expect(inputs.locator('.node-param-output-row .node-socket[aria-label="radius"]')).toHaveCount(1)
+})
+
 test('Cube Size add menu exposes one selected representation at a time', async ({ page }) => {
   await waitForLocalLibrary(page)
   await dropPaletteNode(page, 'cube')

@@ -233,7 +233,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
           node.configureParameterEditing(
             update,
             async (parameterId, change) => { await editModuleParameter(definitionId, parameterId, change) },
-            async (parameterId) => { await deleteModuleParameter(definitionId, parameterId) },
+            (parameterId) => deleteModuleParameter(definitionId, parameterId),
             async (parameterId, move) => { await editModuleParameter(definitionId, parameterId, { move }) },
           )
         }
@@ -488,12 +488,16 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     )
   }
 
-  async function synchronizeModuleSignature(definition: ModuleDefinition, resetFallbackIds: ReadonlySet<string> = new Set()): Promise<void> {
+  async function synchronizeModuleSignature(
+    definition: ModuleDefinition,
+    resetFallbackIds: ReadonlySet<string> = new Set(),
+    fallbackOverrides: ReadonlyMap<string, Readonly<Record<string, ModuleParameterDefault>>> = new Map(),
+  ): Promise<void> {
     const inputs = editor.getNode(definition.inputsNodeId)
     if (inputs instanceof ModuleInputsNode) { inputs.syncSignature(definition.parameters ?? []); await area.update('node', inputs.id) }
     for (const node of editor.getNodes()) {
       if (node instanceof ModuleCallNode && node.definitionId === definition.id) {
-        node.syncSignature(definition.parameters ?? [], resetFallbackIds)
+        node.syncSignature(definition.parameters ?? [], resetFallbackIds, fallbackOverrides.get(node.id))
         await area.update('node', node.id)
       }
     }
@@ -534,12 +538,70 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   async function deleteModuleParameter(definitionId: string, parameterId: string): Promise<boolean> {
     const definition = definitions.get(definitionId)
     const parameter = definition?.parameters?.find((item) => item.id === parameterId)
-    if (!definition || !parameter) return false
+    if (!definition || !parameter) throw new Error(t('definition.deleteParameterFailed'))
     const doomed = signatureConnections(definition, parameterId)
-    if (doomed.length > 0 && !window.confirm(t('definition.confirmDeleteParameter').replace('{name}', parameter.name).replace('{count}', String(doomed.length)))) return false
-    if (doomed.length > 0) { connection.drop(); connectionGesture.cancel(); for (const item of doomed) await editor.removeConnection(item.id) }
-    definitions.setParameters(definitionId, (definition.parameters ?? []).filter((item) => item.id !== parameterId))
-    await synchronizeModuleSignature(definitions.get(definitionId)!)
+    try {
+      if (doomed.length > 0 && !window.confirm(t('definition.confirmDeleteParameter').replace('{name}', parameter.name).replace('{count}', String(doomed.length)))) return false
+    } catch {
+      throw new Error(t('definition.deleteParameterFailed'))
+    }
+    const key = `parameter:${parameterId}`
+    const inputs = editor.getNode(definition.inputsNodeId)
+    const calls = editor.getNodes().filter((node): node is ModuleCallNode => node instanceof ModuleCallNode && node.definitionId === definition.id)
+    // Validate every live projection before disconnecting anything. This
+    // avoids converting a damaged/stale editor state into a partial project.
+    if (!(inputs instanceof ModuleInputsNode) || !inputs.outputs[key]
+      || calls.some((call) => !call.inputs[key])) throw new Error(t('definition.deleteParameterFailed'))
+
+    const previousParameters = definition.parameters ?? []
+    const previousFallbacks = new Map(calls.map((call) => [call.id, call.getArguments()] as const))
+    const removedConnections = doomed.map((item) => ({
+      id: item.id,
+      source: item.source,
+      sourceOutput: item.sourceOutput,
+      target: item.target,
+      targetInput: item.targetInput,
+    }))
+    const previousDirtySuspended = dirtySuspended
+    dirtySuspended = true
+    try {
+      if (doomed.length > 0) {
+        connection.drop()
+        connectionGesture.cancel()
+        for (const item of doomed) {
+          if (!await editor.removeConnection(item.id)) throw new Error(`Could not remove connection ${item.id}.`)
+        }
+      }
+      definitions.setParameters(definitionId, previousParameters.filter((item) => item.id !== parameterId))
+      await synchronizeModuleSignature(definitions.get(definitionId)!)
+    } catch {
+      // Restore the complete preflight snapshot before reporting the error.
+      // The stable parameter id keeps every restored port and connection on
+      // its original semantic endpoint; saved Call fallbacks are likewise
+      // restored rather than being reset to definition defaults.
+      try {
+        definitions.setParameters(definitionId, previousParameters)
+        await synchronizeModuleSignature(definitions.get(definitionId)!, new Set(), previousFallbacks)
+        for (const item of removedConnections) {
+          if (editor.getConnections().some((connection) => connection.id === item.id)) continue
+          const source = editor.getNode(item.source)
+          const target = editor.getNode(item.target)
+          if (!source || !target) throw new Error(`Could not restore connection ${item.id}.`)
+          const restored = new ClassicPreset.Connection(source, item.sourceOutput, target, item.targetInput) as Schemes['Connection']
+          restored.id = item.id
+          if (!await editor.addConnection(restored)) throw new Error(`Could not restore connection ${item.id}.`)
+        }
+      } catch {
+        // The original operation is still reported through the one existing
+        // node-control error surface. All ordinary failures are preflighted,
+        // so this is a last-resort guard for unexpected Rete host failures.
+      } finally {
+        dirtySuspended = previousDirtySuspended
+      }
+      throw new Error(t('definition.deleteParameterFailed'))
+    }
+    dirtySuspended = previousDirtySuspended
+    if (!previousDirtySuspended) notifySemanticDirty()
     return true
   }
 

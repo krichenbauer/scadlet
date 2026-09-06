@@ -856,10 +856,16 @@ function renderModuleParameterEditControl(control: ModuleParameterEditControl): 
   if (!control.open || !control.parameterId) return wrapper
   const id = control.parameterId
   const up = document.createElement('button'); up.type = 'button'; up.textContent = '↑'; up.setAttribute('aria-label', 'Move parameter up'); up.disabled = control.order === 0
+  up.addEventListener('pointerdown', (event) => event.stopPropagation())
   up.addEventListener('click', () => { void Promise.resolve(control.onMove(id, -1)).then(() => control.hide()) })
   const down = document.createElement('button'); down.type = 'button'; down.textContent = '↓'; down.setAttribute('aria-label', 'Move parameter down')
+  down.addEventListener('pointerdown', (event) => event.stopPropagation())
   down.addEventListener('click', () => { void Promise.resolve(control.onMove(id, 1)).then(() => control.hide()) })
-  const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = t('definition.deleteParameter'); remove.addEventListener('click', () => { void Promise.resolve(control.onDelete(id)).then(() => control.hide()) })
+  const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = t('definition.deleteParameter'); remove.addEventListener('pointerdown', (event) => event.stopPropagation()); remove.addEventListener('click', () => {
+    void Promise.resolve(control.onDelete(id))
+      .then((deleted) => { if (deleted) control.hide() })
+      .catch((error: unknown) => { control.error = error instanceof Error ? error.message : String(error); control.onChange() })
+  })
   wrapper.append(up, down, remove)
   return wrapper
 }
@@ -904,7 +910,7 @@ function renderModuleParameterAddControl(control: ModuleParameterAddControl): HT
   submit.addEventListener('pointerdown', (event) => event.stopPropagation())
   submit.addEventListener('click', () => {
     void Promise.resolve(control.onSubmit({ name: control.name, type: control.type, default: control.type === 'number' ? control.defaultNumber : control.type === 'boolean' ? control.defaultBoolean : control.defaultVector }))
-      .then(() => control.hide())
+      .then((saved) => { if (saved !== false) control.hide() })
       .catch((error: unknown) => { control.error = error instanceof Error ? error.message : String(error); control.onChange() })
   })
   const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = t('definition.cancel'); cancel.addEventListener('pointerdown', (event) => event.stopPropagation()); cancel.addEventListener('click', () => control.hide())

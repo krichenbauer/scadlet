@@ -77,8 +77,8 @@ export class ModuleParameterAddControl extends ClassicPreset.Control {
   defaultVector: [number, number, number] = [0, 0, 0]
   error: string | null = null
   onChange: () => void
-  onSubmit: (value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => void | Promise<void>
-  constructor(onChange: () => void, onSubmit: (value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => void | Promise<void>) { super(); this.onChange = onChange; this.onSubmit = onSubmit }
+  onSubmit: (value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => boolean | void | Promise<boolean | void>
+  constructor(onChange: () => void, onSubmit: (value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => boolean | void | Promise<boolean | void>) { super(); this.onChange = onChange; this.onSubmit = onSubmit }
   show(): void { this.open = true; this.error = null; this.onChange() }
   hide(): void { this.open = false; this.onChange() }
 }
@@ -86,7 +86,9 @@ export class ModuleParameterAddControl extends ClassicPreset.Control {
 export class ModuleParameterEditControl extends ModuleParameterAddControl {
   parameterId: string | null = null
   order = 0
-  onDelete: (id: string) => void | Promise<void> = () => {}
+  /** `true` means the destructive edit completed. `false` keeps this form
+   * open, which is how a user-cancelled confirmation remains editable. */
+  onDelete: (id: string) => boolean | Promise<boolean> = () => false
   onMove: (id: string, direction: -1 | 1) => void | Promise<void> = () => {}
   openParameter(parameter: { id: string; name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }, order: number): void {
     this.parameterId = parameter.id; this.name = parameter.name; this.type = parameter.type; this.order = order; this.error = null; this.open = true

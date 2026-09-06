@@ -35,8 +35,12 @@ export class ModuleCallNode extends ClassicPreset.Node<Record<string, ClassicPre
     this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, t('input.geometry')))
   }
 
-  syncSignature(parameters: readonly ModuleParameter[], resetFallbackIds: ReadonlySet<string> = new Set()): void {
-    const fallbacks = this.getArguments()
+  syncSignature(
+    parameters: readonly ModuleParameter[],
+    resetFallbackIds: ReadonlySet<string> = new Set(),
+    fallbackOverrides: Readonly<Record<string, ModuleParameterDefault>> = {},
+  ): void {
+    const fallbacks = { ...this.getArguments(), ...fallbackOverrides }
     for (const id of resetFallbackIds) delete fallbacks[id]
     const next = new Map(parameters.map((parameter) => [moduleParameterPortId(parameter.id), parameter]))
     for (const key of Object.keys(this.inputs)) {

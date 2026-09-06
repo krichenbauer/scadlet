@@ -91,6 +91,7 @@ const dictionaries: Record<LocaleId, Record<string, string>> = {
     'definition.invalidParameterDefault': 'Provide a valid default for the selected parameter type.',
     'definition.confirmTypeChange': 'Changing the type of "{name}" will disconnect {count} connection(s). Continue?',
     'definition.confirmDeleteParameter': 'Deleting "{name}" will disconnect {count} connection(s). Continue?',
+    'definition.deleteParameterFailed': 'Could not delete this Module parameter. No changes were made.',
     'input.base': 'Base',
     'input.subtract': 'Subtract',
     'input.geometryChild': 'Geometry child',

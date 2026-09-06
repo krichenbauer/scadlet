@@ -22,7 +22,7 @@ export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, 
     this.addControl('editParameter', new ModuleParameterEditControl(() => {}, () => {}))
   }
 
-  configureParameterEditing(onChange: () => void, onSubmit: (id: string, value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => void | Promise<void>, onDelete: (id: string) => void | Promise<void>, onMove: (id: string, direction: -1 | 1) => void | Promise<void>): void {
+  configureParameterEditing(onChange: () => void, onSubmit: (id: string, value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => boolean | void | Promise<boolean | void>, onDelete: (id: string) => boolean | Promise<boolean>, onMove: (id: string, direction: -1 | 1) => void | Promise<void>): void {
     const control = this.controls.editParameter
     control.onChange = onChange
     control.onSubmit = (value) => control.parameterId ? onSubmit(control.parameterId, value) : undefined
