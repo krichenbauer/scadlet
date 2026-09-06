@@ -98,6 +98,7 @@ const dictionaries: Record<LocaleId, Record<string, string>> = {
     'definition.deleteGeometryInput': 'Delete geometry input',
     'definition.confirmDeleteGeometryInput': 'Deleting "{name}" will disconnect {count} connection(s). Continue?',
     'definition.geometryInputFailed': 'Could not change this Module geometry input. No changes were made.',
+    'definition.duplicateGeometryInput': 'A Module Geometry input with this name already exists.',
     'definition.editModule': 'Edit {name}',
     'definition.focusModule': 'Focus {name}',
     'definition.deleteModule': 'Delete {name}',

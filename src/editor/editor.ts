@@ -242,6 +242,13 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
             (parameterId) => deleteModuleParameter(definitionId, parameterId),
             async (parameterId, move) => { await editModuleParameter(definitionId, parameterId, { move }) },
           )
+          node.configureGeometryInputEditing(
+            update,
+            async (name) => { await addModuleGeometryInput(definitionId, name) },
+            async (inputId, name) => editModuleGeometryInput(definitionId, inputId, { name }),
+            (inputId) => deleteModuleGeometryInput(definitionId, inputId),
+            (inputId, move) => editModuleGeometryInput(definitionId, inputId, { move }),
+          )
         }
       }
     }
@@ -639,8 +646,11 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const definition = definitions.get(definitionId)
     if (!definition) throw new Error(t('definition.geometryInputFailed'))
     const geometryInputs = definition.geometryInputs ?? []
-    const input: ModuleGeometryInput = { id: crypto.randomUUID(), name: requestedName?.trim() || `Geometry ${geometryInputs.length + 1}` }
+    const names = new Set(geometryInputs.map((item) => item.name))
+    let ordinal = 1; while (names.has(`Geometry ${ordinal}`)) ordinal += 1
+    const input: ModuleGeometryInput = { id: crypto.randomUUID(), name: requestedName?.trim() || `Geometry ${ordinal}` }
     if (!input.name) throw new Error(t('definition.geometryInputFailed'))
+    if (names.has(input.name)) throw new Error(t('definition.duplicateGeometryInput'))
     definitions.setGeometryInputs(definitionId, [...geometryInputs, input])
     await synchronizeModuleGeometryInputs(definitions.get(definitionId)!)
   }
@@ -653,6 +663,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const next = [...inputs]
     next[index] = { ...next[index]!, ...(update.name === undefined ? {} : { name: update.name.trim() }) }
     if (!next[index]!.name) throw new Error(t('definition.geometryInputFailed'))
+    if (next.some((item, itemIndex) => itemIndex !== index && item.name === next[index]!.name)) throw new Error(t('definition.duplicateGeometryInput'))
     if (update.move) {
       const destination = index + update.move
       if (destination >= 0 && destination < next.length) {

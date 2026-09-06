@@ -100,6 +100,28 @@ export class ModuleParameterEditControl extends ModuleParameterAddControl {
   override hide(): void { this.parameterId = null; super.hide() }
 }
 
+/** Geometry-child signature management is intentionally separate from value
+ * parameters: names are documentation only and there is no type/default. */
+export class ModuleGeometryInputAddControl extends ClassicPreset.Control {
+  open = false
+  name = ''
+  error: string | null = null
+  onChange: () => void
+  onSubmit: (name: string) => boolean | void | Promise<boolean | void>
+  constructor(onChange: () => void, onSubmit: (name: string) => boolean | void | Promise<boolean | void>) { super(); this.onChange = onChange; this.onSubmit = onSubmit }
+  show(): void { this.open = true; this.error = null; this.onChange() }
+  hide(): void { this.open = false; this.error = null; this.onChange() }
+}
+
+export class ModuleGeometryInputEditControl extends ModuleGeometryInputAddControl {
+  inputId: string | null = null
+  order = 0
+  onDelete: (id: string) => boolean | Promise<boolean> = () => false
+  onMove: (id: string, direction: -1 | 1) => boolean | void | Promise<boolean | void> = () => false
+  openInput(input: { id: string; name: string }, order: number): void { this.inputId = input.id; this.name = input.name; this.order = order; this.error = null; this.open = true; this.onChange() }
+  override hide(): void { this.inputId = null; super.hide() }
+}
+
 /**
  * A labeled dropdown for choosing between a fixed set of mutually
  * exclusive modes (e.g. a cylinder's radius/diameter/tapered sizing).

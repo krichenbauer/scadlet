@@ -2,14 +2,14 @@ import { ClassicPreset } from 'rete'
 import type { DataflowNode } from 'rete-engine'
 
 import { t } from '../../i18n/translate'
-import { ModuleParameterAddControl, ModuleParameterEditControl } from '../controls'
+import { ModuleGeometryInputAddControl, ModuleGeometryInputEditControl, ModuleParameterAddControl, ModuleParameterEditControl } from '../controls'
 import { booleanSocket, geometrySocket, numberSocket, vector3Socket, type BooleanValue, type GeometryValue, type NumberValue, type Vector3Value } from '../sockets'
 import { moduleGeometryInputPortId, moduleParameterPortId, type ModuleGeometryInput, type ModuleParameter } from '../definitions'
 
 /** The fixed parameter interface of a Module definition. Phase 1 has no
  * parameters yet, but the node is a real, stable part of that definition's
  * graph rather than a decorative frame label. */
-export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, Record<string, ClassicPreset.Socket>, { addParameter: ModuleParameterAddControl; editParameter: ModuleParameterEditControl }> implements DataflowNode {
+export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, Record<string, ClassicPreset.Socket>, { addParameter: ModuleParameterAddControl; editParameter: ModuleParameterEditControl; addGeometryInput: ModuleGeometryInputAddControl; editGeometryInput: ModuleGeometryInputEditControl }> implements DataflowNode {
   private parameters: readonly ModuleParameter[]
   private geometryInputs: readonly ModuleGeometryInput[]
   constructor(parameters: readonly ModuleParameter[] = [], geometryInputs: readonly ModuleGeometryInput[] = []) {
@@ -17,11 +17,23 @@ export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, 
     this.parameters = parameters
     this.geometryInputs = geometryInputs
     this.materializeOutputs()
+    this.addControl('addGeometryInput', new ModuleGeometryInputAddControl(() => {}, () => {}))
+    this.addControl('editGeometryInput', new ModuleGeometryInputEditControl(() => {}, () => {}))
     this.addControl('addParameter', new ModuleParameterAddControl(
       () => {},
       () => {},
     ))
     this.addControl('editParameter', new ModuleParameterEditControl(() => {}, () => {}))
+  }
+
+  configureGeometryInputEditing(onChange: () => void, onAdd: (name: string) => boolean | void | Promise<boolean | void>, onSubmit: (id: string, name: string) => boolean | void | Promise<boolean | void>, onDelete: (id: string) => boolean | Promise<boolean>, onMove: (id: string, direction: -1 | 1) => boolean | void | Promise<boolean | void>): void {
+    const add = this.controls.addGeometryInput; add.onChange = onChange; add.onSubmit = onAdd
+    const edit = this.controls.editGeometryInput; edit.onChange = onChange; edit.onSubmit = (name) => edit.inputId ? onSubmit(edit.inputId, name) : false; edit.onDelete = onDelete; edit.onMove = onMove
+  }
+
+  beginGeometryInputEdit(id: string): void {
+    const index = this.geometryInputs.findIndex((input) => input.id === id)
+    if (index >= 0) this.controls.editGeometryInput.openInput(this.geometryInputs[index]!, index)
   }
 
   configureParameterEditing(onChange: () => void, onSubmit: (id: string, value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => boolean | void | Promise<boolean | void>, onDelete: (id: string) => boolean | Promise<boolean>, onMove: (id: string, direction: -1 | 1) => void | Promise<void>): void {

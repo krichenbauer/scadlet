@@ -4,7 +4,7 @@ import type { AreaPlugin } from 'rete-area-plugin'
 import type { ConnectionPlugin } from 'rete-connection-plugin'
 import { classicConnectionPath, getDOMSocketPosition } from 'rete-render-utils'
 
-import { CheckboxControl, LabeledNumberControl, LabeledTextControl, ModuleParameterAddControl, ModuleParameterEditControl, ParameterActionsControl, RepresentationSelectControl, SelectControl, Vector3Control, type ParameterAction } from './controls'
+import { CheckboxControl, LabeledNumberControl, LabeledTextControl, ModuleGeometryInputAddControl, ModuleGeometryInputEditControl, ModuleParameterAddControl, ModuleParameterEditControl, ParameterActionsControl, RepresentationSelectControl, SelectControl, Vector3Control, type ParameterAction } from './controls'
 import { ModuleInputsNode } from './nodes/module-interface-nodes'
 import { isEditableTarget } from './deletion'
 import { t } from '../i18n/translate'
@@ -331,6 +331,7 @@ function renderNode(
   const geometryInputs: [string, ClassicPreset.Input<ClassicPreset.Socket>][] = []
   const parameterInputs: [string, ClassicPreset.Input<ClassicPreset.Socket>][] = []
   const parameterOutputs: [string, ClassicPreset.Output<ClassicPreset.Socket>][] = []
+  const geometryOutputs: [string, ClassicPreset.Output<ClassicPreset.Socket>][] = []
   for (const [key, input] of Object.entries(node.inputs)) {
     if (!input) continue
     if (input.socket.name === 'geometry') {
@@ -340,7 +341,9 @@ function renderNode(
     }
   }
   for (const [key, output] of Object.entries(node.outputs)) {
-    if (output && output.socket.name !== 'geometry' && key !== 'value') parameterOutputs.push([key, output])
+    if (!output || key === 'value') continue
+    if (output.socket.name === 'geometry') geometryOutputs.push([key, output])
+    else parameterOutputs.push([key, output])
   }
 
   // Keys of parameter inputs that map 1-to-1 to a control of the same key.
@@ -359,13 +362,13 @@ function renderNode(
   // of the compact node rather than hidden behind hover/pinning. Other
   // standalone controls retain the normal progressive-disclosure behavior.
   const alwaysVisibleControls = standaloneControls.filter(
-    ([key, control]) => (Boolean(sourceNameControl) && key === 'value' && parameterInputs.length === 0) || control instanceof ModuleParameterAddControl || (control instanceof ModuleParameterEditControl && control.open),
+    ([key, control]) => (Boolean(sourceNameControl) && key === 'value' && parameterInputs.length === 0) || control instanceof ModuleParameterAddControl || control instanceof ModuleGeometryInputAddControl || (control instanceof ModuleParameterEditControl && control.open) || (control instanceof ModuleGeometryInputEditControl && control.open),
   )
   const expandableStandaloneControls = standaloneControls.filter(([key]) => !alwaysVisibleControls.some(([primary]) => primary === key))
 
   // A node has collapsible content if it has parameter inputs (whose rows can be shown/hidden)
   // or standalone controls (shown only when expanded). This drives pin-button visibility.
-  const hasCollapsibleContent = parameterInputs.length > 0 || parameterOutputs.length > 0 || expandableStandaloneControls.length > 0 || representationControls.length > 0
+  const hasCollapsibleContent = parameterInputs.length > 0 || parameterOutputs.length > 0 || geometryOutputs.length > 0 || expandableStandaloneControls.length > 0 || representationControls.length > 0
   // Rete remains authoritative for the semantic endpoint. Presentation keeps
   // compact expansion state, while this direct read ensures a freshly
   // committed snapped wire immediately disables its fallback literal even if
@@ -491,6 +494,22 @@ function renderNode(
   // Definition Inputs has typed value outputs rather than parameter inputs.
   // These rows reuse the normal port renderer and border-anchor convention;
   // only their semantic direction differs.
+  if (geometryOutputs.length > 0) {
+    const rows = document.createElement('div')
+    rows.className = 'node-param-output-rows node-geometry-output-rows'
+    for (const [key, output] of geometryOutputs) {
+      const row = renderPort(area, node.id, 'output', key, output.label, output.socket.name)
+      row.classList.add('node-param-output-row')
+      if (node instanceof ModuleInputsNode && key.startsWith('geometry:')) {
+        const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'node-param-edit'; edit.textContent = '✎'; edit.setAttribute('aria-label', `Edit ${output.label ?? key}`)
+        edit.addEventListener('pointerdown', (event) => event.stopPropagation())
+        edit.addEventListener('click', () => node.beginGeometryInputEdit(key.slice('geometry:'.length)))
+        row.appendChild(edit)
+      }
+      rows.appendChild(row)
+    }
+    element.appendChild(rows)
+  }
   if (parameterOutputs.length > 0) {
     const rows = document.createElement('div')
     rows.className = 'node-param-output-rows'
@@ -756,6 +775,8 @@ function renderParamControlValue(control: ClassicPreset.Control, overridden: boo
 }
 
 function renderControl(key: string, control: ClassicPreset.Control, hideLabel = false): HTMLElement | null {
+  if (control instanceof ModuleGeometryInputEditControl) return control.open ? renderModuleGeometryInputEditControl(control) : null
+  if (control instanceof ModuleGeometryInputAddControl) return renderModuleGeometryInputAddControl(control)
   if (control instanceof ModuleParameterEditControl) return control.open ? renderModuleParameterEditControl(control) : null
   if (control instanceof ModuleParameterAddControl) return renderModuleParameterAddControl(control)
   if (control instanceof ParameterActionsControl) {
@@ -849,6 +870,31 @@ function renderControl(key: string, control: ClassicPreset.Control, hideLabel = 
   }
 
   return null
+}
+
+function renderModuleGeometryInputEditControl(control: ModuleGeometryInputEditControl): HTMLElement {
+  const wrapper = renderModuleGeometryInputAddControl(control)
+  if (!control.open || !control.inputId) return wrapper
+  const id = control.inputId
+  const up = document.createElement('button'); up.type = 'button'; up.textContent = '↑'; up.setAttribute('aria-label', 'Move geometry input up'); up.disabled = control.order === 0
+  const down = document.createElement('button'); down.type = 'button'; down.textContent = '↓'; down.setAttribute('aria-label', 'Move geometry input down')
+  for (const [button, move] of [[up, -1], [down, 1]] as const) { button.addEventListener('pointerdown', (event) => event.stopPropagation()); button.addEventListener('click', () => { void Promise.resolve(control.onMove(id, move)).then(() => control.hide()) }) }
+  const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = t('definition.deleteGeometryInput'); remove.addEventListener('pointerdown', (event) => event.stopPropagation()); remove.addEventListener('click', () => { void Promise.resolve(control.onDelete(id)).then((deleted) => { if (deleted) control.hide() }).catch((error: unknown) => { control.error = error instanceof Error ? error.message : String(error); control.onChange() }) })
+  wrapper.append(up, down, remove)
+  return wrapper
+}
+
+function renderModuleGeometryInputAddControl(control: ModuleGeometryInputAddControl): HTMLElement {
+  const wrapper = document.createElement('div'); wrapper.className = 'node-control node-control--module-parameter'
+  if (!control.open) {
+    const add = document.createElement('button'); add.type = 'button'; add.textContent = t('definition.addGeometryInput'); add.addEventListener('pointerdown', (event) => event.stopPropagation()); add.addEventListener('click', () => control.show()); wrapper.appendChild(add); return wrapper
+  }
+  const name = document.createElement('input'); name.type = 'text'; name.value = control.name; name.setAttribute('aria-label', t('definition.geometryInputName')); name.addEventListener('pointerdown', (event) => event.stopPropagation()); name.addEventListener('input', () => { control.name = name.value })
+  const submit = document.createElement('button'); submit.type = 'button'; submit.textContent = control instanceof ModuleGeometryInputEditControl ? t('definition.save') : t('definition.add'); submit.addEventListener('pointerdown', (event) => event.stopPropagation()); submit.addEventListener('click', () => { void Promise.resolve(control.onSubmit(control.name)).then((saved) => { if (saved !== false) control.hide() }).catch((error: unknown) => { control.error = error instanceof Error ? error.message : String(error); control.onChange() }) })
+  const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = t('definition.cancel'); cancel.addEventListener('pointerdown', (event) => event.stopPropagation()); cancel.addEventListener('click', () => control.hide())
+  wrapper.append(name, submit, cancel)
+  if (control.error) { const error = document.createElement('span'); error.className = 'node-control-error'; error.textContent = control.error; wrapper.appendChild(error) }
+  return wrapper
 }
 
 function renderModuleParameterEditControl(control: ModuleParameterEditControl): HTMLElement {

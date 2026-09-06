@@ -1436,6 +1436,9 @@ Calls emit child statements in the same order, retaining positional gaps with
 an explicit empty `union() {}` placeholder; no inputs emits `name(...);`.
 The v4 project migration gives every v3 Module its deterministic first input
 and remaps legacy structural `children` wires without crossing scopes.
+The protected Inputs node renders these Geometry rows above value parameters
+and exposes guarded in-node add, rename, move, and delete controls; Calls
+mirror the same ordered ports but never expose signature-edit controls.
 
 Every definition starts with two protected, non-deletable, non-duplicable interface nodes:
 
