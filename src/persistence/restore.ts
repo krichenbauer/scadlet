@@ -101,6 +101,7 @@ function prepareRestorePlan(project: ScadletProjectV1, deps: RestoreProjectDeps)
     inputsNodeId: definition.interface.inputs,
     outputNodeId: definition.interface.output,
     parameters: definition.parameters,
+    geometryInputs: definition.geometryInputs,
   }))
   const definitionsById = new Map(definitions.map((definition) => [definition.id, definition]))
   const context: NodeCreationContext = {
@@ -114,7 +115,7 @@ function prepareRestorePlan(project: ScadletProjectV1, deps: RestoreProjectDeps)
     const entry = findCatalogEntry(dto.type)
     if (!entry) throw new Error(`Cannot restore node "${dto.id}": unknown type "${dto.type}"`)
     const node = dto.type === 'module-inputs'
-      ? new ModuleInputsNode(definition?.parameters ?? [])
+      ? new ModuleInputsNode(definition?.parameters ?? [], definition?.geometryInputs ?? [])
       : entry.create(context, dto.parameters)
     node.id = dto.id
     nodes.push({ dto, node, definitionId })

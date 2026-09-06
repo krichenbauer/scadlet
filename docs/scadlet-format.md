@@ -1,4 +1,4 @@
-# The `.scadlet` project file format (v3)
+# The `.scadlet` project file format (v4)
 
 This document specifies the `.scadlet` project file format as it is
 **actually implemented** in this repository, not as originally sketched in
@@ -6,7 +6,7 @@ This document specifies the `.scadlet` project file format as it is
 the code under `src/persistence/` and `src/editor/node-catalog.ts` is the
 source of truth until this document is updated to match it.
 
-## Version 3 definitions and semantic signatures
+## Version 4 definitions and semantic signatures
 
 v2 records each node's OpenSCAD semantic arguments rather than renderer
 controls. A new Cube therefore has `{}` parameters and generates `cube()`.
@@ -29,8 +29,10 @@ and `subtract`.
 
 The loader migrates v1 Cubes from `sizeX`/`sizeY`/`sizeZ` into v2 `size`, and
 migrates v1 Union/Intersection `a`/`b` connection endpoints into deterministic
-v2 child slots. v3 adds a project-level `definitions` array; existing v1/v2
-projects migrate to an empty array. It validates the migrated result before opening it. Unsupported
+v2 child slots. v3 adds a project-level `definitions` array; v4 adds an
+ordered Module Geometry-child signature. Existing v1/v2 projects migrate to
+an empty definition array and v3 projects migrate their one structural child
+port into the first Geometry input. It validates the migrated result before opening it. Unsupported
 newer versions are rejected instead of being guessed at.
 
 ## Status and compatibility
@@ -43,9 +45,8 @@ newer versions are rejected instead of being guessed at.
   `"version"`. The format version is **independent of the SCADlet
   application/package version** - bumping the app's `package.json`
   version never implies a format change, and vice versa.
-- The current format version is **`3`**. Versions 1 and 2 are accepted on
-  input and explicitly migrated through the v2 semantic-signature shape to
-  v3; writers and browser autosave always emit v3.
+- The current format version is **`4`**. Versions 1–3 are accepted on input
+  and explicitly migrated to v4; writers and browser autosave always emit v4.
 - Unknown/future format versions are rejected outright with a clear error
   (`Unsupported SCADlet project version: N`) - there is no attempt to
   guess-parse a newer format. See "Versioning and migrations" below.
@@ -275,6 +276,9 @@ from its user-editable OpenSCAD-style `name`.
     "inputs": "wheel-inputs",
     "output": "wheel-output"
   },
+  "geometryInputs": [
+    { "id": "geometry-profile", "name": "Profile" }
+  ],
   "parameters": [
     { "id": "parameter-radius", "name": "radius", "type": "number", "default": 10 }
   ],
@@ -307,10 +311,13 @@ stable definition ID, definition graph, and all `module-call.definitionId`
 references. Deleting a definition removes its definition record, scoped graph,
 and Calls as an ordinary v3 semantic mutation; no format-version change is
 required.
-Every `module-inputs` node and `module-call` node also deterministically owns
-the fixed structural Geometry port `children`. It is not stored in
-`definitions[].parameters` or in Call fallback arguments; ordinary connection
-records persist any wire using that port exactly as for other stable ports.
+`geometryInputs` is a distinct ordered signature of `{ id, name }` values.
+Each stable id derives the matching Inputs output and Call input port
+`geometry:<id>`. The Inputs output emits `children(index);`, where `index` is
+its current signature order. Names are UI labels only, never port identity or
+OpenSCAD identifiers. Calls emit connected child geometry in that order; gaps
+before a later connected input use `union() {}` placeholders so child indices
+never compact. There are no Geometry defaults or Call fallbacks.
 Type changes retain the parameter ID but reset every Call fallback for that ID
 to the new definition default after attached connections are removed. Deletion
 preflights the complete dynamic signature and removes the ID, its Call fallback
@@ -724,12 +731,13 @@ version = 1
 
 `parseScadletProject` routes on `version` through a single
 `migrateScadletProject(version, raw)` function
-(`src/persistence/validate.ts`). v1 first migrates to v2, then v3; v2
-migrates directly to v3; v3 is normalized and validated in its current
+(`src/persistence/validate.ts`). v1 first migrates to v2, then v3, then v4;
+v2 migrates through v3 to v4; v3's legacy `children` connections are remapped
+to the deterministic first Geometry signature entry before validation.
 canonical form. No other call site needs to know about historical shapes:
 
 ```text
-v1 → migrate to v2 → migrate to v3 → validate against the current shape
+v1 → migrate to v2 → migrate to v3 → migrate to v4 → validate against the current shape
 ```
 
 Rules of thumb for whether a change needs a version bump:

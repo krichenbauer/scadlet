@@ -4,7 +4,7 @@ import { NodeEditor } from 'rete'
 import { DataflowEngine } from 'rete-engine'
 import { describe, expect, it } from 'vitest'
 
-import { DefinitionRegistry, MODULE_CHILD_PORT_ID, moduleParameterPortId } from '../editor/definitions'
+import { DefinitionRegistry, moduleGeometryInputPortId, moduleParameterPortId } from '../editor/definitions'
 import { evaluateOpenSCAD } from '../editor/evaluate'
 import { ModuleCallNode } from '../editor/nodes/module-call-node'
 import { ModuleInputsNode } from '../editor/nodes/module-interface-nodes'
@@ -58,8 +58,9 @@ describe('historical v3 Module parameter persistence', () => {
     const call = editor.getNode('main-wheel-call')
     expect(inputs).toBeInstanceOf(ModuleInputsNode)
     expect(call).toBeInstanceOf(ModuleCallNode)
-    expect(Object.keys((inputs as ModuleInputsNode).outputs)).toEqual([MODULE_CHILD_PORT_ID, ...definition.parameters.map((parameter) => moduleParameterPortId(parameter.id))])
-    expect(Object.keys((call as ModuleCallNode).inputs)).toEqual([MODULE_CHILD_PORT_ID, ...definition.parameters.map((parameter) => moduleParameterPortId(parameter.id))])
+    const geometryKey = moduleGeometryInputPortId(definition.geometryInputs[0]!.id)
+    expect(Object.keys((inputs as ModuleInputsNode).outputs)).toEqual([geometryKey, ...definition.parameters.map((parameter) => moduleParameterPortId(parameter.id))])
+    expect(Object.keys((call as ModuleCallNode).inputs)).toEqual([geometryKey, ...definition.parameters.map((parameter) => moduleParameterPortId(parameter.id))])
     expect(editor.getConnections().map((connection) => connection.id)).toEqual([
       'call-radius-wire', 'wheel-radius-wire', 'wheel-body-wire',
     ])

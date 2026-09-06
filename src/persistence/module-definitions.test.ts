@@ -2,7 +2,7 @@ import { NodeEditor } from 'rete'
 import { DataflowEngine } from 'rete-engine'
 import { describe, expect, it } from 'vitest'
 
-import { DefinitionRegistry, MODULE_CHILD_PORT_ID } from '../editor/definitions'
+import { DefinitionRegistry, moduleGeometryInputPortId } from '../editor/definitions'
 import { evaluateOpenSCAD } from '../editor/evaluate'
 import { ModuleInputsNode, ModuleOutputNode } from '../editor/nodes/module-interface-nodes'
 import { CubeNode } from '../editor/nodes/cube-node'
@@ -14,7 +14,7 @@ import { restoreProject } from './restore'
 import { serializeProject } from './serialize'
 import { parseScadletProject, ScadletProjectError } from './validate'
 
-const definition = { id: 'definition-wheel', kind: 'module' as const, name: 'wheel', inputsNodeId: 'wheel-inputs', outputNodeId: 'wheel-output' }
+const definition = { id: 'definition-wheel', kind: 'module' as const, name: 'wheel', inputsNodeId: 'wheel-inputs', outputNodeId: 'wheel-output', geometryInputs: [{ id: 'wheel-geometry-1', name: 'Geometry 1' }] }
 const camera = { position: [0, 0, 0] as [number, number, number], target: [0, 0, 0] as [number, number, number] }
 
 describe('v3 Module definition persistence', () => {
@@ -36,7 +36,7 @@ describe('v3 Module definition persistence', () => {
       now: () => '2026-09-05T00:00:00.000Z',
     }))
 
-    expect(project.version).toBe(3)
+    expect(project.version).toBe(4)
     expect(project.graph.nodes).toEqual([])
     expect(project.definitions).toHaveLength(1)
     expect(project.definitions[0]).toMatchObject({ id: definition.id, kind: 'module', name: 'wheel', interface: { inputs: inputs.id, output: output.id } })
@@ -64,7 +64,7 @@ describe('v3 Module definition persistence', () => {
       graph: { nodes: [], connections: [] },
       editor: { viewport: { x: 12, y: -4, zoom: 1.3 } }, viewer: { camera },
     })
-    expect(project.version).toBe(3)
+    expect(project.version).toBe(4)
     expect(project.definitions).toEqual([])
     expect(project.editor.viewport).toEqual({ x: 12, y: -4, zoom: 1.3 })
   })
@@ -73,7 +73,7 @@ describe('v3 Module definition persistence', () => {
     const source = new NodeEditor<Schemes>()
     const registry = new DefinitionRegistry()
     registry.add(definition)
-    const inputs = new ModuleInputsNode(); inputs.id = definition.inputsNodeId
+    const inputs = new ModuleInputsNode([], definition.geometryInputs); inputs.id = definition.inputsNodeId
     const output = new ModuleOutputNode(); output.id = definition.outputNodeId
     const cube = new CubeNode(); cube.id = 'wheel-cube'
     const call = new ModuleCallNode(definition.id, definition.name); call.id = 'main-wheel-call'
@@ -104,24 +104,25 @@ describe('v3 Module definition persistence', () => {
   it('round-trips structural children connections without serializing them as parameters', async () => {
     const source = new NodeEditor<Schemes>()
     const registry = new DefinitionRegistry(); registry.add(definition)
-    const inputs = new ModuleInputsNode(); inputs.id = definition.inputsNodeId
+    const childKey = moduleGeometryInputPortId(definition.geometryInputs[0]!.id)
+    const inputs = new ModuleInputsNode([], definition.geometryInputs); inputs.id = definition.inputsNodeId
     const output = new ModuleOutputNode(); output.id = definition.outputNodeId
     const translate = new TranslateNode({ z: 15 }); translate.id = 'wheel-translate'
     const call = new ModuleCallNode(definition); call.id = 'main-wheel-call'
     const cube = new CubeNode(); cube.id = 'main-child-cube'
     for (const node of [inputs, output, translate, call, cube]) await source.addNode(node)
     registry.assignNode(definition.id, translate.id)
-    await source.addConnection(new ClassicPreset.Connection(inputs, MODULE_CHILD_PORT_ID, translate, 'geometry') as Schemes['Connection'])
+    await source.addConnection(new ClassicPreset.Connection(inputs, childKey, translate, 'geometry') as Schemes['Connection'])
     await source.addConnection(new ClassicPreset.Connection(translate, 'geometry', output, 'geometry') as Schemes['Connection'])
-    await source.addConnection(new ClassicPreset.Connection(cube, 'geometry', call, MODULE_CHILD_PORT_ID) as Schemes['Connection'])
+    await source.addConnection(new ClassicPreset.Connection(cube, 'geometry', call, childKey) as Schemes['Connection'])
 
     const project = parseScadletProject(serializeProject({
       editor: source, metadata: { name: 'Children' }, getNodePosition: () => ({ x: 0, y: 0 }),
       viewport: { x: 0, y: 0, k: 1 }, viewerCamera: camera, definitions: registry.list(), getNodeScope: (id) => registry.scopeOf(id),
     }))
     expect(project.definitions[0]?.parameters).toEqual([])
-    expect(project.definitions[0]?.graph.connections.some((connection) => connection.sourceOutput === MODULE_CHILD_PORT_ID)).toBe(true)
-    expect(project.graph.connections.some((connection) => connection.targetInput === MODULE_CHILD_PORT_ID)).toBe(true)
+    expect(project.definitions[0]?.graph.connections.some((connection) => connection.sourceOutput === childKey)).toBe(true)
+    expect(project.graph.connections.some((connection) => connection.targetInput === childKey)).toBe(true)
 
     const target = new NodeEditor<Schemes>()
     const engine = new DataflowEngine<Schemes>((node) => ({ inputs: () => Object.keys(node.inputs), outputs: () => Object.keys(node.outputs) }))
@@ -133,8 +134,8 @@ describe('v3 Module definition persistence', () => {
       setNodePosition: () => {}, clearDefinitions: () => restored.clear(), registerDefinition: (item) => restored.add(item),
       assignNodeToDefinition: (definitionId, nodeId) => restored.assignNode(definitionId, nodeId),
     })
-    expect(Object.keys((target.getNode(inputs.id) as ModuleInputsNode).outputs)).toEqual([MODULE_CHILD_PORT_ID])
-    expect(Object.keys((target.getNode(call.id) as ModuleCallNode).inputs)).toEqual([MODULE_CHILD_PORT_ID])
+    expect(Object.keys((target.getNode(inputs.id) as ModuleInputsNode).outputs)).toEqual([childKey])
+    expect(Object.keys((target.getNode(call.id) as ModuleCallNode).inputs)).toEqual([childKey])
     expect(target.getConnections()).toHaveLength(3)
     await expect(evaluateOpenSCAD(target, engine, undefined, restored)).resolves.toContain('wheel() {\n  cube(10);\n}')
   })

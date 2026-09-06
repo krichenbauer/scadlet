@@ -4,7 +4,7 @@ import type { DataflowNode } from 'rete-engine'
 import { booleanSocket, geometrySocket, numberSocket, vector3Socket, type BooleanValue, type GeometryValue, type NumberValue, type Vector3Value } from '../sockets'
 import { t } from '../../i18n/translate'
 import { CheckboxControl, LabeledNumberControl, Vector3Control } from '../controls'
-import { MODULE_CHILD_PORT_ID, moduleParameterPortId, type ModuleDefinition, type ModuleParameter, type ModuleParameterDefault } from '../definitions'
+import { moduleGeometryInputPortId, moduleParameterPortId, type ModuleDefinition, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterDefault } from '../definitions'
 
 /** A project-defined Module use. Its stable definition ID is the semantic
  * reference; the visible/OpenSCAD name is resolved from that definition at
@@ -15,23 +15,24 @@ export class ModuleCallNode extends ClassicPreset.Node<Record<string, ClassicPre
   readonly definitionId: string
   private moduleName: string
   private parameters: readonly ModuleParameter[]
+  private geometryInputs: readonly ModuleGeometryInput[]
   private readonly onControlsChanged?: (nodeId: string) => void
 
   constructor(
-    definition: Pick<ModuleDefinition, 'id' | 'name' | 'parameters'> | string,
+    definition: Pick<ModuleDefinition, 'id' | 'name' | 'parameters' | 'geometryInputs'> | string,
     params: ModuleCallParams | string = typeof definition === 'string' ? '' : { definitionId: definition.id },
     onControlsChanged?: (nodeId: string) => void,
   ) {
     const resolved = typeof definition === 'string'
-      ? { id: definition, name: params as string, parameters: [] as const }
+      ? { id: definition, name: params as string, parameters: [] as const, geometryInputs: [] as const }
       : definition
     const callParams = typeof params === 'string' ? { definitionId: resolved.id } : params
     super(resolved.name)
     this.definitionId = resolved.id
     this.moduleName = resolved.name
     this.parameters = resolved.parameters ?? []
+    this.geometryInputs = resolved.geometryInputs ?? []
     this.onControlsChanged = onControlsChanged
-    this.addInput(MODULE_CHILD_PORT_ID, new ClassicPreset.Input(geometrySocket, t('input.children')))
     this.materializeInputs(callParams.arguments ?? {})
     this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, t('input.geometry')))
   }
@@ -40,12 +41,17 @@ export class ModuleCallNode extends ClassicPreset.Node<Record<string, ClassicPre
     parameters: readonly ModuleParameter[],
     resetFallbackIds: ReadonlySet<string> = new Set(),
     fallbackOverrides: Readonly<Record<string, ModuleParameterDefault>> = {},
+    geometryInputs: readonly ModuleGeometryInput[] = this.geometryInputs,
   ): void {
     const fallbacks = { ...this.getArguments(), ...fallbackOverrides }
     for (const id of resetFallbackIds) delete fallbacks[id]
     const next = new Map(parameters.map((parameter) => [moduleParameterPortId(parameter.id), parameter]))
+    const nextGeometry = new Map(geometryInputs.map((input) => [moduleGeometryInputPortId(input.id), input]))
     for (const key of Object.keys(this.inputs)) {
-      if (key === MODULE_CHILD_PORT_ID) continue
+      if (key.startsWith('geometry:')) {
+        if (!nextGeometry.has(key)) this.removeInput(key)
+        continue
+      }
       const parameter = next.get(key)
       if (!parameter || this.inputs[key]?.socket.name !== parameter.type) {
         this.removeInput(key)
@@ -53,7 +59,12 @@ export class ModuleCallNode extends ClassicPreset.Node<Record<string, ClassicPre
       }
     }
     this.parameters = parameters
+    this.geometryInputs = geometryInputs
     this.materializeInputs(fallbacks)
+    for (const input of geometryInputs) {
+      const port = this.inputs[moduleGeometryInputPortId(input.id)]
+      if (port) port.label = input.name
+    }
     for (const parameter of parameters) {
       const input = this.inputs[moduleParameterPortId(parameter.id)]
       if (input) input.label = parameter.name
@@ -68,6 +79,10 @@ export class ModuleCallNode extends ClassicPreset.Node<Record<string, ClassicPre
   }
 
   private materializeInputs(argumentsById: Record<string, ModuleParameterDefault>): void {
+    for (const input of this.geometryInputs) {
+      const key = moduleGeometryInputPortId(input.id)
+      if (!this.inputs[key]) this.addInput(key, new ClassicPreset.Input(geometrySocket, input.name))
+    }
     for (const parameter of this.parameters) {
       const key = moduleParameterPortId(parameter.id)
       const socket = parameter.type === 'number' ? numberSocket : parameter.type === 'boolean' ? booleanSocket : vector3Socket
@@ -98,9 +113,10 @@ export class ModuleCallNode extends ClassicPreset.Node<Record<string, ClassicPre
       return `${parameter.name} = ${connected ?? literal}`
     })
     const invocation = `${this.moduleName}(${argumentsSource.join(', ')})`
-    const child = inputs[MODULE_CHILD_PORT_ID]?.[0] as GeometryValue | undefined
-    return { geometry: { code: child
-      ? `${invocation} {\n${child.code.split('\n').map((line) => `  ${line}`).join('\n')}\n}`
-      : `${invocation};` } }
+    const children = this.geometryInputs.map((input) => inputs[moduleGeometryInputPortId(input.id)]?.[0] as GeometryValue | undefined)
+    const lastConnected = children.reduce((last, child, index) => child ? index : last, -1)
+    if (lastConnected < 0) return { geometry: { code: `${invocation};` } }
+    const statements = children.slice(0, lastConnected + 1).map((child) => child?.code ?? 'union() {}')
+    return { geometry: { code: `${invocation} {\n${statements.flatMap((statement) => statement.split('\n').map((line) => `  ${line}`)).join('\n')}\n}` } }
   }
 }

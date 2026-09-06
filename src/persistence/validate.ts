@@ -1,5 +1,5 @@
 import { findCatalogEntry } from '../editor/node-catalog'
-import { moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterPortId, moduleParameterNameProblem, type ModuleParameter, type ModuleParameterType } from '../editor/definitions'
+import { defaultModuleGeometryInput, moduleGeometryInputPortId, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterPortId, moduleParameterNameProblem, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterType } from '../editor/definitions'
 import {
   SCADLET_FORMAT,
   SCADLET_VERSION,
@@ -76,8 +76,9 @@ export function parseScadletProject(raw: unknown): ScadletProjectV1 {
  */
 function migrateScadletProject(version: number, raw: Record<string, unknown>): ScadletProjectV1 {
   if (version === SCADLET_VERSION) return validateV1(raw)
-  if (version === 2) return validateV1(migrateV2ToV3(raw))
-  if (version === 1) return validateV1(migrateV2ToV3(migrateV1ToV2(raw)))
+  if (version === 3) return validateV1(migrateV3ToV4(raw))
+  if (version === 2) return validateV1(migrateV3ToV4(migrateV2ToV3(raw)))
+  if (version === 1) return validateV1(migrateV3ToV4(migrateV2ToV3(migrateV1ToV2(raw))))
   throw new ScadletProjectError(`Unsupported SCADlet project version: ${version}`)
 }
 
@@ -113,7 +114,38 @@ function migrateV1ToV2(raw: Record<string, unknown>): Record<string, unknown> {
 
 /** v3 adds project-level definitions without changing the Main graph. */
 function migrateV2ToV3(raw: Record<string, unknown>): Record<string, unknown> {
-  return { ...raw, version: SCADLET_VERSION, definitions: [] }
+  return { ...raw, version: 3, definitions: [] }
+}
+
+/** v4 replaces the old single structural `children` port with an ordered
+ * signature. The deterministic first id preserves every v3 child wire. */
+function migrateV3ToV4(raw: Record<string, unknown>): Record<string, unknown> {
+  const definitions = Array.isArray(raw.definitions) ? raw.definitions.map((item) => {
+    if (!isPlainObject(item) || typeof item.id !== 'string') return item
+    const geometryInput = defaultModuleGeometryInput(item.id)
+    const graph = isPlainObject(item.graph) ? item.graph : {}
+    const connections = Array.isArray(graph.connections) ? graph.connections.map((connection) => {
+      if (!isPlainObject(connection)) return connection
+      return connection.sourceOutput === 'children'
+        ? { ...connection, sourceOutput: moduleGeometryInputPortId(geometryInput.id) }
+        : connection
+    }) : graph.connections
+    return { ...item, geometryInputs: [geometryInput], graph: { ...graph, connections } }
+  }) : raw.definitions
+  const byId = new Map((Array.isArray(definitions) ? definitions : []).filter(isPlainObject).map((definition) => [definition.id, definition]))
+  const graph = isPlainObject(raw.graph) ? raw.graph : {}
+  const connections = Array.isArray(graph.connections) ? graph.connections.map((connection) => {
+    if (!isPlainObject(connection) || connection.targetInput !== 'children' || typeof connection.target !== 'string') return connection
+    const call = Array.isArray(graph.nodes) ? graph.nodes.find((node) => isPlainObject(node) && node.id === connection.target) : undefined
+    const definitionId = isPlainObject(call?.parameters) ? call.parameters.definitionId : undefined
+    const definition = typeof definitionId === 'string' ? byId.get(definitionId) : undefined
+    const geometryInputs = isPlainObject(definition) && Array.isArray(definition.geometryInputs) ? definition.geometryInputs : []
+    const first = geometryInputs[0]
+    return isPlainObject(first) && typeof first.id === 'string'
+      ? { ...connection, targetInput: moduleGeometryInputPortId(first.id) }
+      : connection
+  }) : graph.connections
+  return { ...raw, version: SCADLET_VERSION, definitions, graph: { ...graph, connections } }
 }
 
 function validateV1(raw: Record<string, unknown>): ScadletProjectV1 {
@@ -201,7 +233,7 @@ function validateConnection(
   index: number,
   seenIds: Set<string>,
   nodesById: Map<string, ScadletNodeDTO>,
-  definition?: Pick<ScadletModuleDefinition, 'interface' | 'parameters'>,
+  definition?: Pick<ScadletModuleDefinition, 'interface' | 'parameters' | 'geometryInputs'>,
   definitions: readonly ScadletModuleDefinition[] = [],
 ): ScadletConnectionDTO {
   if (!isPlainObject(raw)) throw new ScadletProjectError(`Connection at index ${index} must be an object.`)
@@ -228,12 +260,12 @@ function validateConnection(
   const sourceEntry = findCatalogEntry(sourceNode.type)!
   const targetEntry = findCatalogEntry(targetNode.type)!
   const sourceDynamicType = sourceNode.type === 'module-inputs' && definition && sourceNode.id === definition.interface.inputs
-    ? parameterSocketType(definition.parameters, sourceOutput)
+    ? (geometryInputPort(definition.geometryInputs, sourceOutput) ? 'geometry' : parameterSocketType(definition.parameters, sourceOutput))
     : undefined
   const targetDefinition = targetNode.type === 'module-call'
     ? definitions.find((definition) => definition.id === targetNode.parameters.definitionId)
     : undefined
-  const targetDynamicType = targetDefinition ? parameterSocketType(targetDefinition.parameters, targetInput) : undefined
+  const targetDynamicType = targetDefinition ? (geometryInputPort(targetDefinition.geometryInputs, targetInput) ? 'geometry' : parameterSocketType(targetDefinition.parameters, targetInput)) : undefined
   if (!sourceEntry.outputs.includes(sourceOutput) && !sourceDynamicType) {
     throw new ScadletProjectError(`Connection "${raw.id}" references unknown source port "${sourceOutput}" on node "${source}"`)
   }
@@ -252,7 +284,7 @@ function validateConnection(
   return { id: raw.id, source, sourceOutput, target, targetInput }
 }
 
-function validateGraph(raw: unknown, graphKind: 'main' | 'definition', definition?: Pick<ScadletModuleDefinition, 'interface' | 'parameters'>, definitions: readonly ScadletModuleDefinition[] = []): ScadletGraph {
+function validateGraph(raw: unknown, graphKind: 'main' | 'definition', definition?: Pick<ScadletModuleDefinition, 'interface' | 'parameters' | 'geometryInputs'>, definitions: readonly ScadletModuleDefinition[] = []): ScadletGraph {
   if (!isPlainObject(raw)) throw new ScadletProjectError('Project "graph" must be an object.')
 
   if (!Array.isArray(raw.nodes)) throw new ScadletProjectError('Project "graph.nodes" must be an array.')
@@ -290,7 +322,8 @@ function validateDefinitions(raw: unknown): ScadletModuleDefinition[] {
       throw new ScadletProjectError(`Module definition "${item.id}" has invalid interface roles.`)
     }
     const parameters = validateModuleParameters(item.parameters)
-    const graph = validateGraph(item.graph, 'definition', { interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output }, parameters })
+    const geometryInputs = validateModuleGeometryInputs(item.geometryInputs)
+    const graph = validateGraph(item.graph, 'definition', { interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output }, parameters, geometryInputs }, definitions)
     for (const node of graph.nodes) {
       if (seenNodeIds.has(node.id)) throw new ScadletProjectError(`Duplicate node id across definition graphs: "${node.id}"`)
       seenNodeIds.add(node.id)
@@ -309,6 +342,7 @@ function validateDefinitions(raw: unknown): ScadletModuleDefinition[] {
       name: item.name,
       interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output },
       parameters,
+      geometryInputs,
       graph,
     })
   }
@@ -354,9 +388,26 @@ function validateModuleParameters(raw: unknown): ModuleParameter[] {
   })
 }
 
+function validateModuleGeometryInputs(raw: unknown): ModuleGeometryInput[] {
+  if (!Array.isArray(raw)) throw new ScadletProjectError('Module "geometryInputs" must be an array.')
+  const ids = new Set<string>()
+  return raw.map((item, index) => {
+    if (!isPlainObject(item) || typeof item.id !== 'string' || !item.id || typeof item.name !== 'string' || !item.name.trim()) {
+      throw new ScadletProjectError(`Module Geometry input at index ${index} is invalid.`)
+    }
+    if (ids.has(item.id)) throw new ScadletProjectError(`Duplicate Module Geometry input id "${item.id}".`)
+    ids.add(item.id)
+    return { id: item.id, name: item.name }
+  })
+}
+
 function parameterSocketType(parameters: readonly ModuleParameter[], port: string): 'number' | 'boolean' | 'vector3' | undefined {
   const parameter = parameters.find((item) => moduleParameterPortId(item.id) === port)
   return parameter?.type
+}
+
+function geometryInputPort(inputs: readonly ModuleGeometryInput[], port: string): ModuleGeometryInput | undefined {
+  return inputs.find((input) => moduleGeometryInputPortId(input.id) === port)
 }
 
 function validateEditorState(raw: unknown): ScadletEditorState {

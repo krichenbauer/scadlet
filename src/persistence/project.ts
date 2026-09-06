@@ -1,11 +1,11 @@
 import type { Position } from '../editor/coordinates'
-import type { ModuleParameter } from '../editor/definitions'
+import type { ModuleGeometryInput, ModuleParameter } from '../editor/definitions'
 
 /** SCADlet's own project-file format identifier (see `parseScadletProject` in `validate.ts`). */
 export const SCADLET_FORMAT = 'scadlet' as const
 
 /** Current `.scadlet` schema version this build writes and fully supports reading. */
-export const SCADLET_VERSION = 3 as const
+export const SCADLET_VERSION = 4 as const
 
 export interface ScadletProjectMetadata {
   /** Required before the first explicit Save/Save As/export - see `filename.ts`. */
@@ -69,6 +69,8 @@ export interface ScadletModuleDefinition {
   /** Ordered Module signature. Version 3 remains backward-compatible: old
    * parameterless records normalize a missing array to `[]`. */
   parameters: ModuleParameter[]
+  /** Ordered child-block interface; structurally separate from value parameters. */
+  geometryInputs: ModuleGeometryInput[]
   graph: ScadletGraph
 }
 
@@ -100,7 +102,7 @@ export interface ScadletViewerState {
  * transient editor state (selection, marquee, hover timers, drag state,
  * node foreground order) are intentionally never part of this shape.
  */
-export interface ScadletProjectV3 {
+export interface ScadletProjectV4 {
   format: typeof SCADLET_FORMAT
   version: typeof SCADLET_VERSION
   metadata: ScadletProjectMetadata
@@ -112,7 +114,7 @@ export interface ScadletProjectV3 {
 
 /** Current canonical project type. The old exported name remains an alias
  * for application adapters while v1 remains an input-only migration shape. */
-export type ScadletProjectV1 = ScadletProjectV3
+export type ScadletProjectV1 = ScadletProjectV4
 
 /** The viewer's own default camera state (matches `GeometryViewer`'s initial, pre-fit camera position/target). */
 export const DEFAULT_VIEWER_CAMERA: ScadletViewerCamera = {
@@ -124,7 +126,7 @@ export const DEFAULT_VIEWER_CAMERA: ScadletViewerCamera = {
 export const UNTITLED_PROJECT_NAME = 'Untitled Project'
 
 /** Builds a fresh, empty project: no nodes/connections, a centered/unzoomed viewport, and the viewer's default camera. */
-export function createEmptyProject(name: string = UNTITLED_PROJECT_NAME, now: () => string = () => new Date().toISOString()): ScadletProjectV3 {
+export function createEmptyProject(name: string = UNTITLED_PROJECT_NAME, now: () => string = () => new Date().toISOString()): ScadletProjectV4 {
   const timestamp = now()
   return {
     format: SCADLET_FORMAT,

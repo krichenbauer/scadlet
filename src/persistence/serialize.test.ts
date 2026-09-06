@@ -35,7 +35,7 @@ describe('serializeProject', () => {
     })
 
     expect(project.format).toBe('scadlet')
-    expect(project.version).toBe(3)
+    expect(project.version).toBe(4)
     expect(project.metadata).toEqual({ name: 'Empty', updatedAt: '2026-01-01T00:00:00.000Z' })
     expect(project.graph).toEqual({ nodes: [], connections: [] })
     expect(project.definitions).toEqual([])

@@ -15,6 +15,13 @@ export interface ModuleParameter {
   default: ModuleParameterDefault
 }
 
+/** Ordered Geometry child signature entry. It deliberately has no OpenSCAD
+ * type/default/fallback: its stable id owns the corresponding child index. */
+export interface ModuleGeometryInput {
+  id: string
+  name: string
+}
+
 /** Runtime definition metadata. Node content remains authoritative in Rete;
  * this small registry owns stable definition identity and graph membership. */
 export interface ModuleDefinition {
@@ -26,6 +33,8 @@ export interface ModuleDefinition {
   /** Always present for newly-created/restored definitions. Optional only at
    * this TypeScript boundary so older test/embedder fixtures remain valid. */
   parameters?: readonly ModuleParameter[]
+  /** Ordered, named child-block inputs. Kept separate from value parameters. */
+  geometryInputs?: readonly ModuleGeometryInput[]
 }
 
 export type ModuleNameProblem = 'empty' | 'identifier' | 'duplicate'
@@ -46,9 +55,14 @@ export function moduleParameterNameProblem(name: string, existingNames: Iterable
 }
 
 export function moduleParameterPortId(id: string): string { return `parameter:${id}` }
-/** Fixed structural Geometry boundary for OpenSCAD `children()`. This is not
- * part of a Module's editable value-parameter signature. */
+/** Stable port identity for one ordered Module child input. */
+export function moduleGeometryInputPortId(id: string): string { return `geometry:${id}` }
+/** Historical v3 connection key used only by the v3→v4 migration. */
 export const MODULE_CHILD_PORT_ID = 'children'
+
+export function defaultModuleGeometryInput(definitionId: string): ModuleGeometryInput {
+  return { id: `${definitionId}:geometry-1`, name: 'Geometry 1' }
+}
 
 export function defaultForModuleParameterType(type: ModuleParameterType): ModuleParameterDefault {
   if (type === 'number') return 0
@@ -111,6 +125,7 @@ export class DefinitionRegistry {
 
   add(definition: ModuleDefinition): void {
     validateModuleParameters(definition.parameters ?? [])
+    validateModuleGeometryInputs(definition.geometryInputs ?? [])
     this.definitions.set(definition.id, definition)
     this.scopes.set(definition.inputsNodeId, definition.id)
     this.scopes.set(definition.outputNodeId, definition.id)
@@ -138,6 +153,14 @@ export class DefinitionRegistry {
     if (!definition) throw new Error(`Unknown Module definition "${definitionId}".`)
     validateModuleParameters(parameters)
     this.definitions.set(definitionId, { ...definition, parameters: [...parameters] })
+    this.emit()
+  }
+
+  setGeometryInputs(definitionId: string, geometryInputs: readonly ModuleGeometryInput[]): void {
+    const definition = this.definitions.get(definitionId)
+    if (!definition) throw new Error(`Unknown Module definition "${definitionId}".`)
+    validateModuleGeometryInputs(geometryInputs)
+    this.definitions.set(definitionId, { ...definition, geometryInputs: [...geometryInputs] })
     this.emit()
   }
 
@@ -191,6 +214,16 @@ export function validateModuleParameters(parameters: readonly ModuleParameter[])
     names.add(parameter.name)
     if (!['number', 'boolean', 'vector3'].includes(parameter.type)) throw new Error(`Unsupported Module parameter type "${String(parameter.type)}".`)
     if (!moduleParameterDefaultIsValid(parameter.type, parameter.default)) throw new Error(`Invalid default for Module parameter "${parameter.name}".`)
+  }
+}
+
+export function validateModuleGeometryInputs(inputs: readonly ModuleGeometryInput[]): void {
+  const ids = new Set<string>()
+  for (const input of inputs) {
+    if (!input.id) throw new Error('Module Geometry input id must be non-empty.')
+    if (ids.has(input.id)) throw new Error(`Duplicate Module Geometry input id "${input.id}".`)
+    ids.add(input.id)
+    if (!input.name.trim()) throw new Error('Module Geometry input name must be non-empty.')
   }
 }
 

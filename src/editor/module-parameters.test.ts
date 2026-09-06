@@ -2,7 +2,7 @@ import { ClassicPreset, NodeEditor } from 'rete'
 import { DataflowEngine } from 'rete-engine'
 import { describe, expect, it } from 'vitest'
 
-import { DefinitionRegistry, MODULE_CHILD_PORT_ID, moduleParameterPortId, type ModuleDefinition } from './definitions'
+import { DefinitionRegistry, moduleGeometryInputPortId, moduleParameterPortId, type ModuleDefinition } from './definitions'
 import { evaluateInspectNode, evaluateOpenSCAD } from './evaluate'
 import { ModuleCallNode } from './nodes/module-call-node'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
@@ -27,15 +27,17 @@ const definition: ModuleDefinition = {
     { id: 'enabled-id', name: 'enabled', type: 'boolean', default: false },
     { id: 'offset-id', name: 'offset', type: 'vector3', default: [0, 0, 0] },
   ],
+  geometryInputs: [{ id: 'child-id', name: 'Geometry 1' }],
 }
 
 describe('typed Module parameters', () => {
   it('uses stable parameter ids for typed interface/call ports and preserves independent Call fallbacks', () => {
-    const inputs = new ModuleInputsNode(definition.parameters)
+    const childKey = moduleGeometryInputPortId('child-id')
+    const inputs = new ModuleInputsNode(definition.parameters, definition.geometryInputs)
     const first = new ModuleCallNode(definition)
     const second = new ModuleCallNode(definition)
-    expect(Object.keys(inputs.outputs)).toEqual([MODULE_CHILD_PORT_ID, ...(definition.parameters ?? []).map((parameter) => moduleParameterPortId(parameter.id))])
-    expect(first.inputs[MODULE_CHILD_PORT_ID]?.socket.name).toBe('geometry')
+    expect(Object.keys(inputs.outputs)).toEqual([childKey, ...(definition.parameters ?? []).map((parameter) => moduleParameterPortId(parameter.id))])
+    expect(first.inputs[childKey]?.socket.name).toBe('geometry')
     expect(inputs.outputs[moduleParameterPortId('radius-id')]?.socket.name).toBe('number')
     expect(inputs.outputs[moduleParameterPortId('enabled-id')]?.socket.name).toBe('boolean')
     expect(inputs.outputs[moduleParameterPortId('offset-id')]?.socket.name).toBe('vector3')
@@ -63,30 +65,51 @@ describe('typed Module parameters', () => {
     expect(call.getArguments()['radius-id']).toEqual([1, 2, 3])
   })
 
-  it('models children as a fixed Geometry boundary rather than a value parameter and emits a normal child block', () => {
-    const inputs = new ModuleInputsNode(definition.parameters)
+  it('models ordered children as a Geometry signature rather than a value parameter and emits complete statements', () => {
+    const childKey = moduleGeometryInputPortId('child-id')
+    const inputs = new ModuleInputsNode(definition.parameters, definition.geometryInputs)
     const call = new ModuleCallNode(definition)
-    expect(inputs.data()[MODULE_CHILD_PORT_ID]).toMatchObject({ code: 'children()' })
-    expect(call.getArguments()).not.toHaveProperty(MODULE_CHILD_PORT_ID)
+    // Geometry dataflow values are complete OpenSCAD statements. This is
+    // intentionally the pre-v4 regression: the old fixed child boundary
+    // omitted the required semicolon and therefore generated invalid source
+    // when connected directly to a Module Output.
+    expect(inputs.data()[childKey]).toMatchObject({ code: 'children(0);' })
+    expect(call.getArguments()).not.toHaveProperty('child-id')
     expect(call.data({}).geometry.code).toBe('ball(radius = 10, enabled = false, offset = [0, 0, 0]);')
-    expect(call.data({ [MODULE_CHILD_PORT_ID]: [{ code: 'union() {\n  cube();\n  sphere(r=3);\n}' }] }).geometry.code)
+    expect(call.data({ [childKey]: [{ code: 'union() {\n  cube();\n  sphere(r=3);\n}' }] }).geometry.code)
       .toBe('ball(radius = 10, enabled = false, offset = [0, 0, 0]) {\n  union() {\n    cube();\n    sphere(r=3);\n  }\n}')
+  })
+
+  it('maps stable ordered Geometry inputs to indexed complete children statements and preserves positional gaps', () => {
+    const geometryInputs = [{ id: 'profile', name: 'Profile' }, { id: 'cutout', name: 'Cutout' }]
+    const inputs = new ModuleInputsNode([], geometryInputs)
+    const call = new ModuleCallNode({ id: 'cut', name: 'cut', parameters: [], geometryInputs })
+    const profile = moduleGeometryInputPortId('profile')
+    const cutout = moduleGeometryInputPortId('cutout')
+    expect(inputs.data()[profile]).toMatchObject({ code: 'children(0);' })
+    expect(inputs.data()[cutout]).toMatchObject({ code: 'children(1);' })
+    expect(call.data({ [profile]: [{ code: 'cube(20);' }], [cutout]: [{ code: 'cylinder(r=5);' }] }).geometry.code)
+      .toBe('cut() {\n  cube(20);\n  cylinder(r=5);\n}')
+    expect(call.data({ [cutout]: [{ code: 'cylinder(r=5);' }] }).geometry.code)
+      .toBe('cut() {\n  union() {}\n  cylinder(r=5);\n}')
+    expect(call.data({}).geometry.code).toBe('cut();')
   })
 
   it('flows children through ordinary Rete Geometry connections in a definition and Call', async () => {
     const { editor, engine } = graph()
     const definitions = new DefinitionRegistry(); definitions.add(definition)
-    const inputs = new ModuleInputsNode(definition.parameters); inputs.id = definition.inputsNodeId
+    const childKey = moduleGeometryInputPortId('child-id')
+    const inputs = new ModuleInputsNode(definition.parameters, definition.geometryInputs); inputs.id = definition.inputsNodeId
     const output = new ModuleOutputNode(); output.id = definition.outputNodeId
     const translate = new TranslateNode({ x: 0, y: 0, z: 12 }); translate.id = 'child-translate'
     const call = new ModuleCallNode(definition); call.id = 'ball-call'
     const cube = new CubeNode(); cube.id = 'child-cube'
     for (const node of [inputs, output, translate, call, cube]) await editor.addNode(node)
     definitions.assignNode(definition.id, translate.id)
-    await editor.addConnection(new ClassicPreset.Connection(inputs, MODULE_CHILD_PORT_ID, translate, 'geometry') as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(inputs, childKey, translate, 'geometry') as Schemes['Connection'])
     await editor.addConnection(new ClassicPreset.Connection(translate, 'geometry', output, 'geometry') as Schemes['Connection'])
-    await editor.addConnection(new ClassicPreset.Connection(cube, 'geometry', call, MODULE_CHILD_PORT_ID) as Schemes['Connection'])
-    await expect(evaluateOpenSCAD(editor, engine, undefined, definitions)).resolves.toMatch(/translate\(\[0, 0, 12\]\) \{\n\s+children\(\)\n\s+\}/)
+    await editor.addConnection(new ClassicPreset.Connection(cube, 'geometry', call, childKey) as Schemes['Connection'])
+    await expect(evaluateOpenSCAD(editor, engine, undefined, definitions)).resolves.toMatch(/translate\(\[0, 0, 12\]\) \{\n\s+children\(0\);\n\s+\}/)
     await expect(evaluateOpenSCAD(editor, engine, undefined, definitions)).resolves.toContain('ball(radius = 10, enabled = false, offset = [0, 0, 0]) {\n  cube(10);\n}')
   })
 

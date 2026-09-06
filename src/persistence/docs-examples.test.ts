@@ -35,7 +35,7 @@ describe('docs/scadlet-format.md examples stay valid', () => {
 
   it('v2-empty-cube.scadlet keeps an omitted Cube signature', () => {
     const project = parseScadletProject(readExample('v2-empty-cube.scadlet'))
-    expect(project.version).toBe(3)
+    expect(project.version).toBe(4)
     expect(project.graph.nodes[0]?.parameters).toEqual({})
   })
 

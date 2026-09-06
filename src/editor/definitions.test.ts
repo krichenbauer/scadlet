@@ -2,7 +2,7 @@ import { ClassicPreset, NodeEditor } from 'rete'
 import { describe, expect, it } from 'vitest'
 
 import { attachSocketCompatibilityGuard } from './editor'
-import { DefinitionRegistry, MODULE_CHILD_PORT_ID, bindDefinitionRegistry, moduleNameProblem } from './definitions'
+import { DefinitionRegistry, moduleGeometryInputPortId, bindDefinitionRegistry, moduleNameProblem } from './definitions'
 import { removeNodeWithConnections } from './deletion'
 import { CubeNode } from './nodes/cube-node'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
@@ -30,11 +30,12 @@ describe('Module definitions', () => {
   })
 
   it('has exactly the two permanent interface roles, and Output has one Geometry input', () => {
-    const inputs = new ModuleInputsNode()
+    const child = { id: 'geometry-1', name: 'Geometry 1' }
+    const inputs = new ModuleInputsNode([], [child])
     const output = new ModuleOutputNode()
     expect(Object.keys(inputs.inputs)).toEqual([])
-    expect(Object.keys(inputs.outputs)).toEqual([MODULE_CHILD_PORT_ID])
-    expect(inputs.outputs[MODULE_CHILD_PORT_ID]?.socket.name).toBe('geometry')
+    expect(Object.keys(inputs.outputs)).toEqual([moduleGeometryInputPortId(child.id)])
+    expect(inputs.outputs[moduleGeometryInputPortId(child.id)]?.socket.name).toBe('geometry')
     expect(Object.keys(output.inputs)).toEqual(['geometry'])
     expect(output.inputs.geometry?.socket.name).toBe('geometry')
   })

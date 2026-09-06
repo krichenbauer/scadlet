@@ -20,7 +20,7 @@ import { socketType, type SocketType } from './sockets'
 import { guardPortRemoval, hasConnectedInputs, removeInputSafely, removeOutputSafely } from './port-lifecycle'
 import { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData } from './connection-compatibility'
-import { DefinitionRegistry, bindDefinitionRegistry, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterNameProblem, type ModuleDefinition, type ModuleParameter, type ModuleParameterDefault, type ModuleParameterType } from './definitions'
+import { DefinitionRegistry, bindDefinitionRegistry, defaultModuleGeometryInput, moduleGeometryInputPortId, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterNameProblem, type ModuleDefinition, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterDefault, type ModuleParameterType } from './definitions'
 import { attachDefinitionFrames, definitionFrameBounds, type DefinitionFrameBounds } from './definition-frames'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
 import { ModuleCallNode } from './nodes/module-call-node'
@@ -72,6 +72,9 @@ export interface SCADletEditor {
   addModuleParameter(definitionId: string, parameter: { name: string; type: ModuleParameterType; default: ModuleParameterDefault }): Promise<void>
   editModuleParameter(definitionId: string, parameterId: string, update: { name?: string; type?: ModuleParameterType; default?: ModuleParameterDefault; move?: -1 | 1 }): Promise<boolean>
   deleteModuleParameter(definitionId: string, parameterId: string): Promise<boolean>
+  addModuleGeometryInput(definitionId: string, name?: string): Promise<void>
+  editModuleGeometryInput(definitionId: string, inputId: string, update: { name?: string; move?: -1 | 1 }): Promise<boolean>
+  deleteModuleGeometryInput(definitionId: string, inputId: string): Promise<boolean>
   getDefinitions(): readonly ModuleDefinition[]
   getNodeScope(nodeId: string): string | null
   clearDefinitions(): void
@@ -608,6 +611,72 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return true
   }
 
+  const geometryInputConnections = (definition: ModuleDefinition, inputId: string) => {
+    const key = moduleGeometryInputPortId(inputId)
+    return editor.getConnections().filter((connection) =>
+      (connection.source === definition.inputsNodeId && connection.sourceOutput === key)
+      || (editor.getNode(connection.target) instanceof ModuleCallNode
+        && (editor.getNode(connection.target) as ModuleCallNode).definitionId === definition.id
+        && connection.targetInput === key),
+    )
+  }
+
+  async function synchronizeModuleGeometryInputs(definition: ModuleDefinition): Promise<void> {
+    const inputs = editor.getNode(definition.inputsNodeId)
+    if (inputs instanceof ModuleInputsNode) {
+      inputs.syncSignature(definition.parameters ?? [], definition.geometryInputs ?? [])
+      await area.update('node', inputs.id)
+    }
+    for (const node of editor.getNodes()) {
+      if (node instanceof ModuleCallNode && node.definitionId === definition.id) {
+        node.syncSignature(definition.parameters ?? [], new Set(), {}, definition.geometryInputs ?? [])
+        await area.update('node', node.id)
+      }
+    }
+  }
+
+  async function addModuleGeometryInput(definitionId: string, requestedName?: string): Promise<void> {
+    const definition = definitions.get(definitionId)
+    if (!definition) throw new Error(t('definition.geometryInputFailed'))
+    const geometryInputs = definition.geometryInputs ?? []
+    const input: ModuleGeometryInput = { id: crypto.randomUUID(), name: requestedName?.trim() || `Geometry ${geometryInputs.length + 1}` }
+    if (!input.name) throw new Error(t('definition.geometryInputFailed'))
+    definitions.setGeometryInputs(definitionId, [...geometryInputs, input])
+    await synchronizeModuleGeometryInputs(definitions.get(definitionId)!)
+  }
+
+  async function editModuleGeometryInput(definitionId: string, inputId: string, update: { name?: string; move?: -1 | 1 }): Promise<boolean> {
+    const definition = definitions.get(definitionId)
+    const inputs = definition?.geometryInputs ?? []
+    const index = inputs.findIndex((input) => input.id === inputId)
+    if (!definition || index < 0) return false
+    const next = [...inputs]
+    next[index] = { ...next[index]!, ...(update.name === undefined ? {} : { name: update.name.trim() }) }
+    if (!next[index]!.name) throw new Error(t('definition.geometryInputFailed'))
+    if (update.move) {
+      const destination = index + update.move
+      if (destination >= 0 && destination < next.length) {
+        const [moved] = next.splice(index, 1); next.splice(destination, 0, moved!)
+      }
+    }
+    definitions.setGeometryInputs(definitionId, next)
+    await synchronizeModuleGeometryInputs(definitions.get(definitionId)!)
+    return true
+  }
+
+  async function deleteModuleGeometryInput(definitionId: string, inputId: string): Promise<boolean> {
+    const definition = definitions.get(definitionId)
+    const input = definition?.geometryInputs?.find((item) => item.id === inputId)
+    if (!definition || !input) throw new Error(t('definition.geometryInputFailed'))
+    const doomed = geometryInputConnections(definition, inputId)
+    if (doomed.length > 0 && !window.confirm(t('definition.confirmDeleteGeometryInput').replace('{name}', input.name).replace('{count}', String(doomed.length)))) return false
+    const previous = definition.geometryInputs ?? []
+    for (const connection of doomed) if (!await editor.removeConnection(connection.id)) throw new Error(t('definition.geometryInputFailed'))
+    definitions.setGeometryInputs(definitionId, previous.filter((item) => item.id !== inputId))
+    await synchronizeModuleGeometryInputs(definitions.get(definitionId)!)
+    return true
+  }
+
   const definitionAt = (clientPosition: Position): string | null => {
     const rect = area.container.getBoundingClientRect()
     const graphPosition = clientToGraphPosition(clientPosition, rect, area.area.transform)
@@ -756,9 +825,11 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       inputsNodeId: crypto.randomUUID(),
       outputNodeId: crypto.randomUUID(),
       parameters: [],
+      geometryInputs: [],
     }
+    definition.geometryInputs = [defaultModuleGeometryInput(definition.id)]
     definitions.add(definition)
-    const inputs = new ModuleInputsNode(definition.parameters)
+    const inputs = new ModuleInputsNode(definition.parameters, definition.geometryInputs)
     inputs.id = definition.inputsNodeId
     const output = new ModuleOutputNode()
     output.id = definition.outputNodeId
@@ -847,6 +918,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     addModuleParameter,
     editModuleParameter,
     deleteModuleParameter,
+    addModuleGeometryInput,
+    editModuleGeometryInput,
+    deleteModuleGeometryInput,
     getDefinitions: () => definitions.list(),
     getNodeScope: (nodeId) => definitions.scopeOf(nodeId),
     clearDefinitions: () => definitions.clear(),

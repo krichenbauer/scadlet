@@ -4,17 +4,18 @@ import type { DataflowNode } from 'rete-engine'
 import { t } from '../../i18n/translate'
 import { ModuleParameterAddControl, ModuleParameterEditControl } from '../controls'
 import { booleanSocket, geometrySocket, numberSocket, vector3Socket, type BooleanValue, type GeometryValue, type NumberValue, type Vector3Value } from '../sockets'
-import { MODULE_CHILD_PORT_ID, moduleParameterPortId, type ModuleParameter } from '../definitions'
+import { moduleGeometryInputPortId, moduleParameterPortId, type ModuleGeometryInput, type ModuleParameter } from '../definitions'
 
 /** The fixed parameter interface of a Module definition. Phase 1 has no
  * parameters yet, but the node is a real, stable part of that definition's
  * graph rather than a decorative frame label. */
 export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, Record<string, ClassicPreset.Socket>, { addParameter: ModuleParameterAddControl; editParameter: ModuleParameterEditControl }> implements DataflowNode {
   private parameters: readonly ModuleParameter[]
-  constructor(parameters: readonly ModuleParameter[] = []) {
+  private geometryInputs: readonly ModuleGeometryInput[]
+  constructor(parameters: readonly ModuleParameter[] = [], geometryInputs: readonly ModuleGeometryInput[] = []) {
     super(t('node.moduleInputs'))
     this.parameters = parameters
-    this.addOutput(MODULE_CHILD_PORT_ID, new ClassicPreset.Output(geometrySocket, t('input.children')))
+    this.geometryInputs = geometryInputs
     this.materializeOutputs()
     this.addControl('addParameter', new ModuleParameterAddControl(
       () => {},
@@ -41,17 +42,26 @@ export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, 
     control.onSubmit = onSubmit
   }
 
-  syncSignature(parameters: readonly ModuleParameter[]): void {
+  syncSignature(parameters: readonly ModuleParameter[], geometryInputs: readonly ModuleGeometryInput[] = this.geometryInputs): void {
     const next = new Map(parameters.map((parameter) => [moduleParameterPortId(parameter.id), parameter]))
+    const nextGeometry = new Map(geometryInputs.map((input) => [moduleGeometryInputPortId(input.id), input]))
     for (const key of Object.keys(this.outputs)) {
-      if (key === MODULE_CHILD_PORT_ID) continue
+      if (key.startsWith('geometry:')) {
+        if (!nextGeometry.has(key)) this.removeOutput(key)
+        continue
+      }
       if (!next.has(key)) this.removeOutput(key)
       else if (this.outputs[key]?.socket.name !== socketName(next.get(key)!)) {
         this.removeOutput(key)
       }
     }
     this.parameters = parameters
+    this.geometryInputs = geometryInputs
     this.materializeOutputs()
+    for (const input of geometryInputs) {
+      const output = this.outputs[moduleGeometryInputPortId(input.id)]
+      if (output) output.label = input.name
+    }
     for (const parameter of parameters) {
       const output = this.outputs[moduleParameterPortId(parameter.id)]
       if (output) output.label = parameter.name
@@ -59,6 +69,10 @@ export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, 
   }
 
   private materializeOutputs(): void {
+    for (const input of this.geometryInputs) {
+      const key = moduleGeometryInputPortId(input.id)
+      if (!this.outputs[key]) this.addOutput(key, new ClassicPreset.Output(geometrySocket, input.name))
+    }
     for (const parameter of this.parameters) {
       const socket = parameter.type === 'number' ? numberSocket : parameter.type === 'boolean' ? booleanSocket : vector3Socket
       const key = moduleParameterPortId(parameter.id)
@@ -68,7 +82,7 @@ export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, 
 
   data(): Record<string, GeometryValue | NumberValue | BooleanValue | Vector3Value> {
     return {
-      [MODULE_CHILD_PORT_ID]: { code: 'children()' },
+      ...Object.fromEntries(this.geometryInputs.map((input, index) => [moduleGeometryInputPortId(input.id), { code: `children(${index});` }])),
       ...Object.fromEntries(this.parameters.map((parameter) => [moduleParameterPortId(parameter.id), { code: parameter.name }])),
     }
   }
