@@ -13,9 +13,10 @@ export { socketForType } from './function-interface-nodes'
 
 /** A project-defined Function use. Its stable definition ID is the semantic
  * reference, exactly like `ModuleCallNode` - it just produces one typed
- * value instead of Geometry, and is only ever constructed once its
- * Function's result type is resolved (an unresolved Function cannot be
- * called - see AGENTS.md's Function Call requirements). */
+ * value instead of Geometry. New Calls are only created for resolved
+ * Functions; an existing Call may be reconstructed with an unresolved output
+ * after its Function result is disconnected (see the lifecycle rules in
+ * AGENTS.md). */
 export interface FunctionCallParams { definitionId: string; arguments?: Record<string, ModuleParameterDefault> }
 
 export class FunctionCallNode extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { value: ClassicPreset.Socket }, Record<string, LabeledNumberControl | CheckboxControl | Vector3Control>> implements DataflowNode {
@@ -76,8 +77,9 @@ export class FunctionCallNode extends ClassicPreset.Node<Record<string, ClassicP
    * unresolved) type. */
   setResultType(resultType: FunctionResultType | undefined): void {
     this.resultType = resultType
-    this.removeOutput('value')
-    this.addOutput('value', new ClassicPreset.Output(socketForType(resultType), t('control.value')))
+    const output = this.outputs.value
+    if (output) output.socket = socketForType(resultType)
+    else this.addOutput('value', new ClassicPreset.Output(socketForType(resultType), t('control.value')))
     this.onControlsChanged?.(this.id)
   }
 

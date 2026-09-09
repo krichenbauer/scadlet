@@ -237,7 +237,7 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
  * Shared by `persistence/validate.ts` (file validation) and `editor.ts`
  * (live node-creation/scope-transfer gating) so both enforce identically. */
 export const FUNCTION_GRAPH_ALLOWED_NODE_TYPES: ReadonlySet<NodeTypeId> = new Set([
-  'function-inputs', 'function-output', 'number', 'boolean', 'vector3', 'add', 'subtract', 'multiply', 'divide',
+  'function-inputs', 'function-output', 'function-call', 'number', 'boolean', 'vector3', 'add', 'subtract', 'multiply', 'divide',
 ])
 
 /**
@@ -288,12 +288,11 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   },
   {
     type: 'function-call', category: 'values', labelKey: 'node.functionCall', palette: false, inputs: [], outputs: ['value'],
-    inputSocketType: () => undefined, outputSocketType: (port) => port === 'value' ? 'number' : undefined,
+    inputSocketType: () => undefined, outputSocketType: () => undefined,
     create: (context, params) => {
       const call = validateFunctionCallParams(params)
       const definition = context.getModuleDefinition?.(call.definitionId)
       if (!definition || definition.kind !== 'function') throw new Error(`Unknown Function definition "${call.definitionId}".`)
-      if (!definition.resultType) throw new Error(`Function "${definition.name}" has no resolved result type and cannot be called.`)
       return new FunctionCallNode(definition, call, (id) => context.onControlsChanged(id))
     },
     matches: (node) => node instanceof FunctionCallNode,

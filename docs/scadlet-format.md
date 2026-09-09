@@ -51,8 +51,8 @@ newer versions are rejected instead of being guessed at.
   `"version"`. The format version is **independent of the SCADlet
   application/package version** - bumping the app's `package.json`
   version never implies a format change, and vice versa.
-- The current format version is **`4`**. Versions 1–3 are accepted on input
-  and explicitly migrated to v4; writers and browser autosave always emit v4.
+- The current format version is **`5`**. Versions 1–4 are accepted on input
+  and explicitly migrated to v5; writers and browser autosave always emit v5.
 - Unknown/future format versions are rejected outright with a clear error
   (`Unsupported SCADlet project version: N`) - there is no attempt to
   guess-parse a newer format. See "Versioning and migrations" below.
@@ -74,7 +74,7 @@ exact, test-verified fixture this is based on):
 ```json
 {
   "format": "scadlet",
-  "version": 3,
+  "version": 5,
   "metadata": {
     "name": "Gearbox Experiment",
     "createdAt": "2026-09-01T00:00:00.000Z",
@@ -104,10 +104,10 @@ exact, test-verified fixture this is based on):
 | Field      | Type                | Required | Meaning                                                          |
 | ---------- | ------------------- | -------- | ----------------------------------------------------------------- |
 | `format`   | `"scadlet"` literal | Yes      | Discriminates this file as a SCADlet project, not arbitrary JSON.  |
-| `version`  | integer             | Yes      | Format version. Versions `1`/`2` migrate; v3 is current.          |
+| `version`  | integer             | Yes      | Format version. Versions `1`–`4` migrate; v5 is current.          |
 | `metadata` | object              | Yes      | Project-level descriptive information. See below.                 |
 | `graph`    | object               | Yes      | Semantic program graph: nodes + connections. See below.           |
-| `definitions` | array              | Yes      | Project-owned Module definition graphs. See below.                 |
+| `definitions` | array              | Yes      | Project-owned Module and Function definition graphs. See below.    |
 | `editor`   | object               | Yes      | Editor/canvas presentation state (currently just the viewport).   |
 | `viewer`   | object               | Yes      | 3D viewer presentation state (currently just the camera).         |
 
@@ -368,8 +368,8 @@ The Module name/signature are resolved from the definition at load/runtime and
 generate explicit named arguments such as `wheel(radius = 25);`; they are not
 duplicated as authoritative call state. A connected typed value overrides but
 does not erase the stored fallback.
-Calls are not permitted inside definition graphs in this parameterless Phase 2
-slice, so nested calls and recursive dependency ordering are not represented.
+Module Calls remain forbidden inside all definition graphs. Function Calls are
+permitted only in Function graphs, as described below.
 
 ## Function definitions (version 5)
 
@@ -419,31 +419,39 @@ with two differences: there is no `geometryInputs` field, and an optional
   unresolved it accepts no real connection at all (see above), and is
   rendered as a neutral/grey socket rather than any of the three real types.
 - A Function definition graph may only contain `function-inputs`,
-  `function-output`, and the existing value/math vocabulary (`number`,
-  `boolean`, `vector3`, `add`, `subtract`, `multiply`, `divide`). Any
-  Geometry-producing/consuming node type, `module-inputs`/`module-output`,
-  or a `module-call`/`function-call` inside a Function graph is rejected.
-- Functions are emitted before Module declarations and Main in generated
-  OpenSCAD (`function double_size(x = 1) = (x * 2);`), so generated source
-  stays ready for a later cross-definition-dependency phase. An unresolved
-  Function is never emitted and cannot back a `function-call`.
+  `function-output`, `function-call`, and the existing value/math vocabulary
+  (`number`, `boolean`, `vector3`, `add`, `subtract`, `multiply`, `divide`).
+  Any Geometry-producing/consuming node type, Module interface node, or
+  `module-call` is rejected. Function Calls remain forbidden in Modules.
+- Effective Function dependencies are derived only from Calls whose values can
+  reach that Function's Output. Disconnected/dead Calls do not affect emitted
+  source, declaration order, or cycle validation. Resolved Functions are
+  emitted in deterministic callee-before-caller topological order, followed by
+  all Modules and Main. Direct and indirect effective recursion is rejected.
+- An unresolved Function is not emitted and cannot be used to create a new
+  Call. Existing Calls may remain as disconnected drafts with an unresolved
+  output so result disconnection and callee deletion can be saved safely.
 
 ### `function-call`
 
-`function-call` is a generic Main-only value-producing node, exactly parallel
-to `module-call` but producing one typed value output (port id `value`)
-instead of Geometry:
+`function-call` is a generic value-producing node, exactly parallel to
+`module-call` but producing one typed value output (port id `value`) instead
+of Geometry. It may occur in Main or in a Function definition graph:
 
 ```json
 { "definitionId": "definition-double-size", "arguments": { "parameter-x": 10 } }
 ```
 
-The referenced definition must exist, have `kind: "function"`, and have a
-resolved `resultType` - a Call to an unresolved Function is rejected, since
-its output type would otherwise be unknown. Function Calls are Main-only,
-exactly like Module Calls: they are rejected inside any definition graph
-(Module or Function). Nested Module/Function Calls inside a Module or
-Function body are not yet represented.
+The referenced definition must exist and have `kind: "function"`. A resolved
+callee gives the Call its `resultType`; its stable parameter IDs define typed
+`parameter:<id>` inputs and its per-Call fallbacks remain independent. A Call
+inside another Function participates in that caller's expression normally.
+New Calls cannot be created for an unresolved Function, but a previously
+existing disconnected Call is valid persisted draft state and restores with
+an unresolved output. Any outgoing wire from such a Call is invalid.
+
+Function Call nodes remain forbidden inside Module definitions. Module Calls
+remain forbidden inside both Module and Function definitions.
 
 Existing v4 projects (Modules only, no Functions) migrate to v5 unchanged,
 with an empty Function entries in the shared `definitions` array.

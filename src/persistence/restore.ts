@@ -152,9 +152,9 @@ async function applyRestorePlan(plan: RestorePlan, deps: RestoreProjectDeps): Pr
   await clearGraph(deps.editor)
   deps.clearDefinitions?.()
 
-  // Calls in Main resolve their stable definition IDs during catalog
-  // construction, so establish every definition before attaching the
-  // already-prepared graph to Rete.
+  // Calls in Main and Function scopes resolve stable definition IDs during
+  // catalog construction, so establish every definition before attaching
+  // the already-prepared graphs to Rete.
   for (const definition of plan.definitions) deps.registerDefinition?.(definition)
 
   for (const item of plan.nodes) {

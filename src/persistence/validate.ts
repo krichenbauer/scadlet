@@ -1,5 +1,6 @@
 import { findCatalogEntry, FUNCTION_GRAPH_ALLOWED_NODE_TYPES } from '../editor/node-catalog'
 import { defaultModuleGeometryInput, moduleGeometryInputPortId, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterPortId, moduleParameterNameProblem, type FunctionResultType, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterType } from '../editor/definitions'
+import { analyzeFunctionDependencies } from '../editor/function-dependencies'
 import {
   SCADLET_FORMAT,
   SCADLET_VERSION,
@@ -230,8 +231,11 @@ function validateNode(raw: unknown, index: number, seenIds: Set<string>, graphKi
   if (graphKind === 'main' && entry.palette === false && !isCall) {
     throw new ScadletProjectError(`Interface node "${raw.id}" belongs inside a definition, not Main.`)
   }
-  if (graphKind !== 'main' && isCall) {
+  if (graphKind === 'module' && isCall) {
     throw new ScadletProjectError(`Call node "${raw.id}" belongs in Main, not inside a definition.`)
+  }
+  if (graphKind === 'function' && entry.type === 'module-call') {
+    throw new ScadletProjectError(`Module Call node "${raw.id}" is not supported inside a Function definition.`)
   }
   if (graphKind === 'function' && !FUNCTION_GRAPH_ALLOWED_NODE_TYPES.has(entry.type)) {
     throw new ScadletProjectError(`Node "${raw.id}" (${entry.type}) is not a supported node type inside a Function definition.`)
@@ -344,6 +348,32 @@ function validateGraph(raw: unknown, graphKind: GraphKind, definition?: Definiti
 
 function validateDefinitions(raw: unknown): ScadletDefinition[] {
   if (!Array.isArray(raw)) throw new ScadletProjectError('Project "definitions" must be an array.')
+  // Resolve every signature before validating any definition graph. A
+  // nested Function Call may legally target a Function that appears later
+  // in project order, and its dynamic parameter/result sockets need that
+  // complete registry during endpoint validation.
+  const referenceDefinitions: ScadletDefinition[] = raw.map((item) => {
+    if (!isPlainObject(item) || typeof item.id !== 'string' || !item.id
+      || (item.kind !== 'module' && item.kind !== 'function') || typeof item.name !== 'string') {
+      throw new ScadletProjectError('A definition has invalid identity metadata.')
+    }
+    const interfaceRoles = item.interface
+    if (!isPlainObject(interfaceRoles) || typeof interfaceRoles.inputs !== 'string' || typeof interfaceRoles.output !== 'string') {
+      throw new ScadletProjectError(`Definition "${item.id}" has invalid interface roles.`)
+    }
+    const parameters = validateModuleParameters(item.parameters)
+    if (item.kind === 'module') {
+      return { id: item.id, kind: 'module', name: item.name, interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output }, parameters, geometryInputs: validateModuleGeometryInputs(item.geometryInputs), graph: { nodes: [], connections: [] } }
+    }
+    let resultType: FunctionResultType | undefined
+    if (item.resultType !== undefined) {
+      if (item.resultType !== 'number' && item.resultType !== 'boolean' && item.resultType !== 'vector3') {
+        throw new ScadletProjectError(`Function definition "${item.id}" has an invalid "resultType".`)
+      }
+      resultType = item.resultType
+    }
+    return { id: item.id, kind: 'function', name: item.name, interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output }, parameters, ...(resultType ? { resultType } : {}), graph: { nodes: [], connections: [] } }
+  })
   const seenDefinitionIds = new Set<string>()
   const seenNames = new Set<string>()
   const seenNodeIds = new Set<string>()
@@ -366,7 +396,7 @@ function validateDefinitions(raw: unknown): ScadletDefinition[] {
     if (item.kind === 'module') {
       const parameters = validateModuleParameters(item.parameters)
       const geometryInputs = validateModuleGeometryInputs(item.geometryInputs)
-      const graph = validateGraph(item.graph, 'module', { interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output }, parameters, geometryInputs }, definitions)
+      const graph = validateGraph(item.graph, 'module', { interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output }, parameters, geometryInputs }, referenceDefinitions)
       for (const node of graph.nodes) {
         if (seenNodeIds.has(node.id)) throw new ScadletProjectError(`Duplicate node id across definition graphs: "${node.id}"`)
         seenNodeIds.add(node.id)
@@ -400,7 +430,7 @@ function validateDefinitions(raw: unknown): ScadletDefinition[] {
       }
       resultType = item.resultType
     }
-    const graph = validateGraph(item.graph, 'function', { interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output }, parameters, resultType }, definitions)
+    const graph = validateGraph(item.graph, 'function', { interface: { inputs: interfaceRoles.inputs, output: interfaceRoles.output }, parameters, resultType }, referenceDefinitions)
     for (const node of graph.nodes) {
       if (seenNodeIds.has(node.id)) throw new ScadletProjectError(`Duplicate node id across definition graphs: "${node.id}"`)
       seenNodeIds.add(node.id)
@@ -431,6 +461,20 @@ function validateDefinitions(raw: unknown): ScadletDefinition[] {
     }
     definitions.push(definition)
   }
+  for (const definition of definitions) validateDefinitionCalls(definition.graph, definitions)
+  const dependencyAnalysis = analyzeFunctionDependencies(
+    definitions.map((definition) => ({ id: definition.id, kind: definition.kind, outputNodeId: definition.interface.output })),
+    definitions.flatMap((definition) => definition.graph.nodes.map((node) => ({
+      id: node.id,
+      scope: definition.id,
+      ...(node.type === 'function-call' ? { calledFunctionId: String(node.parameters.definitionId) } : {}),
+    }))),
+    definitions.flatMap((definition) => definition.graph.connections),
+  )
+  if (dependencyAnalysis.cycle) {
+    const names = new Map(definitions.map((definition) => [definition.id, definition.name]))
+    throw new ScadletProjectError(`Recursive Function dependencies are not supported yet: ${dependencyAnalysis.cycle.map((id) => names.get(id) ?? id).join(' → ')}.`)
+  }
   return definitions
 }
 
@@ -448,9 +492,6 @@ function validateDefinitionCalls(graph: ScadletGraph, definitions: readonly Scad
     const expectedKind = node.type === 'module-call' ? 'module' : 'function'
     if (!definition || definition.kind !== expectedKind) {
       throw new ScadletProjectError(`${node.type === 'module-call' ? 'Module' : 'Function'} Call node "${node.id}" references unknown ${expectedKind === 'module' ? 'Module' : 'Function'} definition "${String(definitionId)}".`)
-    }
-    if (definition.kind === 'function' && definition.resultType === undefined) {
-      throw new ScadletProjectError(`Function Call node "${node.id}" references Function "${definition.name}", which has no resolved result type and cannot be called.`)
     }
     const argumentsValue = node.parameters.arguments ?? {}
     if (typeof argumentsValue !== 'object' || argumentsValue === null || Array.isArray(argumentsValue)) throw new ScadletProjectError(`Call node "${node.id}" has invalid argument fallbacks.`)

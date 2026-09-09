@@ -5,6 +5,45 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const HISTORICAL_MODULE_PARAMETERS = JSON.parse(readFileSync(join(ROOT, 'src/persistence/fixtures/pre-phase4-module-parameters-v3.scadlet'), 'utf8'))
+const CAMERA = { position: [40, 40, 40], target: [0, 0, 0] }
+
+function nestedFunctionProject() {
+  return {
+    format: 'scadlet', version: 5, metadata: { name: 'Nested lifecycle' },
+    graph: {
+      nodes: [
+        { id: 'main-outer-call', type: 'function-call', position: { x: 60, y: 570 }, parameters: { definitionId: 'outer', arguments: {} } },
+        { id: 'main-cube', type: 'cube', position: { x: 320, y: 570 }, parameters: { sizeRepresentation: 'scalar', sizeScalar: 10, sizeVector: { x: 10, y: 10, z: 10 }, size: 10 } },
+      ],
+      connections: [{ id: 'main-size', source: 'main-outer-call', sourceOutput: 'value', target: 'main-cube', targetInput: 'size' }],
+    },
+    definitions: [
+      {
+        id: 'outer', kind: 'function', name: 'outer', interface: { inputs: 'outer-in', output: 'outer-out' }, parameters: [], resultType: 'number',
+        graph: {
+          nodes: [
+            { id: 'outer-in', type: 'function-inputs', position: { x: 80, y: 330 }, parameters: {} },
+            { id: 'outer-call', type: 'function-call', position: { x: 300, y: 330 }, parameters: { definitionId: 'inner', arguments: {} } },
+            { id: 'outer-out', type: 'function-output', position: { x: 520, y: 330 }, parameters: {} },
+          ],
+          connections: [{ id: 'outer-result', source: 'outer-call', sourceOutput: 'value', target: 'outer-out', targetInput: 'result' }],
+        },
+      },
+      {
+        id: 'inner', kind: 'function', name: 'inner', interface: { inputs: 'inner-in', output: 'inner-out' }, parameters: [], resultType: 'number',
+        graph: {
+          nodes: [
+            { id: 'inner-in', type: 'function-inputs', position: { x: 80, y: 70 }, parameters: {} },
+            { id: 'inner-value', type: 'number', position: { x: 300, y: 70 }, parameters: { value: 10, name: 'Ten' } },
+            { id: 'inner-out', type: 'function-output', position: { x: 520, y: 70 }, parameters: {} },
+          ],
+          connections: [{ id: 'inner-result', source: 'inner-value', sourceOutput: 'value', target: 'inner-out', targetInput: 'result' }],
+        },
+      },
+    ],
+    editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera: CAMERA },
+  }
+}
 
 async function replaceLocalProjects(page: Page, records: unknown[], activeProjectId: string) {
   await page.evaluate(async ({ records, activeProjectId }) => {
@@ -102,6 +141,33 @@ async function dropModuleCall(page: Page, definitionId: string, position?: { x: 
   }, { definitionId, ...point })
 }
 
+async function dropFunctionCall(page: Page, definitionId: string, position: { x: number; y: number }) {
+  await page.evaluate(({ definitionId, x, y }) => {
+    const editor = document.querySelector('scadlet-app')?.shadowRoot?.querySelector('node-editor')
+    const canvas = editor?.shadowRoot?.querySelector('#canvas')
+    if (!canvas) throw new Error('Expected node-editor canvas')
+    const dataTransfer = new DataTransfer()
+    dataTransfer.setData('application/x-scadlet-function-call', definitionId)
+    canvas.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientX: x, clientY: y, dataTransfer }))
+    canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX: x, clientY: y, dataTransfer }))
+  }, { definitionId, ...position })
+}
+
+async function definitionRuntime(page: Page, definitionId: string): Promise<{ inputsNodeId: string; outputNodeId: string }> {
+  return page.locator('node-editor').evaluate((element, id) => {
+    const definition = (element as unknown as { getEditorInstance(): { getDefinitions(): { id: string; inputsNodeId: string; outputNodeId: string }[] } }).getEditorInstance().getDefinitions().find((item) => item.id === id)
+    if (!definition) throw new Error(`Missing definition ${id}`)
+    return { inputsNodeId: definition.inputsNodeId, outputNodeId: definition.outputNodeId }
+  }, definitionId)
+}
+
+async function callNodeIdsInScope(page: Page, label: string, scope: string | null): Promise<string[]> {
+  return page.locator('node-editor').evaluate((element, input) => {
+    const instance = (element as unknown as { getEditorInstance(): { editor: { getNodes(): { id: string; label: string }[] }; getNodeScope(id: string): string | null } }).getEditorInstance()
+    return instance.editor.getNodes().filter((node) => node.label === input.label && instance.getNodeScope(node.id) === input.scope).map((node) => node.id)
+  }, { label, scope })
+}
+
 async function dragNodeTo(page: Page, node: Locator, target: { x: number; y: number }) {
   const header = await node.locator('.node-header').boundingBox()
   if (!header) throw new Error('Expected node header')
@@ -112,13 +178,19 @@ async function dragNodeTo(page: Page, node: Locator, target: { x: number; y: num
 }
 
 async function connectSockets(page: Page, source: Locator, target: Locator) {
-  const sourceBox = await source.boundingBox()
-  const targetBox = await target.boundingBox()
-  if (!sourceBox || !targetBox) throw new Error('Expected source/target socket bounds')
+  const sourceBox = await waitForBoundingBox(source)
+  const targetBox = await waitForBoundingBox(target)
   await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2)
   await page.mouse.down()
   await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, { steps: 8 })
   await page.mouse.up()
+}
+
+async function waitForBoundingBox(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
+  await expect.poll(async () => Boolean(await locator.boundingBox())).toBe(true)
+  const box = await locator.boundingBox()
+  if (!box) throw new Error('Expected stable element bounds after render')
+  return box
 }
 
 test.beforeEach(async ({ context }) => {
@@ -313,9 +385,8 @@ test('creates, renders, inspects, and restores a parameterless Module Call', asy
   }, { x: initialFrameBox.x + initialFrameBox.width / 2, y: initialFrameBox.y + initialFrameBox.height / 2 })
   const moduleCube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   await expect(moduleCube).toHaveCount(1)
-  const frameBox = await frame.boundingBox()
-  const cubeBox = await moduleCube.boundingBox()
-  if (!frameBox || !cubeBox) throw new Error('Expected Module frame and Cube')
+  const frameBox = await waitForBoundingBox(frame)
+  const cubeBox = await waitForBoundingBox(moduleCube)
   expect(cubeBox.x).toBeGreaterThanOrEqual(frameBox.x)
   expect(cubeBox.y).toBeGreaterThanOrEqual(frameBox.y)
   const output = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Output' }) })
@@ -355,6 +426,220 @@ test('creates, renders, inspects, and restores a parameterless Module Call', asy
   await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
 })
 
+test('builds, rejects recursion in, autosaves, reloads, and renders nested Function Calls', async ({ page }) => {
+  test.setTimeout(90_000)
+  await waitForLocalLibrary(page)
+  const editorBox = await page.locator('node-editor').boundingBox()
+  if (!editorBox) throw new Error('Expected node editor')
+
+  const createFunction = async (name: string) => {
+    await page.getByRole('button', { name: '+ New function', exact: true }).click()
+    const dialog = page.getByRole('form', { name: 'Create function' })
+    await dialog.getByLabel('Function name').fill(name)
+    await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+    const frame = page.locator('node-editor .definition-frame').filter({ hasText: `function ${name}` })
+    await expect(frame).toHaveCount(1)
+    const id = await frame.getAttribute('data-definition-id')
+    if (!id) throw new Error(`Expected ${name} definition id`)
+    return { frame, id, ...(await definitionRuntime(page, id)) }
+  }
+
+  const inner = await createFunction('inner')
+  const innerBox = await inner.frame.boundingBox()
+  if (!innerBox) throw new Error('Expected inner Function frame')
+  await dropPaletteNode(page, 'number', { x: innerBox.x + innerBox.width / 2 - 70, y: innerBox.y + innerBox.height / 2 })
+  const innerValue = page.locator('node-editor .node').filter({ has: page.locator('.node-header input[aria-label="Number Name"]') })
+  const innerOutput = page.locator(`node-editor .node[data-node-id="${inner.outputNodeId}"]`)
+  await connectSockets(page, innerValue.locator('.node-port--output .node-socket'), innerOutput.locator('.node-port--input .node-socket[aria-label="Result"]'))
+  await expect(page.locator('node-palette .module-item').filter({ hasText: 'inner' })).toHaveAttribute('draggable', 'true')
+
+  // Make room for the second definition while keeping the first frame in
+  // view for the later indirect-cycle attempt.
+  const innerTitle = await inner.frame.locator('.definition-frame-title').boundingBox()
+  if (!innerTitle) throw new Error('Expected inner frame title')
+  await page.mouse.move(innerTitle.x + 20, innerTitle.y + innerTitle.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(innerTitle.x - 150, innerTitle.y - 170, { steps: 8 })
+  await page.mouse.up()
+
+  const outer = await createFunction('outer')
+  const outerBox = await outer.frame.boundingBox()
+  if (!outerBox) throw new Error('Expected outer Function frame')
+  await dropFunctionCall(page, inner.id, { x: outerBox.x + outerBox.width / 2 - 70, y: outerBox.y + outerBox.height / 2 })
+  const nestedInnerIds = await callNodeIdsInScope(page, 'inner', outer.id)
+  expect(nestedInnerIds).toHaveLength(1)
+  const nestedInnerCall = page.locator(`node-editor .node[data-node-id="${nestedInnerIds[0]}"]`)
+  const outerOutput = page.locator(`node-editor .node[data-node-id="${outer.outputNodeId}"]`)
+  await connectSockets(page, nestedInnerCall.locator('.node-port--output .node-socket'), outerOutput.locator('.node-port--input .node-socket[aria-label="Result"]'))
+  await expect(page.locator('node-palette .module-item').filter({ hasText: 'outer' })).toHaveAttribute('draggable', 'true')
+
+  // A direct recursive Call may be placed as a dead draft, but connecting it
+  // to the effective body is rejected before the existing body wire changes.
+  const liveConnections = page.locator('node-editor svg.connection[data-real-connection="true"]')
+  await expect(liveConnections).toHaveCount(2)
+  const expandedOuterBox = await outer.frame.boundingBox()
+  if (!expandedOuterBox) throw new Error('Expected expanded outer frame')
+  await dropFunctionCall(page, outer.id, { x: expandedOuterBox.x + expandedOuterBox.width / 2, y: expandedOuterBox.y + expandedOuterBox.height - 35 })
+  const selfCallIds = await callNodeIdsInScope(page, 'outer', outer.id)
+  expect(selfCallIds).toHaveLength(1)
+  const selfCall = page.locator(`node-editor .node[data-node-id="${selfCallIds[0]}"]`)
+  await connectSockets(page, selfCall.locator('.node-port--output .node-socket'), outerOutput.locator('.node-port--input .node-socket[aria-label="Result"]'))
+  await expect(page.locator('node-editor .scope-transfer-feedback')).toContainText('Recursive Function dependencies are not supported yet')
+  await expect(liveConnections).toHaveCount(2)
+
+  // The same rejected preflight catches the indirect outer -> inner -> outer
+  // cycle without replacing inner's literal result.
+  const movedInnerBox = await inner.frame.boundingBox()
+  if (!movedInnerBox) throw new Error('Expected moved inner frame')
+  await dropFunctionCall(page, outer.id, { x: movedInnerBox.x + movedInnerBox.width / 2, y: movedInnerBox.y + movedInnerBox.height / 2 })
+  const indirectCallIds = await callNodeIdsInScope(page, 'outer', inner.id)
+  expect(indirectCallIds).toHaveLength(1)
+  const indirectCall = page.locator(`node-editor .node[data-node-id="${indirectCallIds[0]}"]`)
+  await connectSockets(page, indirectCall.locator('.node-port--output .node-socket'), innerOutput.locator('.node-port--input .node-socket[aria-label="Result"]'))
+  await expect(liveConnections).toHaveCount(2)
+
+  // Use outer in Main as a normal typed parameter source.
+  await dropFunctionCall(page, outer.id, { x: editorBox.x + 35, y: editorBox.y + editorBox.height - 70 })
+  await dropPaletteNode(page, 'cube', { x: editorBox.x + 270, y: editorBox.y + editorBox.height - 100 })
+  const mainCallIds = await callNodeIdsInScope(page, 'outer', null)
+  expect(mainCallIds).toHaveLength(1)
+  const mainOuterCall = page.locator(`node-editor .node[data-node-id="${mainCallIds[0]}"]`)
+  const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
+  await cube.locator('.node-pin').click()
+  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
+  await connectSockets(page, mainOuterCall.locator('.node-port--output .node-socket'), cube.locator('.node-param-row', { hasText: 'Size' }).locator('.node-socket'))
+
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  const source = page.locator('scadlet-app .scad-output')
+  await expect(source).toContainText('function inner() = 10;', { timeout: 15_000 })
+  await expect(source).toContainText('function outer() = inner();')
+  await expect(source).toContainText('cube(outer());')
+  const sourceText = await source.textContent()
+  expect(sourceText!.indexOf('function inner')).toBeLessThan(sourceText!.indexOf('function outer'))
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await page.reload()
+  await expect(page.locator('node-editor .definition-frame')).toHaveCount(2)
+  await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'inner' }) })).toHaveCount(1)
+  await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'outer' }) })).toHaveCount(3)
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(outer());', { timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+})
+
+test('propagates nested Function result transitions and safely renames/deletes their callees', async ({ page }) => {
+  test.setTimeout(60_000)
+  await waitForLocalLibrary(page)
+  const project = nestedFunctionProject()
+  await replaceLocalProjects(page, [{
+    id: 'nested-lifecycle', revision: 1,
+    createdAt: '2026-09-09T00:00:00.000Z', updatedAt: '2026-09-09T00:00:00.000Z', project,
+  }], 'nested-lifecycle')
+  await page.reload()
+  const connections = page.locator('node-editor svg.connection[data-real-connection="true"]')
+  await expect(connections).toHaveCount(3)
+
+  const innerEntry = page.locator('node-palette .module-entry[data-definition-id="inner"]')
+  await innerEntry.getByRole('button', { name: 'Edit inner' }).click()
+  const rename = page.getByRole('form', { name: 'Rename function' })
+  await rename.getByLabel('Function name').fill('renamed')
+  await rename.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.locator('node-editor .node[data-node-id="outer-call"] .node-title')).toHaveText('renamed')
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('function outer() = renamed();', { timeout: 15_000 })
+
+  // Cancelling callee deletion leaves its nested Call and every wire intact.
+  await page.evaluate(() => { Object.defineProperty(window, 'confirm', { configurable: true, value: () => false }) })
+  await innerEntry.getByRole('button', { name: 'Delete renamed' }).click()
+  await expect(page.locator('node-editor .definition-frame')).toHaveCount(2)
+  await expect(connections).toHaveCount(3)
+
+  // Changing the callee Number result to Boolean propagates the direct
+  // outer result type, but only disconnects outer's now-incompatible Main
+  // Cube Size wire. Cancellation is a complete no-op.
+  const innerFrame = page.locator('node-editor .definition-frame[data-definition-id="inner"]')
+  const innerBox = await innerFrame.boundingBox()
+  if (!innerBox) throw new Error('Expected inner frame')
+  await dropPaletteNode(page, 'boolean', { x: innerBox.x + innerBox.width / 2, y: innerBox.y + innerBox.height - 35 })
+  const boolean = page.locator('node-editor .node').filter({ has: page.locator('.node-header input[aria-label="Boolean Name"]') })
+  const innerOutput = page.locator('node-editor .node[data-node-id="inner-out"]')
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await connectSockets(page, boolean.locator('.node-port--output .node-socket'), innerOutput.locator('.node-port--input .node-socket'))
+  await expect(connections).toHaveCount(3)
+  let saved = await readLocalRecord(page, 'nested-lifecycle') as { project: ReturnType<typeof nestedFunctionProject> }
+  expect(saved.project.definitions.map((item) => item.resultType)).toEqual(['number', 'number'])
+
+  await page.evaluate(() => { Object.defineProperty(window, 'confirm', { configurable: true, value: () => true }) })
+  await connectSockets(page, boolean.locator('.node-port--output .node-socket'), innerOutput.locator('.node-port--input .node-socket'))
+  await expect(connections).toHaveCount(2)
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  saved = await readLocalRecord(page, 'nested-lifecycle') as { project: ReturnType<typeof nestedFunctionProject> }
+  expect(saved.project.definitions.map((item) => item.resultType)).toEqual(['boolean', 'boolean'])
+  expect(saved.project.graph.connections.map((item) => item.id)).not.toContain('main-size')
+  expect(saved.project.definitions[0].graph.connections.map((item) => item.id)).toContain('outer-result')
+
+  // An apply-time failure after one removal rolls the exact nested wire back
+  // and leaves the registry/result types untouched.
+  await page.locator('node-editor').evaluate((element) => {
+    const editor = (element as unknown as { getEditorInstance(): { editor: { removeConnection(id: string): Promise<boolean> } } }).getEditorInstance().editor
+    const original = editor.removeConnection.bind(editor)
+    let attempts = 0
+    editor.removeConnection = async (id: string) => {
+      attempts += 1
+      if (attempts === 2) {
+        editor.removeConnection = original
+        return false
+      }
+      return original(id)
+    }
+  })
+  await innerEntry.getByRole('button', { name: 'Delete renamed' }).click()
+  await expect(page.locator('node-editor .definition-frame')).toHaveCount(2)
+  await expect(page.locator('node-editor .node[data-node-id="outer-call"]')).toHaveCount(1)
+  await expect(connections).toHaveCount(2)
+
+  // The explicit "disconnect the sole Function Output result" flow also
+  // cascades through nested Calls. Cancellation preserves both wires and
+  // types; confirmation unresolves inner and outer and persists their
+  // disconnected Call drafts.
+  const innerResultConnectionId = await page.locator('node-editor').evaluate((element) => {
+    const editor = (element as unknown as { getEditorInstance(): { editor: { getConnections(): { id: string; target: string }[] } } }).getEditorInstance().editor
+    const connection = editor.getConnections().find((item) => item.target === 'inner-out')
+    if (!connection) throw new Error('Expected inner result connection')
+    return connection.id
+  })
+  const innerResultHit = page.locator(`node-editor .connection[data-connection-id="${innerResultConnectionId}"] .connection-hit-path`)
+  await innerResultHit.dispatchEvent('pointerdown', { button: 0 })
+  await page.evaluate(() => { Object.defineProperty(window, 'confirm', { configurable: true, value: () => false }) })
+  await page.keyboard.press('Delete')
+  await expect(connections).toHaveCount(2)
+  await page.evaluate(() => { Object.defineProperty(window, 'confirm', { configurable: true, value: () => true }) })
+  await innerResultHit.dispatchEvent('pointerdown', { button: 0 })
+  await page.keyboard.press('Delete')
+  await expect(connections).toHaveCount(0)
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  saved = await readLocalRecord(page, 'nested-lifecycle') as { project: ReturnType<typeof nestedFunctionProject> }
+  expect(saved.project.definitions.map((item) => item.resultType)).toEqual([undefined, undefined])
+
+  // Confirmed deletion removes the nested callee Call, unresolves outer,
+  // and leaves its existing disconnected Main Call as a restorable draft.
+  await innerEntry.getByRole('button', { name: 'Delete renamed' }).click()
+  await expect(page.locator('node-editor .definition-frame')).toHaveCount(1)
+  await expect(page.locator('node-editor .node[data-node-id="outer-call"]')).toHaveCount(0)
+  await expect(connections).toHaveCount(0)
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  saved = await readLocalRecord(page, 'nested-lifecycle') as { project: ReturnType<typeof nestedFunctionProject> }
+  expect(saved.project.definitions).toHaveLength(1)
+  expect(saved.project.definitions[0].id).toBe('outer')
+  expect(saved.project.definitions[0].resultType).toBeUndefined()
+  expect(saved.project.graph.nodes.map((item) => item.id)).toContain('main-outer-call')
+  await page.reload()
+  await expect(page.locator('node-editor .definition-frame[data-definition-id="outer"]')).toHaveCount(1)
+  await expect(page.locator('node-editor .node[data-node-id="main-outer-call"] .node-port--output .node-socket')).toHaveAttribute('data-socket-type', 'unresolved')
+})
+
 test('transfers ordinary nodes between Main and Module scopes only on drop', async ({ page }) => {
   await waitForLocalLibrary(page)
   const editorBox = await page.locator('node-editor').boundingBox()
@@ -380,6 +665,10 @@ test('transfers ordinary nodes between Main and Module scopes only on drop', asy
   // Clear the header's complete Module selection so direct node dragging
   // moves just Sphere rather than the whole definition.
   await page.mouse.click(editorBox.x + editorBox.width - 12, editorBox.y + editorBox.height - 12)
+  // Selection clearing re-renders both the frame and node. Wait through that
+  // brief unmount/remount instead of sampling a transient null box.
+  await expect.poll(async () => Boolean(await wheel.boundingBox())).toBe(true)
+  await expect.poll(async () => Boolean(await sphere.locator('.node-header').boundingBox())).toBe(true)
   const wheelBox = await wheel.boundingBox()
   const header = await sphere.locator('.node-header').boundingBox()
   if (!wheelBox || !header) throw new Error('Expected Sphere and Module frame')
@@ -409,7 +698,7 @@ test('transfers ordinary nodes between Main and Module scopes only on drop', asy
   await expect(sphere).toHaveClass(/node--selected/)
 
   // A sidebar item is now only a draggable source. Its click is inert.
-  await page.locator('node-palette .module-item[data-definition-id]').click()
+  await page.locator('node-palette .module-entry[data-definition-id] .module-item').click()
   await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'wheel' }) })).toHaveCount(0)
   await page.locator('node-palette .node-item').filter({ hasText: 'Cube' }).click()
   await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })).toHaveCount(0)
@@ -500,8 +789,7 @@ test('two Geometry inputs with the second wired to Output render exactly one Geo
   // Placed relative to the frame's current bounds (grown by the signature
   // edits above), well clear of it and of each other/pane edges - avoids
   // the known "socket sits under an invisible pane overlap zone" gotcha.
-  const frameBox = await frame.boundingBox()
-  if (!frameBox) throw new Error('Expected Module frame bounds')
+  const frameBox = await waitForBoundingBox(frame)
   await dropPaletteNode(page, 'cube', { x: editorBox.x + 40, y: frameBox.y + frameBox.height + 60 })
   const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   await dropPaletteNode(page, 'sphere', { x: editorBox.x + 40, y: frameBox.y + frameBox.height + 180 })

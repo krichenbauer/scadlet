@@ -90,6 +90,41 @@ describe('Function definition persistence (v5)', () => {
     expect(target.getConnections().map((connection) => connection.id).sort()).toEqual(source.getConnections().map((connection) => connection.id).sort())
   })
 
+  it('round-trips a nested Function Call in a Function scope, including a forward definition reference', async () => {
+    const source = new NodeEditor<Schemes>()
+    const registry = new DefinitionRegistry()
+    const outer = { id: 'fn-outer', kind: 'function' as const, name: 'outer', inputsNodeId: 'outer-in', outputNodeId: 'outer-out', parameters: [], resultType: 'number' as const }
+    const inner = { id: 'fn-inner', kind: 'function' as const, name: 'inner', inputsNodeId: 'inner-in', outputNodeId: 'inner-out', parameters: [{ id: 'x', name: 'x', type: 'number' as const, default: 2 }], resultType: 'number' as const }
+    registry.add(outer); registry.add(inner)
+    const outerInputs = new FunctionInputsNode(); outerInputs.id = outer.inputsNodeId
+    const outerOutput = new FunctionOutputNode('number'); outerOutput.id = outer.outputNodeId
+    const nested = new FunctionCallNode(inner, { definitionId: inner.id, arguments: { x: 7 } }); nested.id = 'nested-call'
+    const innerInputs = new FunctionInputsNode(inner.parameters); innerInputs.id = inner.inputsNodeId
+    const innerOutput = new FunctionOutputNode('number'); innerOutput.id = inner.outputNodeId
+    const innerValue = new NumberNode({ value: 2, name: 'two' }); innerValue.id = 'inner-value'
+    for (const node of [outerInputs, outerOutput, nested, innerInputs, innerOutput, innerValue]) await source.addNode(node)
+    registry.assignNode(outer.id, nested.id)
+    registry.assignNode(inner.id, innerValue.id)
+    await source.addConnection(new ClassicPreset.Connection(nested, 'value', outerOutput, 'result') as Schemes['Connection'])
+    await source.addConnection(new ClassicPreset.Connection(innerValue, 'value', innerOutput, 'result') as Schemes['Connection'])
+
+    const project = parseScadletProject(serializeProject(serializeOptions(source, registry)))
+    expect(project.definitions[0]?.graph.nodes.find((node) => node.id === nested.id)).toMatchObject({
+      type: 'function-call', parameters: { definitionId: inner.id, arguments: { x: 7 } },
+    })
+    const target = new NodeEditor<Schemes>()
+    const restored = new DefinitionRegistry()
+    await restoreProject(project, {
+      editor: target,
+      creationContext: { onControlsChanged: () => {} },
+      setNodePosition: () => {}, clearDefinitions: () => restored.clear(), registerDefinition: (item) => restored.add(item),
+      assignNodeToDefinition: (definitionId, nodeId) => restored.assignNode(definitionId, nodeId),
+    })
+    expect(restored.scopeOf(nested.id)).toBe(outer.id)
+    expect(target.getNode(nested.id)).toBeInstanceOf(FunctionCallNode)
+    expect((target.getNode(nested.id) as FunctionCallNode).getArguments()).toEqual({ x: 7 })
+  })
+
   it('round-trips Boolean- and Vector3-result Functions', async () => {
     const scenarios = [
       { type: 'boolean' as const, node: new BooleanNode({ value: true, name: 'flag' }), outputKey: 'value' as const },
@@ -180,7 +215,7 @@ describe('Function definition persistence (v5)', () => {
       }],
       editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera },
     }
-    expect(() => parseScadletProject(raw)).toThrow('belongs in Main, not inside a definition')
+    expect(() => parseScadletProject(raw)).toThrow('not supported inside a Function definition')
   })
 
   it('rejects a cross-scope wire from a Function graph into Main', () => {
@@ -202,7 +237,7 @@ describe('Function definition persistence (v5)', () => {
     expect(() => parseScadletProject(raw)).toThrow(/missing (source|target) node|unknown (source|target) port/)
   })
 
-  it('rejects a Function Call referencing an unresolved Function', () => {
+  it('restores an existing disconnected Function Call referencing an unresolved Function draft', () => {
     const raw = {
       format: 'scadlet', version: 5, metadata: { name: 'Bad' },
       graph: { nodes: [{ id: 'call-1', type: 'function-call', position: { x: 0, y: 0 }, parameters: { definitionId: 'fn-1' } }], connections: [] },
@@ -215,7 +250,36 @@ describe('Function definition persistence (v5)', () => {
       }],
       editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera },
     }
-    expect(() => parseScadletProject(raw)).toThrow(/no resolved result type and cannot be called/)
+    expect(parseScadletProject(raw).graph.nodes).toHaveLength(1)
+    const withOutgoingWire = {
+      ...raw,
+      graph: {
+        nodes: [...raw.graph.nodes, { id: 'add-1', type: 'add', position: { x: 100, y: 0 }, parameters: { a: 0, b: 0 } }],
+        connections: [{ id: 'bad-wire', source: 'call-1', sourceOutput: 'value', target: 'add-1', targetInput: 'a' }],
+      },
+    }
+    expect(() => parseScadletProject(withOutgoingWire)).toThrow(/unknown output cannot connect to number input/)
+  })
+
+  it('rejects an effective indirect Function recursion cycle but permits the same disconnected dead Call', () => {
+    const definition = (id: string, name: string, callee: string, connected: boolean) => ({
+      id, kind: 'function', name, interface: { inputs: `${id}-in`, output: `${id}-out` }, parameters: [], resultType: 'number',
+      graph: { nodes: [
+        { id: `${id}-in`, type: 'function-inputs', position: { x: 0, y: 0 }, parameters: {} },
+        { id: `${id}-out`, type: 'function-output', position: { x: 200, y: 0 }, parameters: {} },
+        { id: `${id}-call`, type: 'function-call', position: { x: 100, y: 0 }, parameters: { definitionId: callee, arguments: {} } },
+        ...(!connected ? [{ id: `${id}-value`, type: 'number', position: { x: 100, y: 100 }, parameters: { value: 1 } }] : []),
+      ], connections: [{
+        id: `${id}-result`, source: connected ? `${id}-call` : `${id}-value`, sourceOutput: 'value', target: `${id}-out`, targetInput: 'result',
+      }] },
+    })
+    const project = (deadSecondCall: boolean) => ({
+      format: 'scadlet', version: 5, metadata: { name: 'Cycles' }, graph: { nodes: [], connections: [] },
+      definitions: [definition('a', 'a', 'b', true), definition('b', 'b', 'a', !deadSecondCall)],
+      editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera },
+    })
+    expect(() => parseScadletProject(project(false))).toThrow(/Recursive Function dependencies are not supported yet: a → b → a/)
+    expect(parseScadletProject(project(true)).definitions).toHaveLength(2)
   })
 
   it('rejects a Function Output claiming a resolved type with zero connections, and vice versa', () => {

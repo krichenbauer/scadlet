@@ -1519,25 +1519,27 @@ to the same neutral/unresolved socket, and their own outgoing connections
 that become incompatible are removed through the same preflight/confirm flow
 used for an ordinary result-type change. New Calls cannot be created for an
 unresolved Function (the sidebar entry is visibly non-callable, and the
-`function-call` catalog entry's `create()` throws if asked to construct one
-against an unresolved definition) - this keeps "no misleading usable Call
+the editor creation path refuses to construct one against an unresolved
+definition) - this keeps "no misleading usable Call
 with an unknown output type" true without deleting a user's existing Call
 node/wiring the moment they're mid-edit on the Function body.
 
 Function scope validation reuses the same closed-vocabulary allowlist
 (`FUNCTION_GRAPH_ALLOWED_NODE_TYPES` in `node-catalog.ts`) at both node
 creation/drag-transfer time (`editor.ts`/`scope-transfer.ts`) and `.scadlet`
-file-validation time (`persistence/validate.ts`), so a Function's graph can
-never contain Geometry-producing/consuming nodes or any Module/Function Call
-through either path. Function Calls remain Main-only, exactly like Module
-Calls, and nested Module/Function Calls inside a Module or Function are
-Phase 8 work.
+file-validation time (`persistence/validate.ts`). A Function graph may contain
+Function Calls in addition to its interface/value/math nodes, but never
+Geometry nodes, Module interfaces, or Module Calls. Function Calls and Module
+Calls remain forbidden inside Modules.
 
 Generated OpenSCAD emits every resolved Function's `function name(...) =
-expr;` declaration before Module declarations and Main (`evaluate.ts`), so
-generated source stays ready for Phase 8's cross-definition dependencies. An
-unresolved Function is a valid, saveable editor draft but is never emitted
-and cannot back a Call.
+expr;` declaration in deterministic callee-before-caller order before Module
+declarations and Main (`evaluate.ts`). Dependencies come only from Function
+Calls that can reach the owning Function Output; dead Calls do not participate.
+Direct and indirect recursion are rejected before live mutation and during
+project validation. An unresolved Function is a valid, saveable editor draft
+but is never emitted; new Calls cannot be created for it, while existing Calls
+remain as disconnected unresolved drafts so lifecycle edits remain saveable.
 
 The canonical `.scadlet` format is version 5 (`persistence/project.ts`):
 `ScadletFunctionDefinition` adds `kind: 'function'` and an optional

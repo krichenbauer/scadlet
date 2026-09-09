@@ -4,6 +4,9 @@ import type { DataflowEngine } from 'rete-engine'
 import type { BooleanValue, GeometryValue, NumberValue, Vector3Value } from './sockets'
 import type { Schemes } from './schemes'
 import type { DefinitionRegistry, ModuleDefinition, ModuleParameter, ModuleParameterDefault } from './definitions'
+import { analyzeFunctionDependencies } from './function-dependencies'
+import { FunctionCallNode } from './nodes/function-call-node'
+import { t } from '../i18n/translate'
 
 /**
  * Evaluates the graph into a single OpenSCAD source string: one statement
@@ -86,12 +89,25 @@ async function evaluateFunctionBody(editor: NodeEditor<Schemes>, engine: Dataflo
  * draft and is never emitted as a usable declaration. */
 async function evaluateDefinitions(editor: NodeEditor<Schemes>, engine: DataflowEngine<Schemes>, definitions: DefinitionRegistry): Promise<string> {
   const fragments: string[] = []
-  for (const definition of definitions.list()) {
+  const allDefinitions = definitions.list()
+  const analysis = analyzeFunctionDependencies(
+    allDefinitions.map((definition) => ({ id: definition.id, kind: definition.kind, outputNodeId: definition.outputNodeId })),
+    editor.getNodes().map((node) => ({
+      id: node.id,
+      scope: definitions.scopeOf(node.id),
+      ...(node instanceof FunctionCallNode ? { calledFunctionId: node.definitionId } : {}),
+    })),
+    editor.getConnections(),
+  )
+  if (analysis.cycle) throw new Error(t('definition.functionRecursionUnsupported'))
+  const definitionsById = new Map(allDefinitions.map((definition) => [definition.id, definition]))
+  for (const definitionId of analysis.order) {
+    const definition = definitionsById.get(definitionId)!
     if (definition.kind !== 'function' || definition.resultType === undefined) continue
     const body = await evaluateFunctionBody(editor, engine, definition)
     fragments.push(`function ${definition.name}(${moduleParameterDeclaration(definition.parameters ?? [])}) = ${body || 'undef'};`)
   }
-  for (const definition of definitions.list()) {
+  for (const definition of allDefinitions) {
     if (definition.kind !== 'module') continue
     const body = await evaluateModuleBody(editor, engine, definition)
     const indented = body ? `\n${body.split('\n').map((line) => `  ${line}`).join('\n')}\n` : '\n'
@@ -128,9 +144,14 @@ export async function evaluateInspectNode(
   if (!output.value) return { kind: 'missing' }
   const scope = definitions?.scopeOf(nodeId)
   const definition = scope ? definitions?.get(scope) : undefined
+  const echo = `echo("__SCADLET_VALUE__:", ${output.value.code});`
   return definition
-    ? { kind: 'value', expression: output.value.code, source: inspectModuleSource(definition, `echo("__SCADLET_VALUE__:", ${output.value.code});`) }
-    : { kind: 'value', expression: output.value.code }
+    ? { kind: 'value', expression: output.value.code, source: definitions
+      ? joinDefinitions(await evaluateDefinitions(editor, engine, definitions), inspectModuleSource(definition, echo))
+      : inspectModuleSource(definition, echo) }
+    : definitions
+      ? { kind: 'value', expression: output.value.code, source: joinDefinitions(await evaluateDefinitions(editor, engine, definitions), echo) }
+      : { kind: 'value', expression: output.value.code }
 }
 
 function moduleParameterDeclaration(parameters: readonly ModuleParameter[]): string {

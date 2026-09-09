@@ -87,6 +87,36 @@ describe('Function definitions (Milestone 8 Phase 7)', () => {
     expect(call.data({}).value.code).toBe('double_size(x = 10)')
   })
 
+  it('evaluates a nested Function Call through math and emits callee before caller and Main use', async () => {
+    const { editor, engine } = graph()
+    const definitions = new DefinitionRegistry()
+    const outer = { id: 'fn-sixfold', kind: 'function' as const, name: 'sixfold', inputsNodeId: 'six-inputs', outputNodeId: 'six-output', parameters: [{ id: 'x', name: 'x', type: 'number' as const, default: 1 }], resultType: 'number' as const }
+    const inner = { id: 'fn-double', kind: 'function' as const, name: 'double', inputsNodeId: 'double-inputs', outputNodeId: 'double-output', parameters: [{ id: 'x', name: 'x', type: 'number' as const, default: 1 }], resultType: 'number' as const }
+    // Reverse declaration order proves generation is dependency-driven.
+    definitions.add(outer); definitions.add(inner)
+    const innerInputs = new FunctionInputsNode(inner.parameters); innerInputs.id = inner.inputsNodeId
+    const innerOutput = new FunctionOutputNode('number'); innerOutput.id = inner.outputNodeId
+    const innerMultiply = new MathNode('Multiply', '*', 'multiply', { a: 0, b: 2 }); innerMultiply.id = 'inner-multiply'
+    const outerInputs = new FunctionInputsNode(outer.parameters); outerInputs.id = outer.inputsNodeId
+    const outerOutput = new FunctionOutputNode('number'); outerOutput.id = outer.outputNodeId
+    const triple = new MathNode('Multiply', '*', 'multiply', { a: 0, b: 3 }); triple.id = 'triple'
+    const nestedCall = new FunctionCallNode(inner, { definitionId: inner.id }); nestedCall.id = 'nested-double'
+    const mainCall = new FunctionCallNode(outer, { definitionId: outer.id }); mainCall.id = 'main-sixfold'
+    const cube = new CubeNode({ size: 10 }); cube.id = 'main-cube'
+    for (const node of [innerInputs, innerOutput, innerMultiply, outerInputs, outerOutput, triple, nestedCall, mainCall, cube]) await editor.addNode(node)
+    for (const node of [innerMultiply]) definitions.assignNode(inner.id, node.id)
+    for (const node of [triple, nestedCall]) definitions.assignNode(outer.id, node.id)
+    await editor.addConnection(new ClassicPreset.Connection(innerInputs, 'parameter:x', innerMultiply, 'a') as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(innerMultiply, 'value', innerOutput, 'result') as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(outerInputs, 'parameter:x', nestedCall, 'parameter:x') as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(nestedCall, 'value', triple, 'a') as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(triple, 'value', outerOutput, 'result') as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(mainCall, 'value', cube, 'size') as Schemes['Connection'])
+
+    const source = await evaluateOpenSCAD(editor, engine, undefined, definitions)
+    expect(source).toBe('function double(x = 1) = (x * 2);\n\nfunction sixfold(x = 1) = (double(x = x) * 3);\n\ncube(sixfold(x = 1));')
+  })
+
   it('emits Functions before Modules and Main, and omits an unresolved Function entirely', async () => {
     const { editor, engine } = graph()
     const definitions = new DefinitionRegistry()
@@ -139,7 +169,7 @@ describe('Function definitions (Milestone 8 Phase 7)', () => {
     expect(canConnectSocketData(editor, { nodeId: cube.id, key: 'geometry', side: 'output' }, { nodeId: output.id, key: 'result', side: 'input' })).toBe(false)
   })
 
-  it('rejects transferring a Function Call into any definition scope (Module or Function)', async () => {
+  it('allows transferring a Function Call into a Function scope but still rejects Module scope', async () => {
     const editor = new NodeEditor<Schemes>()
     const registry = new DefinitionRegistry()
     const definition = { ...functionDefinition(), resultType: 'number' as const }
@@ -148,7 +178,7 @@ describe('Function definitions (Milestone 8 Phase 7)', () => {
     registry.add(moduleDefinition)
     const call = new FunctionCallNode(definition, { definitionId: definition.id }); call.id = 'fn-call-1'
     await editor.addNode(call)
-    expect(scopeTransferProblem(editor, registry, [call.id], definition.id)).toBe('module-call')
+    expect(scopeTransferProblem(editor, registry, [call.id], definition.id)).toBeNull()
     expect(scopeTransferProblem(editor, registry, [call.id], moduleDefinition.id)).toBe('module-call')
     expect(scopeTransferProblem(editor, registry, [call.id], null)).toBeNull()
   })

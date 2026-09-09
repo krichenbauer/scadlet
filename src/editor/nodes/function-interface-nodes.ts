@@ -74,12 +74,17 @@ function socketName(parameter: ModuleParameter): string { return parameter.type 
 export class FunctionOutputNode extends ClassicPreset.Node<{ result: ClassicPreset.Socket }> implements DataflowNode {
   constructor(resultType?: FunctionResultType) {
     super(t('node.functionOutput'))
-    this.addInput('result', new ClassicPreset.Input(socketForType(resultType), t('input.functionResult')))
+    // Rete sees this as multi-connectable so ClassicFlow does not eagerly
+    // delete the occupied result wire before SCADlet's controlled
+    // replace/confirm transaction runs. Persistence/live semantics still
+    // enforce exactly one result; editor.ts removes the prior wire itself.
+    this.addInput('result', new ClassicPreset.Input(socketForType(resultType), t('input.functionResult'), true))
   }
 
   setResultType(resultType: FunctionResultType | undefined): void {
-    this.removeInput('result')
-    this.addInput('result', new ClassicPreset.Input(socketForType(resultType), t('input.functionResult')))
+    const input = this.inputs.result
+    if (input) input.socket = socketForType(resultType)
+    else this.addInput('result', new ClassicPreset.Input(socketForType(resultType), t('input.functionResult'), true))
   }
 
   data(): Record<string, never> { return {} }
