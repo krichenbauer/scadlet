@@ -74,6 +74,8 @@ describe('docs/scadlet-format.md documented node types stay in sync with the cat
     'subtract',
     'multiply',
     'divide',
+    'compare',
+    'conditional',
     'module-inputs',
     'module-output',
     'module-call',

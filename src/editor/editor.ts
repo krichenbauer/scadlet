@@ -26,6 +26,7 @@ import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nod
 import { ModuleCallNode } from './nodes/module-call-node'
 import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interface-nodes'
 import { FunctionCallNode } from './nodes/function-call-node'
+import { ConditionalNode } from './nodes/value-nodes'
 import { scopeTransferProblem, type ScopeTransferProblem } from './scope-transfer'
 import { t } from '../i18n/translate'
 import { analyzeFunctionDependencies } from './function-dependencies'
@@ -305,6 +306,14 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const target = editor.getNode(context.data.target)
     if (target instanceof FunctionOutputNode && context.data.targetInput === 'result') {
       return (await handleFunctionResultConnectionAttempt(context.data)) ? context : undefined
+    }
+    return context
+  })
+  editor.addPipe(async (context) => {
+    if (context.type !== 'connectioncreate') return context
+    const target = editor.getNode(context.data.target)
+    if (target instanceof ConditionalNode && (context.data.targetInput === 'true' || context.data.targetInput === 'false')) {
+      return (await handleConditionalBranchConnectionAttempt(context.data)) ? context : undefined
     }
     return context
   })
@@ -1026,6 +1035,61 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return true
   }
 
+  /** Conditional branch inference mirrors Function Output's narrow
+   * transition protocol. The ports themselves keep their semantic IDs; only
+   * their socket instances change after every incompatible endpoint has been
+   * preflighted and (if necessary) confirmed. */
+  async function handleConditionalBranchConnectionAttempt(data: { source: string; sourceOutput: string; target: string; targetInput: string }): Promise<boolean> {
+    const conditional = editor.getNode(data.target)
+    if (!(conditional instanceof ConditionalNode) || (data.targetInput !== 'true' && data.targetInput !== 'false')) return false
+    const nextType = socketType(editor.getNode(data.source)?.outputs[data.sourceOutput]?.socket)
+    if (nextType !== 'number' && nextType !== 'boolean' && nextType !== 'vector3') return false
+    const previousType = conditional.getValueType()
+    const replacing = editor.getConnections().filter((item) => item.target === data.target && item.targetInput === data.targetInput)
+    const doomed = new Map<string, Schemes['Connection']>()
+    if (previousType !== nextType) {
+      const opposite = data.targetInput === 'true' ? 'false' : 'true'
+      for (const item of editor.getConnections()) {
+        if (item.target === data.target && item.targetInput === opposite) {
+          const type = socketType(editor.getNode(item.source)?.outputs[item.sourceOutput]?.socket)
+          if (type !== nextType) doomed.set(item.id, item)
+        }
+        if (item.source === data.target && item.sourceOutput === 'result') {
+          const type = socketType(editor.getNode(item.target)?.inputs[item.targetInput]?.socket)
+          if (type !== nextType) doomed.set(item.id, item)
+        }
+      }
+    }
+    if (doomed.size > 0) {
+      let confirmed: boolean
+      try { confirmed = window.confirm(t('conditional.confirmTypeChange').replace('{type}', nextType).replace('{count}', String(doomed.size))) } catch { return false }
+      if (!confirmed) return false
+    }
+    const previousDirtySuspended = dirtySuspended
+    dirtySuspended = true
+    const removed: Schemes['Connection'][] = []
+    try {
+      for (const item of [...replacing, ...doomed.values()]) {
+        if (removed.some((candidate) => candidate.id === item.id)) continue
+        if (!await editor.removeConnection(item.id)) throw new Error(`Could not remove connection ${item.id}.`)
+        removed.push(item)
+      }
+      if (previousType !== nextType) {
+        conditional.setValueType(nextType)
+        await area.update('node', conditional.id)
+      }
+    } catch {
+      conditional.setValueType(previousType)
+      await area.update('node', conditional.id)
+      for (const item of removed) if (!editor.getConnections().some((candidate) => candidate.id === item.id)) await editor.addConnection(item)
+      dirtySuspended = previousDirtySuspended
+      return false
+    }
+    dirtySuspended = previousDirtySuspended
+    if (!previousDirtySuspended) notifySemanticDirty()
+    return true
+  }
+
   /** Routes ordinary connection deletion (Delete/Backspace on a selected
    * wire) through the Function unresolve flow only for the one connection
    * that matters: the sole wire into a Function Output's `result` port.
@@ -1033,6 +1097,40 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   async function removeConnectionOrConfirm(connectionId: string): Promise<void> {
     const target = editor.getConnections().find((item) => item.id === connectionId)
     const targetNode = target ? editor.getNode(target.target) : undefined
+    if (target && targetNode instanceof ConditionalNode && (target.targetInput === 'true' || target.targetInput === 'false')) {
+      const otherBranchesRemain = editor.getConnections().some((item) => item.id !== connectionId && item.target === target.target && (item.targetInput === 'true' || item.targetInput === 'false'))
+      if (otherBranchesRemain) {
+        await editor.removeConnection(connectionId)
+        return
+      }
+      const doomed = editor.getConnections().filter((item) => item.source === target.target && item.sourceOutput === 'result')
+      if (doomed.length > 0) {
+        let confirmed: boolean
+        try { confirmed = window.confirm(t('conditional.confirmUnresolve').replace('{count}', String(doomed.length))) } catch { return }
+        if (!confirmed) return
+      }
+      const previousType = targetNode.getValueType()
+      const previousDirtySuspended = dirtySuspended
+      dirtySuspended = true
+      const removed: Schemes['Connection'][] = []
+      try {
+        for (const item of [target, ...doomed]) {
+          if (!await editor.removeConnection(item.id)) throw new Error(`Could not remove connection ${item.id}.`)
+          removed.push(item)
+        }
+        targetNode.setValueType(undefined)
+        await area.update('node', targetNode.id)
+      } catch {
+        targetNode.setValueType(previousType)
+        await area.update('node', targetNode.id)
+        for (const item of removed) if (!editor.getConnections().some((candidate) => candidate.id === item.id)) await editor.addConnection(item)
+        dirtySuspended = previousDirtySuspended
+        return
+      }
+      dirtySuspended = previousDirtySuspended
+      if (!previousDirtySuspended) notifySemanticDirty()
+      return
+    }
     if (!target || !(targetNode instanceof FunctionOutputNode) || target.targetInput !== 'result') {
       await editor.removeConnection(connectionId)
       return

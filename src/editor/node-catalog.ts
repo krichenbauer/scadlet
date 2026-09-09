@@ -10,7 +10,7 @@ import { ScaleNode } from './nodes/scale-node'
 import { SphereNode } from './nodes/sphere-node'
 import { TranslateNode } from './nodes/translate-node'
 import { UnionNode } from './nodes/union-node'
-import { BooleanNode, MathNode, NumberNode, Vector3Node, validateBooleanParams, validateMathParams, validateNumberParams, validateVector3ValueParams } from './nodes/value-nodes'
+import { BooleanNode, CompareNode, ConditionalNode, MathNode, NumberNode, Vector3Node, validateBooleanParams, validateCompareParams, validateConditionalParams, validateMathParams, validateNumberParams, validateVector3ValueParams } from './nodes/value-nodes'
 import { type VariadicBooleanParams } from './nodes/boolean-op-node'
 import { validateCubeParams } from '../openscad/cube'
 import { validateCylinderParams } from '../openscad/cylinder'
@@ -62,6 +62,8 @@ export type NodeTypeId =
   | 'subtract'
   | 'multiply'
   | 'divide'
+  | 'compare'
+  | 'conditional'
   | 'module-inputs'
   | 'module-output'
   | 'module-call'
@@ -111,7 +113,7 @@ export interface NodeCatalogEntry {
    * catalog metadata, not a renderer/CSS inference, so file validation uses
    * the same typing rule as live graph creation. */
   inputSocketType(port: string, parameters: Record<string, unknown>): SocketType | undefined
-  outputSocketType(port: string): SocketType | undefined
+  outputSocketType(port: string, parameters?: Record<string, unknown>): SocketType | undefined
   /**
    * Creates a node of this type. With no `params`, uses the same
    * defaults palette creation always has. `params`, when given, must
@@ -237,7 +239,7 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
  * Shared by `persistence/validate.ts` (file validation) and `editor.ts`
  * (live node-creation/scope-transfer gating) so both enforce identically. */
 export const FUNCTION_GRAPH_ALLOWED_NODE_TYPES: ReadonlySet<NodeTypeId> = new Set([
-  'function-inputs', 'function-output', 'function-call', 'number', 'boolean', 'vector3', 'add', 'subtract', 'multiply', 'divide',
+  'function-inputs', 'function-output', 'function-call', 'number', 'boolean', 'vector3', 'add', 'subtract', 'multiply', 'divide', 'compare', 'conditional',
 ])
 
 /**
@@ -355,6 +357,25 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     serializeParams: (node) => (node as MathNode).getPersistedParams() as unknown as Record<string, unknown>,
     validateParams: (value) => validateMathParams(value) as unknown as Record<string, unknown>,
   })),
+  {
+    type: 'compare', category: 'math', labelKey: 'node.compare', inputs: ['a', 'b'], outputs: ['value'],
+    inputSocketType: (port) => ['a', 'b'].includes(port) ? 'number' : undefined,
+    outputSocketType: (port) => port === 'value' ? 'boolean' : undefined,
+    create: (_context, params) => new CompareNode(params ? validateCompareParams(params) : undefined),
+    matches: (node) => node instanceof CompareNode,
+    serializeParams: (node) => (node as CompareNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateCompareParams(value) as unknown as Record<string, unknown>,
+  },
+  {
+    type: 'conditional', category: 'math', labelKey: 'node.conditional', inputs: ['condition', 'true', 'false'], outputs: ['result'],
+    inputSocketType: (port, parameters) => port === 'condition' ? 'boolean'
+      : (port === 'true' || port === 'false') ? validateConditionalParams(parameters).valueType : undefined,
+    outputSocketType: (port, parameters?: Record<string, unknown>) => port === 'result' ? (parameters ? validateConditionalParams(parameters).valueType : undefined) : undefined,
+    create: (_context, params) => new ConditionalNode(params ? validateConditionalParams(params) : undefined),
+    matches: (node) => node instanceof ConditionalNode,
+    serializeParams: (node) => (node as ConditionalNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateConditionalParams(value) as unknown as Record<string, unknown>,
+  },
   {
     type: 'cube',
     category: 'primitives',

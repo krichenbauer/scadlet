@@ -45,6 +45,45 @@ function nestedFunctionProject() {
   }
 }
 
+/** A complete visible-project fixture for the ternary expression path. It
+ * intentionally drives the real Render button/WASM worker instead of a mock
+ * evaluator, then is reloaded through the normal autosave store. */
+function absoluteConditionalProject() {
+  return {
+    format: 'scadlet', version: 5, metadata: { name: 'Absolute conditional' },
+    graph: {
+      nodes: [
+        { id: 'main-absolute', type: 'function-call', position: { x: 60, y: 570 }, parameters: { definitionId: 'absolute', arguments: { x: 10 } } },
+        { id: 'main-cube', type: 'cube', position: { x: 320, y: 570 }, parameters: { sizeRepresentation: 'scalar', sizeScalar: 10, sizeVector: { x: 10, y: 10, z: 10 }, size: 10 } },
+      ],
+      connections: [{ id: 'main-size', source: 'main-absolute', sourceOutput: 'value', target: 'main-cube', targetInput: 'size' }],
+    },
+    definitions: [{
+      id: 'absolute', kind: 'function', name: 'absolute', interface: { inputs: 'absolute-in', output: 'absolute-out' },
+      parameters: [{ id: 'x', name: 'x', type: 'number', default: 0 }], resultType: 'number',
+      graph: { nodes: [
+        { id: 'absolute-in', type: 'function-inputs', position: { x: 40, y: 80 }, parameters: {} },
+        { id: 'zero', type: 'number', position: { x: 180, y: 20 }, parameters: { value: 0, name: 'Zero' } },
+        { id: 'minus-one', type: 'number', position: { x: 180, y: 150 }, parameters: { value: -1, name: 'Minus one' } },
+        { id: 'compare', type: 'compare', position: { x: 330, y: 20 }, parameters: { operator: '<' } },
+        { id: 'multiply', type: 'multiply', position: { x: 330, y: 150 }, parameters: { a: 0, b: 0 } },
+        { id: 'conditional', type: 'conditional', position: { x: 510, y: 85 }, parameters: { valueType: 'number' } },
+        { id: 'absolute-out', type: 'function-output', position: { x: 700, y: 85 }, parameters: {} },
+      ], connections: [
+        { id: 'compare-a', source: 'absolute-in', sourceOutput: 'parameter:x', target: 'compare', targetInput: 'a' },
+        { id: 'compare-b', source: 'zero', sourceOutput: 'value', target: 'compare', targetInput: 'b' },
+        { id: 'condition', source: 'compare', sourceOutput: 'value', target: 'conditional', targetInput: 'condition' },
+        { id: 'multiply-a', source: 'absolute-in', sourceOutput: 'parameter:x', target: 'multiply', targetInput: 'a' },
+        { id: 'multiply-b', source: 'minus-one', sourceOutput: 'value', target: 'multiply', targetInput: 'b' },
+        { id: 'when-true', source: 'multiply', sourceOutput: 'value', target: 'conditional', targetInput: 'true' },
+        { id: 'when-false', source: 'absolute-in', sourceOutput: 'parameter:x', target: 'conditional', targetInput: 'false' },
+        { id: 'result', source: 'conditional', sourceOutput: 'result', target: 'absolute-out', targetInput: 'result' },
+      ] },
+    }],
+    editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera: CAMERA },
+  }
+}
+
 /** A v5 project whose outer Module uses both supported nested Call kinds.
  * Keeping this fixture explicit lets the browser test exercise the normal
  * validation, restore, source generation, autosave, and real WASM path. */
@@ -575,6 +614,32 @@ test('builds, rejects recursion in, autosaves, reloads, and renders nested Funct
   await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'outer' }) })).toHaveCount(3)
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(outer());', { timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+})
+
+test('renders and restores a visible Compare-driven Conditional Function through real OpenSCAD-WASM', async ({ page }) => {
+  test.setTimeout(60_000)
+  await waitForLocalLibrary(page)
+  await replaceLocalProjects(page, [{
+    id: 'absolute-conditional', revision: 1,
+    createdAt: '2026-09-09T00:00:00.000Z', updatedAt: '2026-09-09T00:00:00.000Z', project: absoluteConditionalProject(),
+  }], 'absolute-conditional')
+  await page.reload()
+  const conditional = page.locator('node-editor .node[data-node-id="conditional"]')
+  await expect(conditional.locator('.node-socket[data-socket-key="condition"]')).toHaveAttribute('data-socket-type', 'boolean')
+  await expect(conditional.locator('.node-socket[data-socket-key="true"]')).toHaveAttribute('data-socket-type', 'number')
+  await expect(conditional.locator('.node-socket[data-socket-key="false"]')).toHaveAttribute('data-socket-type', 'number')
+  await expect(conditional.locator('.node-socket[data-socket-key="result"]')).toHaveAttribute('data-socket-type', 'number')
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  const source = page.locator('scadlet-app .scad-output')
+  await expect(source).toContainText('function absolute(x = 0) = ((x < 0) ? (x * -1) : x);', { timeout: 15_000 })
+  await expect(source).toContainText('cube(absolute(x = 10));')
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await page.reload()
+  await expect(page.locator('node-editor .node[data-node-id="conditional"] .node-socket[data-socket-key="result"]')).toHaveAttribute('data-socket-type', 'number')
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(source).toContainText('function absolute(x = 0) = ((x < 0) ? (x * -1) : x);', { timeout: 15_000 })
   await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
 })
 

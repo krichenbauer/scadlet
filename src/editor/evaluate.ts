@@ -7,6 +7,7 @@ import type { DefinitionRegistry, ModuleDefinition, ModuleParameter, ModuleParam
 import { analyzeFunctionDependencies } from './function-dependencies'
 import { FunctionCallNode } from './nodes/function-call-node'
 import { ModuleCallNode } from './nodes/module-call-node'
+import { ConditionalNode } from './nodes/value-nodes'
 import { t } from '../i18n/translate'
 
 /**
@@ -32,6 +33,7 @@ export async function evaluateOpenSCAD(
 ): Promise<string> {
   if (rootNodeId !== undefined) {
     if (!editor.getNode(rootNodeId)) return ''
+    assertNoIncompleteReachableConditional(editor, [rootNodeId])
     const source = await evaluateGeometryRoot(engine, rootNodeId)
     const scope = definitions?.scopeOf(rootNodeId)
     const definition = scope ? definitions?.get(scope) : undefined
@@ -46,6 +48,7 @@ export async function evaluateOpenSCAD(
     .filter((connection) => mainNodeIds.has(connection.source) && mainNodeIds.has(connection.target))
     .map((connection) => connection.source))
   const roots = editor.getNodes().filter((node) => mainNodeIds.has(node.id) && !consumedNodeIds.has(node.id))
+  assertNoIncompleteReachableConditional(editor, roots.filter((node) => Boolean(node.outputs.geometry)).map((node) => node.id))
 
   const fragments: string[] = []
   for (const node of roots) {
@@ -91,6 +94,7 @@ async function evaluateFunctionBody(editor: NodeEditor<Schemes>, engine: Dataflo
 async function evaluateDefinitions(editor: NodeEditor<Schemes>, engine: DataflowEngine<Schemes>, definitions: DefinitionRegistry): Promise<string> {
   const fragments: string[] = []
   const allDefinitions = definitions.list()
+  assertNoIncompleteReachableConditional(editor, allDefinitions.map((definition) => definition.outputNodeId))
   const analysis = analyzeFunctionDependencies(
     allDefinitions.map((definition) => ({ id: definition.id, kind: definition.kind, outputNodeId: definition.outputNodeId })),
     editor.getNodes().map((node) => ({
@@ -116,6 +120,34 @@ async function evaluateDefinitions(editor: NodeEditor<Schemes>, engine: Dataflow
     fragments.push(`module ${definition.name}(${moduleParameterDeclaration(definition.parameters ?? [])}) {${indented}}`)
   }
   return fragments.join('\n\n')
+}
+
+/** Conditional values deliberately have no fallback literal. Before any
+ * source generation, walk only the effective upstream graph roots so a dead
+ * drafting node remains harmless while an expression that reaches Main or a
+ * definition body gets one clear localized failure instead of `undef`. */
+function assertNoIncompleteReachableConditional(editor: NodeEditor<Schemes>, roots: readonly string[]): void {
+  const incoming = new Map<string, string[]>()
+  for (const connection of editor.getConnections()) {
+    const list = incoming.get(connection.target) ?? []
+    list.push(connection.source)
+    incoming.set(connection.target, list)
+  }
+  const seen = new Set<string>()
+  const pending = [...roots]
+  while (pending.length > 0) {
+    const id = pending.pop()!
+    if (seen.has(id)) continue
+    seen.add(id)
+    const node = editor.getNode(id)
+    if (node instanceof ConditionalNode) {
+      const connected = new Set(editor.getConnections().filter((item) => item.target === id).map((item) => item.targetInput))
+      if (node.getValueType() === undefined || !connected.has('condition') || !connected.has('true') || !connected.has('false')) {
+        throw new Error(t('conditional.incomplete'))
+      }
+    }
+    pending.push(...(incoming.get(id) ?? []))
+  }
 }
 
 function joinDefinitions(definitions: string, main: string): string {

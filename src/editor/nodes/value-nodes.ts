@@ -2,13 +2,17 @@ import { ClassicPreset } from 'rete'
 import type { DataflowNode } from 'rete-engine'
 
 import { t } from '../../i18n/translate'
-import { CheckboxControl, LabeledNumberControl, LabeledTextControl } from '../controls'
-import { booleanSocket, numberSocket, vector3Socket, type BooleanValue, type NumberValue, type Vector3Value } from '../sockets'
+import { CheckboxControl, LabeledNumberControl, LabeledTextControl, SelectControl } from '../controls'
+import { booleanSocket, numberSocket, unresolvedSocket, vector3Socket, type BooleanValue, type NumberValue, type Vector3Value } from '../sockets'
 
 export interface NumberParams { value: number; name?: string }
 export interface BooleanParams { value: boolean; name?: string }
 export interface Vector3ValueParams { x: number; y: number; z: number; name?: string }
 export interface MathParams { a: number; b: number }
+export type CompareOperator = '<' | '<=' | '>' | '>=' | '==' | '!='
+export interface CompareParams { operator: CompareOperator }
+export type ConditionalValueType = 'number' | 'boolean' | 'vector3'
+export interface ConditionalParams { valueType?: ConditionalValueType }
 
 function finiteNumber(value: unknown, name: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`Invalid parameters: "${name}" must be a finite number`)
@@ -39,6 +43,27 @@ export function validateVector3ValueParams(value: unknown): Vector3ValueParams {
 export function validateMathParams(value: unknown): MathParams {
   const params = object(value)
   return { a: finiteNumber(params.a, 'a'), b: finiteNumber(params.b, 'b') }
+}
+
+export function validateCompareParams(value: unknown): CompareParams {
+  const params = object(value)
+  if (params.operator !== '<' && params.operator !== '<=' && params.operator !== '>' && params.operator !== '>=' && params.operator !== '==' && params.operator !== '!=') {
+    throw new Error('Invalid parameters: "operator" must be a supported comparison operator')
+  }
+  return { operator: params.operator }
+}
+
+export function validateConditionalParams(value: unknown): ConditionalParams {
+  const params = object(value)
+  if (params.valueType === undefined) return {}
+  if (params.valueType !== 'number' && params.valueType !== 'boolean' && params.valueType !== 'vector3') {
+    throw new Error('Invalid parameters: "valueType" must be number, boolean, vector3, or omitted')
+  }
+  return { valueType: params.valueType }
+}
+
+function socketForConditionalType(type: ConditionalValueType | undefined) {
+  return type === 'number' ? numberSocket : type === 'boolean' ? booleanSocket : type === 'vector3' ? vector3Socket : unresolvedSocket
 }
 
 /** A literal Number is an OpenSCAD expression source, never a JavaScript calculation. */
@@ -115,5 +140,65 @@ export class MathNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
     const a = inputs.a?.[0]?.code ?? String(params.a)
     const b = inputs.b?.[0]?.code ?? String(params.b)
     return { value: { code: `(${a} ${this.operator} ${b})` } }
+  }
+}
+
+/** A deliberately numeric-only comparison. Its Boolean result can feed a
+ * Conditional or any existing Boolean parameter without adding implicit
+ * OpenSCAD coercions. */
+export class CompareNode extends ClassicPreset.Node<{ a: ClassicPreset.Socket; b: ClassicPreset.Socket }, { value: ClassicPreset.Socket }, { operator: SelectControl<CompareOperator> }> implements DataflowNode {
+  constructor(params: CompareParams = { operator: '<' }) {
+    super(t('node.compare'))
+    this.addInput('a', new ClassicPreset.Input(numberSocket, t('input.a')))
+    this.addInput('b', new ClassicPreset.Input(numberSocket, t('input.b')))
+    this.addControl('operator', new SelectControl(t('control.operator'), [
+      { value: '<', label: '<' }, { value: '<=', label: '<=' }, { value: '>', label: '>' },
+      { value: '>=', label: '>=' }, { value: '==', label: '==' }, { value: '!=', label: '!=' },
+    ], params.operator))
+    this.addOutput('value', new ClassicPreset.Output(booleanSocket, t('output.boolean')))
+  }
+
+  getPersistedParams(): CompareParams { return { operator: this.controls.operator.value } }
+  data(inputs: Record<string, NumberValue[] | undefined>): { value: BooleanValue } {
+    const a = inputs.a?.[0]?.code
+    const b = inputs.b?.[0]?.code
+    return { value: { code: `(${a ?? 'undef'} ${this.controls.operator.value} ${b ?? 'undef'})` } }
+  }
+}
+
+/** OpenSCAD's value-only ternary expression. The `valueType` is inferred by
+ * editor connection handling; sockets keep their stable IDs while their
+ * visual/semantic type changes in place. */
+export class ConditionalNode extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { result: ClassicPreset.Socket }> implements DataflowNode {
+  private valueType: ConditionalValueType | undefined
+
+  constructor(params: ConditionalParams = {}) {
+    super(t('node.conditional'))
+    this.valueType = params.valueType
+    this.addInput('condition', new ClassicPreset.Input(booleanSocket, t('input.condition')))
+    // Multi-connectable prevents ClassicFlow from eagerly removing the old
+    // branch wire before editor.ts can preflight a type transition.
+    this.addInput('true', new ClassicPreset.Input(socketForConditionalType(this.valueType), t('input.whenTrue'), true))
+    this.addInput('false', new ClassicPreset.Input(socketForConditionalType(this.valueType), t('input.whenFalse'), true))
+    this.addOutput('result', new ClassicPreset.Output(socketForConditionalType(this.valueType), t('output.result')))
+  }
+
+  getValueType(): ConditionalValueType | undefined { return this.valueType }
+  getPersistedParams(): ConditionalParams { return this.valueType === undefined ? {} : { valueType: this.valueType } }
+
+  setValueType(valueType: ConditionalValueType | undefined): void {
+    this.valueType = valueType
+    const socket = socketForConditionalType(valueType)
+    this.inputs.true!.socket = socket
+    this.inputs.false!.socket = socket
+    this.outputs.result!.socket = socket
+  }
+
+  data(inputs: Record<string, (NumberValue | BooleanValue | Vector3Value)[] | undefined>): { result: NumberValue | BooleanValue | Vector3Value | undefined } {
+    const condition = inputs.condition?.[0]?.code
+    const whenTrue = inputs.true?.[0]?.code
+    const whenFalse = inputs.false?.[0]?.code
+    if (this.valueType === undefined || !condition || !whenTrue || !whenFalse) return { result: undefined }
+    return { result: { code: `(${condition} ? ${whenTrue} : ${whenFalse})` } }
   }
 }

@@ -4,6 +4,7 @@ import type { Schemes } from './schemes'
 import { areSocketTypesCompatible, socketType } from './sockets'
 import { shareDefinitionScope } from './definitions'
 import { FunctionOutputNode } from './nodes/function-interface-nodes'
+import { ConditionalNode } from './nodes/value-nodes'
 
 /** The sole semantic compatibility rule used for Rete creation and snap
  * acquisition: existing opposite-direction ports with identical types.
@@ -25,6 +26,14 @@ export function canConnectSocketData(
   const sourceSocket = editor.getNode(sourceData.nodeId)?.outputs[sourceData.key]?.socket
   const targetNode = editor.getNode(targetData.nodeId)
   if (targetNode instanceof FunctionOutputNode && targetData.key === 'result') {
+    const type = socketType(sourceSocket)
+    return type === 'number' || type === 'boolean' || type === 'vector3'
+  }
+  // Conditional branch ports are another deliberately narrow transition
+  // boundary. They accept a supported value source while the editor
+  // preflights the resulting type change; Condition itself remains normal
+  // Boolean-only compatibility.
+  if (targetNode instanceof ConditionalNode && (targetData.key === 'true' || targetData.key === 'false')) {
     const type = socketType(sourceSocket)
     return type === 'number' || type === 'boolean' || type === 'vector3'
   }

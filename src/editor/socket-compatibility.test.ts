@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest'
 import { attachSocketCompatibilityGuard } from './editor'
 import type { Schemes } from './schemes'
 import { booleanSocket, geometrySocket, numberSocket, vector3Socket } from './sockets'
+import { canConnectSocketData } from './connection-compatibility'
+import { ConditionalNode, NumberNode, BooleanNode, Vector3Node } from './nodes/value-nodes'
 
 const sockets = { geometry: geometrySocket, number: numberSocket, vector3: vector3Socket, boolean: booleanSocket } as const
 type SocketName = keyof typeof sockets
@@ -51,5 +53,20 @@ describe('semantic socket compatibility', () => {
     await editor.addNode(source as unknown as Schemes['Node'])
     await editor.addNode(target as unknown as Schemes['Node'])
     expect(await editor.addConnection(new ClassicPreset.Connection(source, 'geometry', target, 'geometry') as Schemes['Connection'])).toBe(true)
+  })
+
+  it('keeps the Conditional branch transition exception narrow and value-only', async () => {
+    const editor = new NodeEditor<Schemes>()
+    const conditional = new ConditionalNode()
+    const number = new NumberNode()
+    const boolean = new BooleanNode()
+    const vector = new Vector3Node()
+    const geometry = new TypedSource()
+    for (const node of [conditional, number, boolean, vector, geometry]) await editor.addNode(node as Schemes['Node'])
+    for (const node of [number, boolean, vector]) {
+      expect(canConnectSocketData(editor, { nodeId: node.id, key: 'value', side: 'output' }, { nodeId: conditional.id, key: 'true', side: 'input' })).toBe(true)
+    }
+    expect(canConnectSocketData(editor, { nodeId: geometry.id, key: 'geometry', side: 'output' }, { nodeId: conditional.id, key: 'true', side: 'input' })).toBe(false)
+    expect(canConnectSocketData(editor, { nodeId: number.id, key: 'value', side: 'output' }, { nodeId: conditional.id, key: 'condition', side: 'input' })).toBe(false)
   })
 })

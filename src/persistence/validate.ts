@@ -315,8 +315,14 @@ function validateConnection(
     throw new ScadletProjectError(`Connection "${raw.id}" references unknown target port "${targetInput}" on node "${target}"`)
   }
 
-  const sourceType = sourceDynamicType ?? sourceEntry.outputSocketType(sourceOutput)
+  const sourceType = sourceDynamicType ?? sourceEntry.outputSocketType(sourceOutput, sourceNode.parameters)
   const targetType = targetDynamicType ?? targetEntry.inputSocketType(targetInput, targetNode.parameters)
+  if (targetNode.type === 'conditional' && (targetInput === 'true' || targetInput === 'false') && targetNode.parameters.valueType === undefined) {
+    throw new ScadletProjectError(`Conditional node "${targetNode.id}" has a branch connection but no inferred value type.`)
+  }
+  if (sourceNode.type === 'conditional' && sourceOutput === 'result' && sourceNode.parameters.valueType === undefined) {
+    throw new ScadletProjectError(`Conditional node "${sourceNode.id}" has a Result connection but no inferred value type.`)
+  }
   if (!sourceType || !targetType || sourceType !== targetType) {
     throw new ScadletProjectError(
       `Connection "${raw.id}" has incompatible socket types: ${sourceType ?? 'unknown'} output cannot connect to ${targetType ?? 'unknown'} input.`,
@@ -339,6 +345,27 @@ function validateGraph(raw: unknown, graphKind: GraphKind, definition?: Definiti
   const connections = raw.connections.map((connection, index) =>
     validateConnection(connection, index, seenConnectionIds, nodesById, definition, definitions),
   )
+
+  // Conditional's branch/result sockets are dynamic but their port IDs are
+  // fixed. Validation therefore checks the persisted inference state as a
+  // whole, rather than trusting a caller-provided socket label.
+  for (const node of nodes.filter((item) => item.type === 'conditional')) {
+    const valueType = node.parameters.valueType
+    const branches = connections.filter((item) => item.target === node.id && (item.targetInput === 'true' || item.targetInput === 'false'))
+    const resultConnections = connections.filter((item) => item.source === node.id && item.sourceOutput === 'result')
+    if (valueType === undefined && (branches.length > 0 || resultConnections.length > 0)) {
+      throw new ScadletProjectError(`Conditional node "${node.id}" has connected branches or Result but no inferred value type.`)
+    }
+    if (valueType !== undefined && branches.length === 0) {
+      throw new ScadletProjectError(`Conditional node "${node.id}" has an inferred value type but no connected branch.`)
+    }
+    if (resultConnections.length > 0) {
+      const incoming = new Set(connections.filter((item) => item.target === node.id).map((item) => item.targetInput))
+      if (!incoming.has('condition') || !incoming.has('true') || !incoming.has('false')) {
+        throw new ScadletProjectError(`Conditional node "${node.id}" has a Result connection but is incomplete.`)
+      }
+    }
+  }
 
   return { nodes, connections }
 }

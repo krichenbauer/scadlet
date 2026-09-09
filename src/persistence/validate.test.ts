@@ -209,6 +209,37 @@ describe('parseScadletProject: connections', () => {
     raw.graph.connections.push({ ...raw.graph.connections[0] })
     expect(() => parseScadletProject(raw)).toThrow('Duplicate connection id: "c1"')
   })
+
+  it('validates Compare and Conditional dynamic socket metadata', () => {
+    const raw = createEmptyProject('Conditional') as any
+    raw.graph.nodes = [
+      { id: 'number', type: 'number', position: { x: 0, y: 0 }, parameters: { value: 1, name: 'n' } },
+      { id: 'boolean', type: 'boolean', position: { x: 0, y: 0 }, parameters: { value: true, name: 'b' } },
+      { id: 'conditional', type: 'conditional', position: { x: 0, y: 0 }, parameters: { valueType: 'number' } },
+    ]
+    raw.graph.connections = [
+      { id: 'condition', source: 'boolean', sourceOutput: 'value', target: 'conditional', targetInput: 'condition' },
+      { id: 'true', source: 'number', sourceOutput: 'value', target: 'conditional', targetInput: 'true' },
+      { id: 'false', source: 'number', sourceOutput: 'value', target: 'conditional', targetInput: 'false' },
+    ]
+    expect(() => parseScadletProject(raw)).not.toThrow()
+    raw.graph.nodes[2].parameters = {}
+    expect(() => parseScadletProject(raw)).toThrow('no inferred value type')
+  })
+
+  it('rejects unsupported Compare operators and mismatched Conditional branches', () => {
+    const raw = createEmptyProject('Compare') as any
+    raw.graph.nodes = [{ id: 'compare', type: 'compare', position: { x: 0, y: 0 }, parameters: { operator: '===' } }]
+    expect(() => parseScadletProject(raw)).toThrow('supported comparison operator')
+
+    raw.graph.nodes = [
+      { id: 'number', type: 'number', position: { x: 0, y: 0 }, parameters: { value: 1, name: 'n' } },
+      { id: 'boolean', type: 'boolean', position: { x: 0, y: 0 }, parameters: { value: true, name: 'b' } },
+      { id: 'conditional', type: 'conditional', position: { x: 0, y: 0 }, parameters: { valueType: 'number' } },
+    ]
+    raw.graph.connections = [{ id: 'bad', source: 'boolean', sourceOutput: 'value', target: 'conditional', targetInput: 'true' }]
+    expect(() => parseScadletProject(raw)).toThrow('incompatible socket types: boolean output cannot connect to number input')
+  })
 })
 
 describe('parseScadletProject: editor/viewport', () => {

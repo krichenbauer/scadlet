@@ -295,9 +295,9 @@ export class NodeEditorElement extends LitElement {
       border-color: #2f8240;
     }
 
-    /* Function Output's result port before its type is resolved (see
-       function-interface-nodes.ts's unresolvedSocket) - deliberately
-       neutral/grey, distinct from every real value type. */
+    /* Function Output and Conditional branch/result ports before their type
+       is resolved use this deliberately neutral/grey socket, distinct from
+       every real value type. */
     .node-socket[data-socket-type='unresolved'] {
       background: #888;
       border-color: #555;

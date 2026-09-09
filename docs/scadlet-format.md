@@ -422,7 +422,8 @@ with two differences: there is no `geometryInputs` field, and an optional
   rendered as a neutral/grey socket rather than any of the three real types.
 - A Function definition graph may only contain `function-inputs`,
   `function-output`, `function-call`, and the existing value/math vocabulary
-  (`number`, `boolean`, `vector3`, `add`, `subtract`, `multiply`, `divide`).
+  (`number`, `boolean`, `vector3`, `add`, `subtract`, `multiply`, `divide`,
+  `compare`, `conditional`).
   Any Geometry-producing/consuming node type, Module interface node, or
   `module-call` is rejected.
 - Effective dependencies are derived only from Calls whose values/Geometry can
@@ -480,6 +481,17 @@ input ports, not precomputed results. Generated graph values remain OpenSCAD
 expressions: a Vector3 emits `[x, y, z]` and math emits explicit grouping
 such as `(a + b)`. Connecting a value replaces the relevant fallback during
 evaluation but does not erase it from this persisted record.
+
+`compare` stores `{ "operator": "<" | "<=" | ">" | ">=" | "==" | "!=" }`
+and has Number inputs `a`/`b` plus a Boolean `value` output. `conditional`
+stores either `{}` while unresolved or `{ "valueType": "number" | "boolean"
+| "vector3" }` after a branch establishes its type. Its stable inputs are
+`condition` (Boolean), `true`, and `false`; its stable output is `result`.
+The two branches and Result must share `valueType`. An unresolved Conditional
+cannot have branch/Result connections; a resolved one must retain at least one
+branch connection. A Result connection is valid only once all three inputs are
+connected. These rules let restore reconstruct the same socket state without a
+schema-version change.
 
 All source and math value outputs use the stable port id `value`; Vector3
 uses Number inputs `x`, `y`, and `z`; math uses Number inputs `a` and `b`.

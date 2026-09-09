@@ -36,6 +36,8 @@ describe('NODE_CATALOG', () => {
         'subtract',
         'multiply',
         'divide',
+        'compare',
+        'conditional',
       ].sort(),
     )
   })
@@ -61,6 +63,8 @@ describe('NODE_CATALOG', () => {
     expect(findCatalogEntry('boolean')?.category).toBe('values')
     expect(findCatalogEntry('vector3')?.category).toBe('values')
     expect(findCatalogEntry('add')?.category).toBe('math')
+    expect(findCatalogEntry('compare')?.category).toBe('math')
+    expect(findCatalogEntry('conditional')?.category).toBe('math')
   })
 
   it('never uses display strings (e.g. "CSG") as category ids', () => {

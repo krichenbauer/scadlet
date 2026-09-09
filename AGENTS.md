@@ -1288,7 +1288,7 @@ Use a single Number type for ordinary OpenSCAD numeric values; do not introduce 
 Geometry-node parameters must continue to support convenient inline literals. Connecting a value should make dataflow explicit without forcing literal-only beginners to construct trivial Number nodes. Parameter/value connectors must follow the established type-color, stable-anchor, connection-aware disclosure, dirty-state, and `.scadlet` persistence rules.
 
 Implementation status: Milestone 7 provides Number, Boolean, Vector3, Add,
-Subtract, Multiply, and Divide through the catalog categories `values` and
+Subtract, Multiply, Divide, Compare, and Conditional through the catalog categories `values` and
 `math`. They produce OpenSCAD expressions (`[x, y, z]` and explicitly grouped
 math such as `(a + b)`), rather than JavaScript-evaluated values. Existing
 Number/Vector3/Boolean parameter sockets accept them directly and preserve
@@ -1296,6 +1296,17 @@ their inline fallback literals when connected. Value inspection emits a
 temporary OpenSCAD `echo()` request and displays its returned value without
 persisting it, marking a project dirty, replacing the current mesh, or
 changing ordinary `.scad` export.
+
+Compare is deliberately Number-only and produces Boolean expressions such as
+`(a <= b)`. Conditional is the value-only OpenSCAD ternary expression. Its
+stable `condition`, `true`, `false`, and `result` ports begin neutral until a
+Number, Boolean, or Vector3 branch infers the shared branch/result type.
+Changing that type uses a narrow preflight/confirmation transaction that
+removes only incompatible opposite-branch and Result wires; disconnecting the
+final branch returns it to neutral after handling incompatible Result wires.
+Both nodes are permitted in Main, Module, and Function scopes, and an
+incomplete Conditional that is reachable from Main or a definition Output is
+a localized evaluation error rather than an `undef` placeholder.
 
 Dynamic input removal is connection-safe: an input/output port may never
 disappear while an attached Rete connection survives. Interactive
