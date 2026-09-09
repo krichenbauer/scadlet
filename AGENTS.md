@@ -1365,8 +1365,8 @@ only the permanent Inputs/Output interfaces are deletion-protected.
 Module Output's one Geometry input is the Module body root. Normal and
 Geometry-Inspect OpenSCAD evaluation emit all definitions in stable project
 order before Main/Inspect geometry; unused definitions are declarations only,
-not top-level rendered geometry. `My Modules` entries create ordinary Main-only
-generic `module-call` nodes. A call persists `type: module-call` plus its
+not top-level rendered geometry. `My Modules` entries create ordinary generic
+`module-call` nodes in Main or a Module scope. A call persists `type: module-call` plus its
 stable `definitionId`, resolves the definition name for display/codegen, and
 produces ordinary Geometry. Phase 3 adds an ordered parameter signature whose
 stable IDs define `parameter:<id>` ports: Number, Boolean, and Vector3
@@ -1392,8 +1392,8 @@ ports, fallbacks, and attached wires. Parameter deletion preflights every
 Inputs/Call projection before mutating; cancellation and an unsuccessful
 operation leave the complete signature, wires, and Call fallbacks unchanged,
 while a successful operation emits one semantic dirty change for autosave.
-Nested Module Calls, Functions, and
-other parameter types remain later work.
+Nested Module Calls and Function Calls in Module scopes are supported; other
+parameter types remain later work.
 
 Phase 2.1 interaction: ordinary transferable nodes/groups may change their
 explicit scope only on a completed ordinary-node drag. Dropping into a Module
@@ -1529,13 +1529,16 @@ Function scope validation reuses the same closed-vocabulary allowlist
 creation/drag-transfer time (`editor.ts`/`scope-transfer.ts`) and `.scadlet`
 file-validation time (`persistence/validate.ts`). A Function graph may contain
 Function Calls in addition to its interface/value/math nodes, but never
-Geometry nodes, Module interfaces, or Module Calls. Function Calls and Module
-Calls remain forbidden inside Modules.
+Geometry nodes, Module interfaces, or Module Calls. Module scopes permit both
+Module Calls and resolved Function Calls; Function scopes permit only resolved
+Function Calls.
 
 Generated OpenSCAD emits every resolved Function's `function name(...) =
-expr;` declaration in deterministic callee-before-caller order before Module
-declarations and Main (`evaluate.ts`). Dependencies come only from Function
-Calls that can reach the owning Function Output; dead Calls do not participate.
+expr;` declaration in deterministic callee-before-caller order before Modules,
+then emits Modules in deterministic effective callee-before-caller order before
+Main (`evaluate.ts`). Dependencies come only from Calls that can reach the
+owning Function/Module Output; dead Calls do not participate. Effective direct
+or indirect Module recursion is rejected alongside Function recursion.
 Direct and indirect recursion are rejected before live mutation and during
 project validation. An unresolved Function is a valid, saveable editor draft
 but is never emitted; new Calls cannot be created for it, while existing Calls

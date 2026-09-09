@@ -346,16 +346,18 @@ not change the v3 schema.
 - Definition-frame bounds are derived editor presentation from these member
   node positions; frame geometry is not serialized as semantic membership.
 
-Definitions are emitted in `definitions` array order as OpenSCAD `module`
-declarations. The `module-output` Geometry connection is the one body root;
+Definitions are emitted as OpenSCAD declarations in deterministic dependency
+order: resolved Functions first, then Modules in effective callee-before-caller
+order. The `module-output` Geometry connection is the one body root;
 an unconnected Output emits an empty body. A declaration itself is never Main
 geometry, so an unused definition does not render until a Main `module-call`
 uses it.
 
 ### `module-call`
 
-`module-call` is a generic Main-only Geometry-producing node, not a generated
-node type named after a Module. Its parameter record contains the stable
+`module-call` is a generic Geometry-producing node, not a generated node type
+named after a Module. It may occur in Main or in a Module definition graph.
+Its parameter record contains the stable
 definition reference plus independent literal fallbacks keyed by parameter ID:
 
 ```json
@@ -368,8 +370,8 @@ The Module name/signature are resolved from the definition at load/runtime and
 generate explicit named arguments such as `wheel(radius = 25);`; they are not
 duplicated as authoritative call state. A connected typed value overrides but
 does not erase the stored fallback.
-Module Calls remain forbidden inside all definition graphs. Function Calls are
-permitted only in Function graphs, as described below.
+Module Calls remain forbidden inside Function definition graphs. Function
+Calls are permitted in Main, Module, and Function graphs, as described below.
 
 ## Function definitions (version 5)
 
@@ -422,12 +424,13 @@ with two differences: there is no `geometryInputs` field, and an optional
   `function-output`, `function-call`, and the existing value/math vocabulary
   (`number`, `boolean`, `vector3`, `add`, `subtract`, `multiply`, `divide`).
   Any Geometry-producing/consuming node type, Module interface node, or
-  `module-call` is rejected. Function Calls remain forbidden in Modules.
-- Effective Function dependencies are derived only from Calls whose values can
-  reach that Function's Output. Disconnected/dead Calls do not affect emitted
-  source, declaration order, or cycle validation. Resolved Functions are
-  emitted in deterministic callee-before-caller topological order, followed by
-  all Modules and Main. Direct and indirect effective recursion is rejected.
+  `module-call` is rejected.
+- Effective dependencies are derived only from Calls whose values/Geometry can
+  reach their owning Function/Module Output. Disconnected/dead Calls do not
+  affect declaration order or cycle validation. Resolved Functions are emitted
+  in deterministic callee-before-caller order before Modules; Modules are then
+  emitted in deterministic callee-before-caller order. Direct and indirect
+  effective Function or Module recursion is rejected.
 - An unresolved Function is not emitted and cannot be used to create a new
   Call. Existing Calls may remain as disconnected drafts with an unresolved
   output so result disconnection and callee deletion can be saved safely.
@@ -436,7 +439,8 @@ with two differences: there is no `geometryInputs` field, and an optional
 
 `function-call` is a generic value-producing node, exactly parallel to
 `module-call` but producing one typed value output (port id `value`) instead
-of Geometry. It may occur in Main or in a Function definition graph:
+of Geometry. It may occur in Main, a Module definition graph, or a Function
+definition graph:
 
 ```json
 { "definitionId": "definition-double-size", "arguments": { "parameter-x": 10 } }
@@ -450,8 +454,8 @@ New Calls cannot be created for an unresolved Function, but a previously
 existing disconnected Call is valid persisted draft state and restores with
 an unresolved output. Any outgoing wire from such a Call is invalid.
 
-Function Call nodes remain forbidden inside Module definitions. Module Calls
-remain forbidden inside both Module and Function definitions.
+Module Calls remain forbidden inside Function definitions; both Call kinds are
+valid in Module definitions.
 
 Existing v4 projects (Modules only, no Functions) migrate to v5 unchanged,
 with an empty Function entries in the shared `definitions` array.

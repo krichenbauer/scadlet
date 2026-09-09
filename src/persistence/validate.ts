@@ -231,9 +231,6 @@ function validateNode(raw: unknown, index: number, seenIds: Set<string>, graphKi
   if (graphKind === 'main' && entry.palette === false && !isCall) {
     throw new ScadletProjectError(`Interface node "${raw.id}" belongs inside a definition, not Main.`)
   }
-  if (graphKind === 'module' && isCall) {
-    throw new ScadletProjectError(`Call node "${raw.id}" belongs in Main, not inside a definition.`)
-  }
   if (graphKind === 'function' && entry.type === 'module-call') {
     throw new ScadletProjectError(`Module Call node "${raw.id}" is not supported inside a Function definition.`)
   }
@@ -468,12 +465,13 @@ function validateDefinitions(raw: unknown): ScadletDefinition[] {
       id: node.id,
       scope: definition.id,
       ...(node.type === 'function-call' ? { calledFunctionId: String(node.parameters.definitionId) } : {}),
+      ...(node.type === 'module-call' ? { calledModuleId: String(node.parameters.definitionId) } : {}),
     }))),
     definitions.flatMap((definition) => definition.graph.connections),
   )
   if (dependencyAnalysis.cycle) {
     const names = new Map(definitions.map((definition) => [definition.id, definition.name]))
-    throw new ScadletProjectError(`Recursive Function dependencies are not supported yet: ${dependencyAnalysis.cycle.map((id) => names.get(id) ?? id).join(' → ')}.`)
+    throw new ScadletProjectError(`Recursive ${dependencyAnalysis.cycleKind === 'module' ? 'Module' : 'Function'} dependencies are not supported yet: ${dependencyAnalysis.cycle.map((id) => names.get(id) ?? id).join(' → ')}.`)
   }
   return definitions
 }

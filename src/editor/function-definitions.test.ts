@@ -142,6 +142,42 @@ describe('Function definitions (Milestone 8 Phase 7)', () => {
     expect(source).not.toContain('draft')
   })
 
+  it('emits a Function Call and a Module Call nested in a Module in callee-before-caller order', async () => {
+    const { editor, engine } = graph()
+    const definitions = new DefinitionRegistry()
+    const outer: ModuleDefinition = { id: 'mod-outer', kind: 'module', name: 'outer', inputsNodeId: 'outer-in', outputNodeId: 'outer-out', parameters: [{ id: 'r', name: 'r', type: 'number', default: 10 }], geometryInputs: [] }
+    const inner: ModuleDefinition = { id: 'mod-inner', kind: 'module', name: 'inner', inputsNodeId: 'inner-in', outputNodeId: 'inner-out', parameters: [{ id: 'r', name: 'r', type: 'number', default: 10 }], geometryInputs: [] }
+    const diameter: ModuleDefinition = { id: 'fn-diameter', kind: 'function', name: 'diameter', inputsNodeId: 'diameter-in', outputNodeId: 'diameter-out', parameters: [{ id: 'r', name: 'r', type: 'number', default: 10 }], resultType: 'number' }
+    // Reverse dependency order proves the effective dependency pass, rather
+    // than registry order, controls declarations.
+    definitions.add(outer); definitions.add(inner); definitions.add(diameter)
+    const outerInputs = new ModuleInputsNode(outer.parameters); outerInputs.id = outer.inputsNodeId
+    const outerOutput = new ModuleOutputNode(); outerOutput.id = outer.outputNodeId
+    const innerInputs = new ModuleInputsNode(inner.parameters); innerInputs.id = inner.inputsNodeId
+    const innerOutput = new ModuleOutputNode(); innerOutput.id = inner.outputNodeId
+    const diameterInputs = new FunctionInputsNode(diameter.parameters); diameterInputs.id = diameter.inputsNodeId
+    const diameterOutput = new FunctionOutputNode('number'); diameterOutput.id = diameter.outputNodeId
+    const double = new MathNode('Multiply', '*', 'multiply', { a: 0, b: 2 }); double.id = 'double'
+    const innerCube = new CubeNode(); innerCube.id = 'inner-cube'
+    const functionCall = new FunctionCallNode(diameter, { definitionId: diameter.id }); functionCall.id = 'outer-diameter'
+    const moduleCall = new ModuleCallNode(inner, { definitionId: inner.id }); moduleCall.id = 'outer-inner'
+    const mainCall = new ModuleCallNode(outer, { definitionId: outer.id }); mainCall.id = 'main-outer'
+    for (const node of [outerInputs, outerOutput, innerInputs, innerOutput, diameterInputs, diameterOutput, double, innerCube, functionCall, moduleCall, mainCall]) await editor.addNode(node)
+    definitions.assignNode(diameter.id, double.id)
+    definitions.assignNode(inner.id, innerCube.id)
+    definitions.assignNode(outer.id, functionCall.id)
+    definitions.assignNode(outer.id, moduleCall.id)
+    await editor.addConnection(new ClassicPreset.Connection(diameterInputs, 'parameter:r', double, 'a') as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(double, 'value', diameterOutput, 'result') as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(innerInputs, 'parameter:r', innerCube, 'size') as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(innerCube, 'geometry', innerOutput, 'geometry') as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(outerInputs, 'parameter:r', functionCall, 'parameter:r') as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(functionCall, 'value', moduleCall, 'parameter:r') as Schemes['Connection'])
+    await editor.addConnection(new ClassicPreset.Connection(moduleCall, 'geometry', outerOutput, 'geometry') as Schemes['Connection'])
+
+    expect(await evaluateOpenSCAD(editor, engine, undefined, definitions)).toBe('function diameter(r = 10) = (r * 2);\n\nmodule inner(r = 10) {\n  cube(r);\n}\n\nmodule outer(r = 10) {\n  inner(r = diameter(r = r));\n}\n\nouter(r = 10);')
+  })
+
   it('resolves a Function Output connection to an existing FunctionOutputNode-compatible source even while typed differently on the wildcard target port', async () => {
     const editor = new NodeEditor<Schemes>()
     const registry = new DefinitionRegistry()
@@ -169,7 +205,7 @@ describe('Function definitions (Milestone 8 Phase 7)', () => {
     expect(canConnectSocketData(editor, { nodeId: cube.id, key: 'geometry', side: 'output' }, { nodeId: output.id, key: 'result', side: 'input' })).toBe(false)
   })
 
-  it('allows transferring a Function Call into a Function scope but still rejects Module scope', async () => {
+  it('allows transferring a Function Call into Function and Module scopes', async () => {
     const editor = new NodeEditor<Schemes>()
     const registry = new DefinitionRegistry()
     const definition = { ...functionDefinition(), resultType: 'number' as const }
@@ -179,7 +215,7 @@ describe('Function definitions (Milestone 8 Phase 7)', () => {
     const call = new FunctionCallNode(definition, { definitionId: definition.id }); call.id = 'fn-call-1'
     await editor.addNode(call)
     expect(scopeTransferProblem(editor, registry, [call.id], definition.id)).toBeNull()
-    expect(scopeTransferProblem(editor, registry, [call.id], moduleDefinition.id)).toBe('module-call')
+    expect(scopeTransferProblem(editor, registry, [call.id], moduleDefinition.id)).toBeNull()
     expect(scopeTransferProblem(editor, registry, [call.id], null)).toBeNull()
   })
 

@@ -45,6 +45,55 @@ function nestedFunctionProject() {
   }
 }
 
+/** A v5 project whose outer Module uses both supported nested Call kinds.
+ * Keeping this fixture explicit lets the browser test exercise the normal
+ * validation, restore, source generation, autosave, and real WASM path. */
+function nestedModuleCallsProject() {
+  const cube = { sizeRepresentation: 'scalar', sizeScalar: 10, sizeVector: { x: 10, y: 10, z: 10 }, size: 10 }
+  return {
+    format: 'scadlet', version: 5, metadata: { name: 'Nested module calls' },
+    graph: { nodes: [{ id: 'main-outer', type: 'module-call', position: { x: 700, y: 500 }, parameters: { definitionId: 'outer', arguments: {} } }], connections: [] },
+    definitions: [
+      {
+        id: 'outer', kind: 'module', name: 'outer', interface: { inputs: 'outer-in', output: 'outer-out' }, parameters: [{ id: 'r', name: 'r', type: 'number', default: 10 }], geometryInputs: [],
+        graph: { nodes: [
+          { id: 'outer-in', type: 'module-inputs', position: { x: 50, y: 330 }, parameters: {} },
+          { id: 'outer-fn', type: 'function-call', position: { x: 240, y: 330 }, parameters: { definitionId: 'diameter', arguments: {} } },
+          { id: 'outer-module', type: 'module-call', position: { x: 440, y: 330 }, parameters: { definitionId: 'inner', arguments: {} } },
+          { id: 'outer-out', type: 'module-output', position: { x: 650, y: 330 }, parameters: {} },
+        ], connections: [
+          { id: 'outer-r', source: 'outer-in', sourceOutput: 'parameter:r', target: 'outer-fn', targetInput: 'parameter:r' },
+          { id: 'outer-diameter', source: 'outer-fn', sourceOutput: 'value', target: 'outer-module', targetInput: 'parameter:r' },
+          { id: 'outer-body', source: 'outer-module', sourceOutput: 'geometry', target: 'outer-out', targetInput: 'geometry' },
+        ] },
+      },
+      {
+        id: 'inner', kind: 'module', name: 'inner', interface: { inputs: 'inner-in', output: 'inner-out' }, parameters: [{ id: 'r', name: 'r', type: 'number', default: 10 }], geometryInputs: [],
+        graph: { nodes: [
+          { id: 'inner-in', type: 'module-inputs', position: { x: 50, y: 80 }, parameters: {} },
+          { id: 'inner-cube', type: 'cube', position: { x: 300, y: 80 }, parameters: cube },
+          { id: 'inner-out', type: 'module-output', position: { x: 550, y: 80 }, parameters: {} },
+        ], connections: [
+          { id: 'inner-r', source: 'inner-in', sourceOutput: 'parameter:r', target: 'inner-cube', targetInput: 'size' },
+          { id: 'inner-body', source: 'inner-cube', sourceOutput: 'geometry', target: 'inner-out', targetInput: 'geometry' },
+        ] },
+      },
+      {
+        id: 'diameter', kind: 'function', name: 'diameter', interface: { inputs: 'diameter-in', output: 'diameter-out' }, parameters: [{ id: 'r', name: 'r', type: 'number', default: 10 }], resultType: 'number',
+        graph: { nodes: [
+          { id: 'diameter-in', type: 'function-inputs', position: { x: 50, y: -160 }, parameters: {} },
+          { id: 'diameter-multiply', type: 'multiply', position: { x: 300, y: -160 }, parameters: { a: 0, b: 2 } },
+          { id: 'diameter-out', type: 'function-output', position: { x: 550, y: -160 }, parameters: {} },
+        ], connections: [
+          { id: 'diameter-r', source: 'diameter-in', sourceOutput: 'parameter:r', target: 'diameter-multiply', targetInput: 'a' },
+          { id: 'diameter-result', source: 'diameter-multiply', sourceOutput: 'value', target: 'diameter-out', targetInput: 'result' },
+        ] },
+      },
+    ],
+    editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera: CAMERA },
+  }
+}
+
 async function replaceLocalProjects(page: Page, records: unknown[], activeProjectId: string) {
   await page.evaluate(async ({ records, activeProjectId }) => {
     const request = indexedDB.open('scadlet-projects')
@@ -527,6 +576,69 @@ test('builds, rejects recursion in, autosaves, reloads, and renders nested Funct
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(outer());', { timeout: 15_000 })
   await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+})
+
+test('restores, renders, autosaves, and reloads Module bodies containing both Call kinds', async ({ page }) => {
+  test.setTimeout(60_000)
+  await waitForLocalLibrary(page)
+  await replaceLocalProjects(page, [{
+    id: 'nested-module-calls', revision: 1,
+    createdAt: '2026-09-09T00:00:00.000Z', updatedAt: '2026-09-09T00:00:00.000Z', project: nestedModuleCallsProject(),
+  }], 'nested-module-calls')
+  await page.reload()
+  const source = page.locator('scadlet-app .scad-output')
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(source).toContainText('function diameter(r = 10) = (r * 2);', { timeout: 15_000 })
+  await expect(source).toContainText('module inner(r = 10)')
+  await expect(source).toContainText('module outer(r = 10)')
+  await expect(source).toContainText('inner(r = diameter(r = r));')
+  const sourceText = await source.textContent()
+  expect(sourceText!.indexOf('function diameter')).toBeLessThan(sourceText!.indexOf('module inner'))
+  expect(sourceText!.indexOf('module inner')).toBeLessThan(sourceText!.indexOf('module outer'))
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+
+  await page.reload()
+  await expect(page.locator('node-editor .node[data-node-id="outer-module"] .node-socket[aria-label="r"]')).toHaveCount(1)
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(7)
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(source).toContainText('inner(r = diameter(r = r));', { timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+})
+
+test('rejects a recursive Module body connection without changing the canvas or generated source', async ({ page }) => {
+  test.setTimeout(45_000)
+  await waitForLocalLibrary(page)
+  const project = {
+    format: 'scadlet', version: 5, metadata: { name: 'Recursive Module draft' },
+    graph: { nodes: [{ id: 'main-loop', type: 'module-call', position: { x: 500, y: 500 }, parameters: { definitionId: 'loop', arguments: {} } }], connections: [] },
+    definitions: [{
+      id: 'loop', kind: 'module', name: 'loop', interface: { inputs: 'loop-in', output: 'loop-out' }, parameters: [], geometryInputs: [],
+      graph: { nodes: [
+        { id: 'loop-in', type: 'module-inputs', position: { x: 50, y: 100 }, parameters: {} },
+        { id: 'self-call', type: 'module-call', position: { x: 260, y: 100 }, parameters: { definitionId: 'loop', arguments: {} } },
+        { id: 'loop-out', type: 'module-output', position: { x: 500, y: 100 }, parameters: {} },
+      ], connections: [] },
+    }], editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera: CAMERA },
+  }
+  await replaceLocalProjects(page, [{
+    id: 'recursive-module-draft', revision: 1,
+    createdAt: '2026-09-09T00:00:00.000Z', updatedAt: '2026-09-09T00:00:00.000Z', project,
+  }], 'recursive-module-draft')
+  await page.reload()
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  const source = page.locator('scadlet-app .scad-output')
+  await expect(source).toContainText('module loop()', { timeout: 15_000 })
+  const before = await source.textContent()
+  const connections = page.locator('node-editor svg.connection[data-real-connection="true"]')
+  await expect(connections).toHaveCount(0)
+  const selfCall = page.locator('node-editor .node[data-node-id="self-call"]')
+  const output = page.locator('node-editor .node[data-node-id="loop-out"]')
+  await connectSockets(page, selfCall.locator('.node-port--output .node-socket[aria-label="Geometry"]'), output.locator('.node-port--input .node-socket[aria-label="Geometry"]'))
+  await expect(page.locator('node-editor .scope-transfer-feedback')).toContainText('Recursive Module dependencies are not supported yet')
+  await expect(connections).toHaveCount(0)
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(source).toHaveText(before ?? '')
 })
 
 test('propagates nested Function result transitions and safely renames/deletes their callees', async ({ page }) => {

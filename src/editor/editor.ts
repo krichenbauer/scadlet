@@ -246,22 +246,23 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   /** Builds the effective dependency graph under a hypothetical connection
    * or scope transfer. This is pure preflight: no Rete connection, scope,
    * fallback, result type, or dirty state is changed while deciding. */
-  const functionDependencyCycle = (
+  const definitionDependencyCycle = (
     additionalConnection?: { source: string; target: string },
     scopeOverrides: ReadonlyMap<string, string | null> = new Map(),
     omittedConnectionIds: ReadonlySet<string> = new Set(),
-  ): readonly string[] | undefined => analyzeFunctionDependencies(
+  ) => analyzeFunctionDependencies(
     definitions.list().map((definition) => ({ id: definition.id, kind: definition.kind, outputNodeId: definition.outputNodeId })),
     editor.getNodes().map((node) => ({
       id: node.id,
       scope: scopeOverrides.has(node.id) ? scopeOverrides.get(node.id)! : definitions.scopeOf(node.id),
       ...(node instanceof FunctionCallNode ? { calledFunctionId: node.definitionId } : {}),
+      ...(node instanceof ModuleCallNode ? { calledModuleId: node.definitionId } : {}),
     })),
     [
       ...editor.getConnections().filter((item) => !omittedConnectionIds.has(item.id)),
       ...(additionalConnection ? [additionalConnection] : []),
     ],
-  ).cycle
+  )
   wouldCreateRecursiveConnection = (first, second) => {
     const source = first.side === 'output' ? first : second.side === 'output' ? second : undefined
     const target = first.side === 'input' ? first : second.side === 'input' ? second : undefined
@@ -270,9 +271,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const omitted = targetNode instanceof FunctionOutputNode && target.key === 'result'
       ? new Set(editor.getConnections().filter((item) => item.target === target.nodeId && item.targetInput === 'result').map((item) => item.id))
       : new Set<string>()
-    const recursive = Boolean(functionDependencyCycle({ source: source.nodeId, target: target.nodeId }, new Map(), omitted))
-    if (recursive) showScopeTransferFeedback('function-recursion')
-    return recursive
+    const analysis = definitionDependencyCycle({ source: source.nodeId, target: target.nodeId }, new Map(), omitted)
+    if (analysis.cycle) showScopeTransferFeedback(analysis.cycleKind === 'module' ? 'module-recursion' : 'function-recursion')
+    return Boolean(analysis.cycle)
   }
 
   // Reject recursion before Rete commits the wire. Only calls that can reach
@@ -285,8 +286,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const omitted = target instanceof FunctionOutputNode && context.data.targetInput === 'result'
       ? new Set(editor.getConnections().filter((item) => item.target === context.data.target && item.targetInput === 'result').map((item) => item.id))
       : new Set<string>()
-    if (!functionDependencyCycle({ source: context.data.source, target: context.data.target }, new Map(), omitted)) return context
-    showScopeTransferFeedback('function-recursion')
+    const analysis = definitionDependencyCycle({ source: context.data.source, target: context.data.target }, new Map(), omitted)
+    if (!analysis.cycle) return context
+    showScopeTransferFeedback(analysis.cycleKind === 'module' ? 'module-recursion' : 'function-recursion')
     return undefined
   })
 
@@ -985,8 +987,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     // connection creation and guarantees that a recursive candidate never
     // removes the old sole result wire.
     const omitted = new Set(oldResultConnections.map((item) => item.id))
-    if (functionDependencyCycle({ source: data.source, target: data.target }, new Map(), omitted)) {
-      showScopeTransferFeedback('function-recursion')
+    const analysis = definitionDependencyCycle({ source: data.source, target: data.target }, new Map(), omitted)
+    if (analysis.cycle) {
+      showScopeTransferFeedback(analysis.cycleKind === 'module' ? 'module-recursion' : 'function-recursion')
       return false
     }
     const plan = previousType !== newType
@@ -1118,6 +1121,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   showScopeTransferFeedback = (problem: ScopeTransferProblem): void => {
     feedback.textContent = t(
       problem === 'function-recursion' ? 'definition.functionRecursionUnsupported'
+        : problem === 'module-recursion' ? 'definition.moduleRecursionUnsupported'
         : problem === 'module-call' ? 'definition.moduleCallsMainOnly'
         : problem === 'function-incompatible' ? 'definition.functionScopeIncompatible'
           : 'definition.invalidScopeTransfer',
@@ -1137,7 +1141,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const overrides = new Map(activeScopeDrag.nodeIds.map((nodeId) => [nodeId, definitionId] as const))
     scopeDestination = {
       definitionId,
-      valid: structuralProblem === null && !functionDependencyCycle(undefined, overrides),
+      valid: structuralProblem === null && !definitionDependencyCycle(undefined, overrides).cycle,
     }
   }
   area.addPipe((context) => {
@@ -1174,7 +1178,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       let problem = changingScope ? scopeTransferProblem(editor, definitions, drag.nodeIds, targetScope) : null
       if (changingScope && !problem) {
         const overrides = new Map(drag.nodeIds.map((nodeId) => [nodeId, targetScope] as const))
-        if (functionDependencyCycle(undefined, overrides)) problem = 'function-recursion'
+        const analysis = definitionDependencyCycle(undefined, overrides)
+        if (analysis.cycle) problem = analysis.cycleKind === 'module' ? 'module-recursion' : 'function-recursion'
       }
       scopeDestination = null
       if (changingScope && problem) {
@@ -1221,9 +1226,11 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   }
 
   async function addModuleCallAt(definitionId: string, clientPosition: Position): Promise<boolean> {
-    if (!definitions.get(definitionId) || definitionAt(clientPosition) !== null) return false
+    const owner = definitionAt(clientPosition)
+    if (!definitions.get(definitionId) || (owner !== null && definitions.get(owner)?.kind === 'function')) return false
     const entry = findCatalogEntry('module-call')!
     const node = entry.create(creationContext, { definitionId })
+    if (owner !== null) definitions.assignNode(owner, node.id)
     await editor.addNode(node)
     const rect = area.container.getBoundingClientRect()
     await area.translate(node.id, clientToGraphPosition(clientPosition, rect, area.area.transform))
@@ -1314,7 +1321,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const definition = definitions.get(definitionId)
     const owner = definitionAt(clientPosition)
     if (!definition || definition.kind !== 'function' || !definition.resultType
-      || (owner !== null && definitions.get(owner)?.kind !== 'function')) return false
+      || (owner !== null && definitions.get(owner)?.kind !== 'function' && definitions.get(owner)?.kind !== 'module')) return false
     const entry = findCatalogEntry('function-call')!
     const node = entry.create(creationContext, { definitionId })
     if (owner !== null) definitions.assignNode(owner, node.id)

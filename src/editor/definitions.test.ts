@@ -112,7 +112,7 @@ describe('Module definitions', () => {
     expect(editor.getConnections()).toHaveLength(1)
   })
 
-  it('allows a connection-safe Module-to-Module transfer but never interfaces or Main-only calls', async () => {
+  it('allows a connection-safe Module-to-Module transfer and nested Module Calls, but never interfaces', async () => {
     const editor = new NodeEditor<Schemes>()
     const registry = new DefinitionRegistry()
     const wheel = definition()
@@ -129,6 +129,6 @@ describe('Module definitions', () => {
     registry.setNodeScopes([sphere.id], axle.id)
     expect(registry.scopeOf(sphere.id)).toBe(axle.id)
     expect(scopeTransferProblem(editor, registry, [wheel.inputsNodeId], null)).toBe('protected')
-    expect(scopeTransferProblem(editor, registry, [call.id], wheel.id)).toBe('module-call')
+    expect(scopeTransferProblem(editor, registry, [call.id], wheel.id)).toBeNull()
   })
 })

@@ -140,7 +140,7 @@ describe('v3 Module definition persistence', () => {
     await expect(evaluateOpenSCAD(target, engine, undefined, restored)).resolves.toContain('wheel() {\n  cube(10);\n}')
   })
 
-  it('rejects a dangling Main Call and a nested Module Call in persisted graphs', () => {
+  it('rejects a dangling Call but accepts a valid nested Module Call in persisted graphs', () => {
     const base = {
       format: 'scadlet', version: 3, metadata: { name: 'Broken' },
       graph: { nodes: [{ id: 'call', type: 'module-call', position: { x: 0, y: 0 }, parameters: { definitionId: 'missing' } }], connections: [] },
@@ -159,7 +159,30 @@ describe('v3 Module definition persistence', () => {
     const nested = structuredClone(base)
     nested.graph.nodes = []
     nested.definitions[0].graph.nodes.push({ id: 'nested', type: 'module-call', position: { x: 30, y: 0 }, parameters: { definitionId: definition.id } })
-    expect(() => parseScadletProject(nested)).toThrow('belongs in Main')
+    expect(parseScadletProject(nested).definitions[0]?.graph.nodes.find((node) => node.id === 'nested')).toMatchObject({ type: 'module-call', parameters: { definitionId: definition.id } })
+  })
+
+  it('rejects an effective persisted Module recursion while allowing a dead recursive draft', () => {
+    const module = (id: string, name: string, callee: string, connected: boolean) => ({
+      id, kind: 'module', name, interface: { inputs: `${id}-in`, output: `${id}-out` }, parameters: [], geometryInputs: [],
+      graph: {
+        nodes: [
+          { id: `${id}-in`, type: 'module-inputs', position: { x: 0, y: 0 }, parameters: {} },
+          { id: `${id}-out`, type: 'module-output', position: { x: 200, y: 0 }, parameters: {} },
+          { id: `${id}-call`, type: 'module-call', position: { x: 100, y: 0 }, parameters: { definitionId: callee, arguments: {} } },
+        ],
+        connections: connected ? [{ id: `${id}-body`, source: `${id}-call`, sourceOutput: 'geometry', target: `${id}-out`, targetInput: 'geometry' }] : [],
+      },
+    })
+    const dead = {
+      format: 'scadlet', version: 5, metadata: { name: 'Dead Module draft' }, graph: { nodes: [], connections: [] },
+      definitions: [module('a', 'a', 'b', true), module('b', 'b', 'a', false)],
+      editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera },
+    }
+    expect(parseScadletProject(dead).definitions).toHaveLength(2)
+    const recursive = structuredClone(dead)
+    recursive.definitions[1].graph.connections.push({ id: 'b-body', source: 'b-call', sourceOutput: 'geometry', target: 'b-out', targetInput: 'geometry' })
+    expect(() => parseScadletProject(recursive)).toThrow('Recursive Module dependencies are not supported yet: a → b → a.')
   })
 
   it.each([

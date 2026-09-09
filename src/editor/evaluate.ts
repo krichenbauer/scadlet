@@ -6,6 +6,7 @@ import type { Schemes } from './schemes'
 import type { DefinitionRegistry, ModuleDefinition, ModuleParameter, ModuleParameterDefault } from './definitions'
 import { analyzeFunctionDependencies } from './function-dependencies'
 import { FunctionCallNode } from './nodes/function-call-node'
+import { ModuleCallNode } from './nodes/module-call-node'
 import { t } from '../i18n/translate'
 
 /**
@@ -96,10 +97,11 @@ async function evaluateDefinitions(editor: NodeEditor<Schemes>, engine: Dataflow
       id: node.id,
       scope: definitions.scopeOf(node.id),
       ...(node instanceof FunctionCallNode ? { calledFunctionId: node.definitionId } : {}),
+      ...(node instanceof ModuleCallNode ? { calledModuleId: node.definitionId } : {}),
     })),
     editor.getConnections(),
   )
-  if (analysis.cycle) throw new Error(t('definition.functionRecursionUnsupported'))
+  if (analysis.cycle) throw new Error(t(analysis.cycleKind === 'module' ? 'definition.moduleRecursionUnsupported' : 'definition.functionRecursionUnsupported'))
   const definitionsById = new Map(allDefinitions.map((definition) => [definition.id, definition]))
   for (const definitionId of analysis.order) {
     const definition = definitionsById.get(definitionId)!
@@ -107,8 +109,8 @@ async function evaluateDefinitions(editor: NodeEditor<Schemes>, engine: Dataflow
     const body = await evaluateFunctionBody(editor, engine, definition)
     fragments.push(`function ${definition.name}(${moduleParameterDeclaration(definition.parameters ?? [])}) = ${body || 'undef'};`)
   }
-  for (const definition of allDefinitions) {
-    if (definition.kind !== 'module') continue
+  for (const definitionId of analysis.moduleOrder) {
+    const definition = definitionsById.get(definitionId)!
     const body = await evaluateModuleBody(editor, engine, definition)
     const indented = body ? `\n${body.split('\n').map((line) => `  ${line}`).join('\n')}\n` : '\n'
     fragments.push(`module ${definition.name}(${moduleParameterDeclaration(definition.parameters ?? [])}) {${indented}}`)

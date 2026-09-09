@@ -8,8 +8,8 @@ const definitions = [
   { id: 'c', kind: 'function' as const, outputNodeId: 'c-out' },
 ]
 
-function node(id: string, scope: string, calledFunctionId?: string) {
-  return { id, scope, ...(calledFunctionId ? { calledFunctionId } : {}) }
+function node(id: string, scope: string, calledFunctionId?: string, calledModuleId?: string) {
+  return { id, scope, ...(calledFunctionId ? { calledFunctionId } : {}), ...(calledModuleId ? { calledModuleId } : {}) }
 }
 
 describe('effective Function dependencies', () => {
@@ -58,5 +58,28 @@ describe('effective Function dependencies', () => {
     expect(analysis.dependencies.get('a')).toEqual(new Set())
     expect(analysis.dependencies.get('b')).toEqual(new Set(['a']))
     expect(analysis.cycle).toBeUndefined()
+  })
+
+  it('orders effective nested Module Calls and rejects only live Module recursion', () => {
+    const moduleDefinitions = [
+      { id: 'outer', kind: 'module' as const, outputNodeId: 'outer-out' },
+      { id: 'middle', kind: 'module' as const, outputNodeId: 'middle-out' },
+      { id: 'inner', kind: 'module' as const, outputNodeId: 'inner-out' },
+    ]
+    const nodes = [
+      node('outer-out', 'outer'), node('outer-middle', 'outer', undefined, 'middle'),
+      node('middle-out', 'middle'), node('middle-inner', 'middle', undefined, 'inner'),
+      node('inner-out', 'inner'), node('inner-cube', 'inner'),
+      node('dead-recursion', 'inner', undefined, 'outer'),
+    ]
+    const chain = [
+      { source: 'outer-middle', target: 'outer-out' },
+      { source: 'middle-inner', target: 'middle-out' },
+      { source: 'inner-cube', target: 'inner-out' },
+    ]
+    const acyclic = analyzeFunctionDependencies(moduleDefinitions, nodes, chain)
+    expect(acyclic.moduleOrder).toEqual(['inner', 'middle', 'outer'])
+    expect(acyclic.cycle).toBeUndefined()
+    expect(analyzeFunctionDependencies(moduleDefinitions, nodes, [...chain, { source: 'dead-recursion', target: 'inner-out' }])).toMatchObject({ cycle: ['outer', 'middle', 'inner', 'outer'], cycleKind: 'module' })
   })
 })
