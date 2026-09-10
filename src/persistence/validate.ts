@@ -536,7 +536,7 @@ function validateDefinitions(raw: unknown): ScadletDefinition[] {
   )
   if (dependencyAnalysis.cycle) {
     const names = new Map(definitions.map((definition) => [definition.id, definition.name]))
-    throw new ScadletProjectError(`Recursive ${dependencyAnalysis.cycleKind === 'module' ? 'Module' : 'Function'} dependencies are not supported yet: ${dependencyAnalysis.cycle.map((id) => names.get(id) ?? id).join(' → ')}.`)
+    throw new ScadletProjectError(`Recursive Module dependencies are not supported yet: ${dependencyAnalysis.cycle.map((id) => names.get(id) ?? id).join(' → ')}.`)
   }
   return definitions
 }

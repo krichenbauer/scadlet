@@ -1,0 +1,103 @@
+{
+  "format": "scadlet",
+  "version": 6,
+  "metadata": {
+    "name": "Recursive Functions",
+    "createdAt": "2026-09-10T00:00:00.000Z",
+    "updatedAt": "2026-09-10T00:00:00.000Z"
+  },
+  "graph": {
+    "nodes": [
+      { "id": "main-factorial", "type": "function-call", "position": { "x": 60, "y": 700 }, "parameters": { "definitionId": "factorial", "arguments": { "n": 5 } } },
+      { "id": "main-cube", "type": "cube", "position": { "x": 310, "y": 700 }, "parameters": { "sizeRepresentation": "scalar", "sizeScalar": 10, "sizeVector": { "x": 10, "y": 10, "z": 10 }, "size": 10 } },
+      { "id": "main-even", "type": "function-call", "position": { "x": 560, "y": 700 }, "parameters": { "definitionId": "even", "arguments": { "n": 6 } } }
+    ],
+    "connections": [
+      { "id": "main-size", "source": "main-factorial", "sourceOutput": "value", "target": "main-cube", "targetInput": "size" }
+    ]
+  },
+  "definitions": [
+    {
+      "id": "odd", "kind": "function", "name": "is_odd", "interface": { "inputs": "odd-in", "output": "odd-out" },
+      "parameters": [{ "id": "n", "name": "n", "type": "number", "default": 5 }], "resultType": "boolean",
+      "graph": {
+        "nodes": [
+          { "id": "odd-in", "type": "function-inputs", "position": { "x": 40, "y": 40 }, "parameters": {} },
+          { "id": "odd-zero", "type": "number", "position": { "x": 210, "y": 10 }, "parameters": { "value": 0, "name": "Zero" } },
+          { "id": "odd-compare", "type": "compare", "position": { "x": 390, "y": 10 }, "parameters": { "operator": "==" } },
+          { "id": "odd-base", "type": "boolean", "position": { "x": 390, "y": 115 }, "parameters": { "value": false, "name": "False" } },
+          { "id": "odd-decrement", "type": "arithmetic", "position": { "x": 210, "y": 220 }, "parameters": { "operation": "subtraction", "a": 0, "b": 1 } },
+          { "id": "odd-even-call", "type": "function-call", "position": { "x": 390, "y": 220 }, "parameters": { "definitionId": "even", "arguments": { "n": 5 } } },
+          { "id": "odd-choice", "type": "conditional", "position": { "x": 580, "y": 100 }, "parameters": { "valueType": "boolean" } },
+          { "id": "odd-out", "type": "function-output", "position": { "x": 780, "y": 100 }, "parameters": {} }
+        ],
+        "connections": [
+          { "id": "odd-compare-a", "source": "odd-in", "sourceOutput": "parameter:n", "target": "odd-compare", "targetInput": "a" },
+          { "id": "odd-compare-b", "source": "odd-zero", "sourceOutput": "value", "target": "odd-compare", "targetInput": "b" },
+          { "id": "odd-decrement-a", "source": "odd-in", "sourceOutput": "parameter:n", "target": "odd-decrement", "targetInput": "a" },
+          { "id": "odd-call-n", "source": "odd-decrement", "sourceOutput": "value", "target": "odd-even-call", "targetInput": "parameter:n" },
+          { "id": "odd-condition", "source": "odd-compare", "sourceOutput": "value", "target": "odd-choice", "targetInput": "condition" },
+          { "id": "odd-true", "source": "odd-base", "sourceOutput": "value", "target": "odd-choice", "targetInput": "true" },
+          { "id": "odd-false", "source": "odd-even-call", "sourceOutput": "value", "target": "odd-choice", "targetInput": "false" },
+          { "id": "odd-result", "source": "odd-choice", "sourceOutput": "result", "target": "odd-out", "targetInput": "result" }
+        ]
+      }
+    },
+    {
+      "id": "factorial", "kind": "function", "name": "factorial", "interface": { "inputs": "factorial-in", "output": "factorial-out" },
+      "parameters": [{ "id": "n", "name": "n", "type": "number", "default": 5 }], "resultType": "number",
+      "graph": {
+        "nodes": [
+          { "id": "factorial-in", "type": "function-inputs", "position": { "x": 40, "y": 400 }, "parameters": {} },
+          { "id": "factorial-one", "type": "number", "position": { "x": 210, "y": 350 }, "parameters": { "value": 1, "name": "One" } },
+          { "id": "factorial-compare", "type": "compare", "position": { "x": 390, "y": 350 }, "parameters": { "operator": "<=" } },
+          { "id": "factorial-decrement", "type": "arithmetic", "position": { "x": 210, "y": 510 }, "parameters": { "operation": "subtraction", "a": 0, "b": 1 } },
+          { "id": "factorial-self", "type": "function-call", "position": { "x": 390, "y": 510 }, "parameters": { "definitionId": "factorial", "arguments": { "n": 5 } } },
+          { "id": "factorial-multiply", "type": "arithmetic", "position": { "x": 570, "y": 510 }, "parameters": { "operation": "multiplication", "a": 0, "b": 1 } },
+          { "id": "factorial-choice", "type": "conditional", "position": { "x": 750, "y": 400 }, "parameters": { "valueType": "number" } },
+          { "id": "factorial-out", "type": "function-output", "position": { "x": 950, "y": 400 }, "parameters": {} }
+        ],
+        "connections": [
+          { "id": "factorial-compare-a", "source": "factorial-in", "sourceOutput": "parameter:n", "target": "factorial-compare", "targetInput": "a" },
+          { "id": "factorial-compare-b", "source": "factorial-one", "sourceOutput": "value", "target": "factorial-compare", "targetInput": "b" },
+          { "id": "factorial-decrement-a", "source": "factorial-in", "sourceOutput": "parameter:n", "target": "factorial-decrement", "targetInput": "a" },
+          { "id": "factorial-call-n", "source": "factorial-decrement", "sourceOutput": "value", "target": "factorial-self", "targetInput": "parameter:n" },
+          { "id": "factorial-multiply-a", "source": "factorial-in", "sourceOutput": "parameter:n", "target": "factorial-multiply", "targetInput": "a" },
+          { "id": "factorial-multiply-b", "source": "factorial-self", "sourceOutput": "value", "target": "factorial-multiply", "targetInput": "b" },
+          { "id": "factorial-condition", "source": "factorial-compare", "sourceOutput": "value", "target": "factorial-choice", "targetInput": "condition" },
+          { "id": "factorial-true", "source": "factorial-one", "sourceOutput": "value", "target": "factorial-choice", "targetInput": "true" },
+          { "id": "factorial-false", "source": "factorial-multiply", "sourceOutput": "value", "target": "factorial-choice", "targetInput": "false" },
+          { "id": "factorial-result", "source": "factorial-choice", "sourceOutput": "result", "target": "factorial-out", "targetInput": "result" }
+        ]
+      }
+    },
+    {
+      "id": "even", "kind": "function", "name": "is_even", "interface": { "inputs": "even-in", "output": "even-out" },
+      "parameters": [{ "id": "n", "name": "n", "type": "number", "default": 6 }], "resultType": "boolean",
+      "graph": {
+        "nodes": [
+          { "id": "even-in", "type": "function-inputs", "position": { "x": 40, "y": -300 }, "parameters": {} },
+          { "id": "even-zero", "type": "number", "position": { "x": 210, "y": -330 }, "parameters": { "value": 0, "name": "Zero" } },
+          { "id": "even-compare", "type": "compare", "position": { "x": 390, "y": -330 }, "parameters": { "operator": "==" } },
+          { "id": "even-base", "type": "boolean", "position": { "x": 390, "y": -225 }, "parameters": { "value": true, "name": "True" } },
+          { "id": "even-decrement", "type": "arithmetic", "position": { "x": 210, "y": -120 }, "parameters": { "operation": "subtraction", "a": 0, "b": 1 } },
+          { "id": "even-odd-call", "type": "function-call", "position": { "x": 390, "y": -120 }, "parameters": { "definitionId": "odd", "arguments": { "n": 6 } } },
+          { "id": "even-choice", "type": "conditional", "position": { "x": 580, "y": -240 }, "parameters": { "valueType": "boolean" } },
+          { "id": "even-out", "type": "function-output", "position": { "x": 780, "y": -240 }, "parameters": {} }
+        ],
+        "connections": [
+          { "id": "even-compare-a", "source": "even-in", "sourceOutput": "parameter:n", "target": "even-compare", "targetInput": "a" },
+          { "id": "even-compare-b", "source": "even-zero", "sourceOutput": "value", "target": "even-compare", "targetInput": "b" },
+          { "id": "even-decrement-a", "source": "even-in", "sourceOutput": "parameter:n", "target": "even-decrement", "targetInput": "a" },
+          { "id": "even-call-n", "source": "even-decrement", "sourceOutput": "value", "target": "even-odd-call", "targetInput": "parameter:n" },
+          { "id": "even-condition", "source": "even-compare", "sourceOutput": "value", "target": "even-choice", "targetInput": "condition" },
+          { "id": "even-true", "source": "even-base", "sourceOutput": "value", "target": "even-choice", "targetInput": "true" },
+          { "id": "even-false", "source": "even-odd-call", "sourceOutput": "value", "target": "even-choice", "targetInput": "false" },
+          { "id": "even-result", "source": "even-choice", "sourceOutput": "result", "target": "even-out", "targetInput": "result" }
+        ]
+      }
+    }
+  ],
+  "editor": { "viewport": { "x": 0, "y": 0, "zoom": 1 } },
+  "viewer": { "camera": { "position": [40, 40, 40], "target": [0, 0, 0] } }
+}

@@ -7,7 +7,7 @@ import { classicConnectionPath, getDOMSocketPosition } from 'rete-render-utils'
 import { CheckboxControl, LabeledNumberControl, LabeledTextControl, ModuleGeometryInputAddControl, ModuleGeometryInputEditControl, ModuleParameterAddControl, ModuleParameterEditControl, ParameterActionsControl, RepresentationSelectControl, SelectControl, TitleSelectControl, Vector3Control, type ParameterAction } from './controls'
 import { ModuleInputsNode } from './nodes/module-interface-nodes'
 import { ModuleOutputNode } from './nodes/module-interface-nodes'
-import { FunctionOutputNode } from './nodes/function-interface-nodes'
+import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interface-nodes'
 import { isEditableTarget } from './deletion'
 import { t } from '../i18n/translate'
 import type { InspectManager } from './inspect'
@@ -564,7 +564,7 @@ function renderNode(
     for (const [key, output] of parameterOutputs) {
       const row = renderPort(area, node.id, 'output', key, output.label, output.socket.name)
       row.classList.add('node-param-output-row')
-      if (node instanceof ModuleInputsNode) {
+      if (node instanceof ModuleInputsNode || node instanceof FunctionInputsNode) {
         const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'node-param-edit'; edit.textContent = '✎'; edit.setAttribute('aria-label', `Edit ${output.label ?? key}`)
         edit.addEventListener('pointerdown', (event) => event.stopPropagation())
         edit.addEventListener('click', () => node.beginParameterEdit(key.slice('parameter:'.length)))

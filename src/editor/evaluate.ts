@@ -117,7 +117,7 @@ async function evaluateDefinitions(editor: NodeEditor<Schemes>, engine: Dataflow
     })),
     editor.getConnections(),
   )
-  if (analysis.cycle) throw new Error(t(analysis.cycleKind === 'module' ? 'definition.moduleRecursionUnsupported' : 'definition.functionRecursionUnsupported'))
+  if (analysis.cycle) throw new Error(t('definition.moduleRecursionUnsupported'))
   const definitionsById = new Map(allDefinitions.map((definition) => [definition.id, definition]))
   for (const definitionId of analysis.order) {
     const definition = definitionsById.get(definitionId)!

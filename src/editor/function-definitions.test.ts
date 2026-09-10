@@ -10,7 +10,7 @@ import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interfa
 import { CubeNode } from './nodes/cube-node'
 import { ModuleCallNode } from './nodes/module-call-node'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
-import { ArithmeticNode, BasicMathNode, BooleanNode, ExponentialLogNode, NumberNode, TrigonometryNode, Vector3Node } from './nodes/value-nodes'
+import { ArithmeticNode, BasicMathNode, BooleanNode, CompareNode, ConditionalNode, ExponentialLogNode, NumberNode, TrigonometryNode, Vector3Node } from './nodes/value-nodes'
 import { scopeTransferProblem } from './scope-transfer'
 import type { Schemes } from './schemes'
 
@@ -115,6 +115,97 @@ describe('Function definitions (Milestone 8 Phase 7)', () => {
 
     const source = await evaluateOpenSCAD(editor, engine, undefined, definitions)
     expect(source).toBe('function double(x = 1) = (x * 2);\n\nfunction sixfold(x = 1) = (double(x = x) * 3);\n\ncube(sixfold(x = 1));')
+  })
+
+  it('generates a direct self-recursive Function through Compare and Conditional', async () => {
+    const { editor, engine } = graph()
+    const definitions = new DefinitionRegistry()
+    const factorial = { id: 'factorial', kind: 'function' as const, name: 'factorial', inputsNodeId: 'factorial-in', outputNodeId: 'factorial-out', parameters: [{ id: 'n', name: 'n', type: 'number' as const, default: 5 }], resultType: 'number' as const }
+    definitions.add(factorial)
+    const inputs = new FunctionInputsNode(factorial.parameters); inputs.id = factorial.inputsNodeId
+    const output = new FunctionOutputNode('number'); output.id = factorial.outputNodeId
+    const compare = new CompareNode({ operator: '<=' }); compare.id = 'factorial-base'
+    const one = new NumberNode({ value: 1, name: 'One' }); one.id = 'factorial-one'
+    const decrement = new ArithmeticNode({ operation: 'subtraction', a: 0, b: 1 }); decrement.id = 'factorial-decrement'
+    const recursiveCall = new FunctionCallNode(factorial, { definitionId: factorial.id }); recursiveCall.id = 'factorial-self'
+    const multiply = new ArithmeticNode({ operation: 'multiplication', a: 0, b: 1 }); multiply.id = 'factorial-multiply'
+    const conditional = new ConditionalNode({ valueType: 'number' }); conditional.id = 'factorial-choice'
+    const mainCall = new FunctionCallNode(factorial, { definitionId: factorial.id, arguments: { n: 5 } }); mainCall.id = 'main-factorial'
+    const cube = new CubeNode(); cube.id = 'main-cube'
+    for (const node of [inputs, output, compare, one, decrement, recursiveCall, multiply, conditional, mainCall, cube]) await editor.addNode(node)
+    for (const node of [compare, one, decrement, recursiveCall, multiply, conditional]) definitions.assignNode(factorial.id, node.id)
+    for (const connection of [
+      new ClassicPreset.Connection(inputs, 'parameter:n', compare, 'a'),
+      new ClassicPreset.Connection(one, 'value', compare, 'b'),
+      new ClassicPreset.Connection(inputs, 'parameter:n', decrement, 'a'),
+      new ClassicPreset.Connection(decrement, 'value', recursiveCall, 'parameter:n'),
+      new ClassicPreset.Connection(inputs, 'parameter:n', multiply, 'a'),
+      new ClassicPreset.Connection(recursiveCall, 'value', multiply, 'b'),
+      new ClassicPreset.Connection(compare, 'value', conditional, 'condition'),
+      new ClassicPreset.Connection(one, 'value', conditional, 'true'),
+      new ClassicPreset.Connection(multiply, 'value', conditional, 'false'),
+      new ClassicPreset.Connection(conditional, 'result', output, 'result'),
+      new ClassicPreset.Connection(mainCall, 'value', cube, 'size'),
+    ]) await editor.addConnection(connection as Schemes['Connection'])
+
+    expect(await evaluateOpenSCAD(editor, engine, undefined, definitions)).toBe(
+      'function factorial(n = 5) = ((n <= 1) ? 1 : (n * factorial(n = (n - 1))));\n\ncube(factorial(n = 5));',
+    )
+  })
+
+  it('generates mutually recursive Functions in stable project order', async () => {
+    const { editor, engine } = graph()
+    const definitions = new DefinitionRegistry()
+    const odd = { id: 'odd', kind: 'function' as const, name: 'is_odd', inputsNodeId: 'odd-in', outputNodeId: 'odd-out', parameters: [{ id: 'n', name: 'n', type: 'number' as const, default: 5 }], resultType: 'boolean' as const }
+    const even = { id: 'even', kind: 'function' as const, name: 'is_even', inputsNodeId: 'even-in', outputNodeId: 'even-out', parameters: [{ id: 'n', name: 'n', type: 'number' as const, default: 6 }], resultType: 'boolean' as const }
+    // Reverse the familiar source order deliberately: SCC members must use
+    // registry/project order, not traversal or connection insertion order.
+    definitions.add(odd); definitions.add(even)
+    const build = async (owner: typeof odd, callee: typeof even, base: boolean) => {
+      const inputs = new FunctionInputsNode(owner.parameters); inputs.id = owner.inputsNodeId
+      const output = new FunctionOutputNode('boolean'); output.id = owner.outputNodeId
+      const compare = new CompareNode({ operator: '==' }); compare.id = `${owner.id}-base`
+      const literal = new BooleanNode({ value: base, name: 'Base' }); literal.id = `${owner.id}-literal`
+      const zero = new NumberNode({ value: 0, name: 'Zero' }); zero.id = `${owner.id}-zero`
+      const decrement = new ArithmeticNode({ operation: 'subtraction', a: 0, b: 1 }); decrement.id = `${owner.id}-decrement`
+      const call = new FunctionCallNode(callee, { definitionId: callee.id }); call.id = `${owner.id}-call`
+      const conditional = new ConditionalNode({ valueType: 'boolean' }); conditional.id = `${owner.id}-choice`
+      for (const node of [inputs, output, compare, literal, zero, decrement, call, conditional]) await editor.addNode(node)
+      for (const node of [compare, literal, zero, decrement, call, conditional]) definitions.assignNode(owner.id, node.id)
+      for (const connection of [
+        new ClassicPreset.Connection(inputs, 'parameter:n', compare, 'a'),
+        new ClassicPreset.Connection(zero, 'value', compare, 'b'),
+        new ClassicPreset.Connection(inputs, 'parameter:n', decrement, 'a'),
+        new ClassicPreset.Connection(decrement, 'value', call, 'parameter:n'),
+        new ClassicPreset.Connection(compare, 'value', conditional, 'condition'),
+        new ClassicPreset.Connection(literal, 'value', conditional, 'true'),
+        new ClassicPreset.Connection(call, 'value', conditional, 'false'),
+        new ClassicPreset.Connection(conditional, 'result', output, 'result'),
+      ]) await editor.addConnection(connection as Schemes['Connection'])
+    }
+    await build(odd, even, false)
+    await build(even, odd, true)
+
+    expect(await evaluateOpenSCAD(editor, engine, undefined, definitions)).toBe(
+      'function is_odd(n = 5) = ((n == 0) ? false : is_even(n = (n - 1)));\n\nfunction is_even(n = 6) = ((n == 0) ? true : is_odd(n = (n - 1)));',
+    )
+  })
+
+  it('does not emit a disconnected recursive-looking Call in a Function body', async () => {
+    const { editor, engine } = graph()
+    const definitions = new DefinitionRegistry()
+    const definition = { id: 'stable', kind: 'function' as const, name: 'stable', inputsNodeId: 'stable-in', outputNodeId: 'stable-out', parameters: [], resultType: 'number' as const }
+    definitions.add(definition)
+    const inputs = new FunctionInputsNode(); inputs.id = definition.inputsNodeId
+    const output = new FunctionOutputNode('number'); output.id = definition.outputNodeId
+    const value = new NumberNode({ value: 7, name: 'Seven' }); value.id = 'stable-value'
+    const deadSelfCall = new FunctionCallNode(definition, { definitionId: definition.id }); deadSelfCall.id = 'dead-self-call'
+    for (const node of [inputs, output, value, deadSelfCall]) await editor.addNode(node)
+    definitions.assignNode(definition.id, value.id)
+    definitions.assignNode(definition.id, deadSelfCall.id)
+    await editor.addConnection(new ClassicPreset.Connection(value, 'value', output, 'result') as Schemes['Connection'])
+
+    expect(await evaluateOpenSCAD(editor, engine, undefined, definitions)).toBe('function stable() = 7;')
   })
 
   it('emits Functions before Modules and Main, and omits an unresolved Function entirely', async () => {

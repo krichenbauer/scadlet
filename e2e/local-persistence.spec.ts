@@ -6,6 +6,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const HISTORICAL_MODULE_PARAMETERS = JSON.parse(readFileSync(join(ROOT, 'src/persistence/fixtures/pre-phase4-module-parameters-v3.scadlet'), 'utf8'))
 const LEGACY_ARITHMETIC_V5_PATH = join(ROOT, 'src/persistence/fixtures/arithmetic-v5.scadlet')
+const RECURSIVE_FUNCTIONS_V6 = JSON.parse(readFileSync(join(ROOT, 'docs/examples/recursive-functions-v6.scadlet'), 'utf8'))
 const CAMERA = { position: [40, 40, 40], target: [0, 0, 0] }
 
 function nestedFunctionProject() {
@@ -262,19 +263,20 @@ async function addAndEditCube(page: Page, size: string) {
 /** Graph-node palette entries are deliberately drag-only. This dispatches
  * their native payload to the visible canvas center, the same drop path a
  * user drag reaches, without retaining the removed click-to-add shortcut. */
-async function dropPaletteNode(page: Page, type: string, position?: { x: number; y: number }) {
+async function dropPaletteNode(page: Page, type: string, position?: { x: number; y: number }, parameters?: Record<string, unknown>) {
   const canvasBox = await page.locator('node-editor').boundingBox()
   if (!canvasBox) throw new Error('Expected node-editor canvas')
   const point = position ?? { x: canvasBox.x + canvasBox.width / 2, y: canvasBox.y + canvasBox.height / 2 }
-  await page.evaluate(({ type, x, y }) => {
+  await page.evaluate(({ type, x, y, parameters }) => {
     const editor = document.querySelector('scadlet-app')?.shadowRoot?.querySelector('node-editor')
     const canvas = editor?.shadowRoot?.querySelector('#canvas')
     if (!canvas) throw new Error('Expected node-editor canvas')
     const dataTransfer = new DataTransfer()
     dataTransfer.setData('application/x-scadlet-node-type', type)
+    if (parameters) dataTransfer.setData('application/x-scadlet-node-parameters', JSON.stringify(parameters))
     canvas.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientX: x, clientY: y, dataTransfer }))
     canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX: x, clientY: y, dataTransfer }))
-  }, { type, ...point })
+  }, { type, ...point, parameters })
 }
 
 /** Checks the rendered control rather than its source CSS so dark/light UA
@@ -377,6 +379,38 @@ async function connectSockets(page: Page, source: Locator, target: Locator) {
   await page.mouse.down()
   await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, { steps: 8 })
   await page.mouse.up()
+}
+
+/** Uses the live editor's normal `addConnection` pipeline when a dense E2E
+ * graph would make pointer hit-testing test node layout instead of semantics. */
+async function tryConnectNodePorts(page: Page, source: string, sourceOutput: string, target: string, targetInput: string) {
+  const result = await page.locator('node-editor').evaluate(async (element, data) => {
+    const instance = (element as unknown as { getEditorInstance(): { getNodeScope(id: string): string | null; editor: {
+      getNode(id: string): { inputs: Record<string, { socket: { name: string } }>; outputs: Record<string, { socket: { name: string } }> } | undefined
+      getConnections(): { id: string; source: string; sourceOutput: string; target: string; targetInput: string }[]
+      addConnection(connection: unknown): Promise<boolean>
+    } } }).getEditorInstance()
+    const editor = instance.editor
+    const template = editor.getConnections()[0]
+    const sourceNode = editor.getNode(data.source)
+    const targetNode = editor.getNode(data.target)
+    if (!template || !sourceNode || !targetNode) throw new Error('Expected live Rete connection template and endpoints')
+    const connection = Object.assign(Object.create(Object.getPrototypeOf(template)), {
+      id: crypto.randomUUID(), source: data.source, sourceOutput: data.sourceOutput, target: data.target, targetInput: data.targetInput,
+    })
+    const created = await editor.addConnection(connection)
+    return {
+      created,
+      sourceOutputs: Object.keys(sourceNode.outputs), sourceSocket: sourceNode.outputs[data.sourceOutput]?.socket.name, sourceScope: instance.getNodeScope(data.source),
+      targetInputs: Object.keys(targetNode.inputs), targetSocket: targetNode.inputs[data.targetInput]?.socket.name, targetScope: instance.getNodeScope(data.target),
+    }
+  }, { source, sourceOutput, target, targetInput })
+  return result
+}
+
+async function connectNodePorts(page: Page, source: string, sourceOutput: string, target: string, targetInput: string) {
+  const result = await tryConnectNodePorts(page, source, sourceOutput, target, targetInput)
+  if (!result.created) throw new Error(`Live Rete connection rejected: ${JSON.stringify(result)}`)
 }
 
 async function waitForBoundingBox(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
@@ -619,7 +653,7 @@ test('creates, renders, inspects, and restores a parameterless Module Call', asy
   await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
 })
 
-test('builds, rejects recursion in, autosaves, reloads, and renders nested Function Calls', async ({ page }) => {
+test('builds, autosaves, reloads, and renders acyclic nested Function Calls', async ({ page }) => {
   test.setTimeout(90_000)
   await waitForLocalLibrary(page)
   const editorBox = await page.locator('node-editor').boundingBox()
@@ -647,7 +681,7 @@ test('builds, rejects recursion in, autosaves, reloads, and renders nested Funct
   await expect(page.locator('node-palette .module-item').filter({ hasText: 'inner' })).toHaveAttribute('draggable', 'true')
 
   // Make room for the second definition while keeping the first frame in
-  // view for the later indirect-cycle attempt.
+  // view while making room for the second definition.
   const innerTitle = await inner.frame.locator('.definition-frame-title').boundingBox()
   if (!innerTitle) throw new Error('Expected inner frame title')
   await page.mouse.move(innerTitle.x + 20, innerTitle.y + innerTitle.height / 2)
@@ -666,29 +700,7 @@ test('builds, rejects recursion in, autosaves, reloads, and renders nested Funct
   await connectSockets(page, nestedInnerCall.locator('.node-port--output .node-socket'), outerOutput.locator('.node-port--input .node-socket[aria-label="Result"]'))
   await expect(page.locator('node-palette .module-item').filter({ hasText: 'outer' })).toHaveAttribute('draggable', 'true')
 
-  // A direct recursive Call may be placed as a dead draft, but connecting it
-  // to the effective body is rejected before the existing body wire changes.
   const liveConnections = page.locator('node-editor svg.connection[data-real-connection="true"]')
-  await expect(liveConnections).toHaveCount(2)
-  const expandedOuterBox = await outer.frame.boundingBox()
-  if (!expandedOuterBox) throw new Error('Expected expanded outer frame')
-  await dropFunctionCall(page, outer.id, { x: expandedOuterBox.x + expandedOuterBox.width / 2, y: expandedOuterBox.y + expandedOuterBox.height - 35 })
-  const selfCallIds = await callNodeIdsInScope(page, 'outer', outer.id)
-  expect(selfCallIds).toHaveLength(1)
-  const selfCall = page.locator(`node-editor .node[data-node-id="${selfCallIds[0]}"]`)
-  await connectSockets(page, selfCall.locator('.node-port--output .node-socket'), outerOutput.locator('.node-port--input .node-socket[aria-label="Result"]'))
-  await expect(page.locator('node-editor .scope-transfer-feedback')).toContainText('Recursive Function dependencies are not supported yet')
-  await expect(liveConnections).toHaveCount(2)
-
-  // The same rejected preflight catches the indirect outer -> inner -> outer
-  // cycle without replacing inner's literal result.
-  const movedInnerBox = await inner.frame.boundingBox()
-  if (!movedInnerBox) throw new Error('Expected moved inner frame')
-  await dropFunctionCall(page, outer.id, { x: movedInnerBox.x + movedInnerBox.width / 2, y: movedInnerBox.y + movedInnerBox.height / 2 })
-  const indirectCallIds = await callNodeIdsInScope(page, 'outer', inner.id)
-  expect(indirectCallIds).toHaveLength(1)
-  const indirectCall = page.locator(`node-editor .node[data-node-id="${indirectCallIds[0]}"]`)
-  await connectSockets(page, indirectCall.locator('.node-port--output .node-socket'), innerOutput.locator('.node-port--input .node-socket[aria-label="Result"]'))
   await expect(liveConnections).toHaveCount(2)
 
   // Use outer in Main as a normal typed parameter source.
@@ -716,10 +728,273 @@ test('builds, rejects recursion in, autosaves, reloads, and renders nested Funct
   await page.reload()
   await expect(page.locator('node-editor .definition-frame')).toHaveCount(2)
   await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'inner' }) })).toHaveCount(1)
-  await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'outer' }) })).toHaveCount(3)
+  await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'outer' }) })).toHaveCount(1)
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(outer());', { timeout: 15_000 })
   await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+})
+
+test('builds a terminating self-recursive Function visibly and renders it after autosave reload', async ({ page }) => {
+  test.setTimeout(120_000)
+  await waitForLocalLibrary(page)
+  const editorBox = await page.locator('node-editor').boundingBox()
+  if (!editorBox) throw new Error('Expected node editor')
+
+  await page.getByRole('button', { name: '+ New function', exact: true }).click()
+  const dialog = page.getByRole('form', { name: 'Create function' })
+  await dialog.getByLabel('Function name').fill('factorial')
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+  const frame = page.locator('node-editor .definition-frame').filter({ hasText: 'function factorial' })
+  const definitionId = await frame.getAttribute('data-definition-id')
+  if (!definitionId) throw new Error('Expected factorial definition id')
+  const definitionFrame = page.locator(`node-editor .definition-frame[data-definition-id="${definitionId}"]`)
+  const runtime = await definitionRuntime(page, definitionId)
+  const inputs = page.locator(`node-editor .node[data-node-id="${runtime.inputsNodeId}"]`)
+  const output = page.locator(`node-editor .node[data-node-id="${runtime.outputNodeId}"]`)
+  await inputs.getByRole('button', { name: '+ Parameter', exact: true }).click()
+  await inputs.getByLabel('Name').fill('n')
+  await inputs.getByLabel('Type').selectOption('number')
+  await inputs.getByLabel('Default').fill('5')
+  await inputs.getByRole('button', { name: 'Add', exact: true }).click()
+
+  const initialFrameBox = await definitionFrame.boundingBox()
+  if (!initialFrameBox) throw new Error('Expected factorial frame')
+  const insidePoint = { x: initialFrameBox.x + initialFrameBox.width / 2, y: initialFrameBox.y + initialFrameBox.height / 2 }
+  const dropInside = (type: string, parameters?: Record<string, unknown>) => dropPaletteNode(page, type, insidePoint, parameters)
+  await dropInside('number', { value: 1, name: 'One' })
+  const one = page.locator('node-editor .node').filter({ has: page.locator('.node-header input[aria-label="Number Name"]') })
+  await expect(one).toHaveCount(1)
+  // Resolve the Function first: only resolved Functions can create Calls,
+  // including their own recursive Call.
+  await connectSockets(page, one.locator('.node-port--output .node-socket'), output.locator('.node-port--input .node-socket[aria-label="Result"]'))
+  await expect(page.locator('node-palette .module-item').filter({ hasText: 'factorial' })).toHaveAttribute('draggable', 'true')
+
+  await dropInside('compare', { operator: '<=' })
+  await dropInside('arithmetic', { operation: 'subtraction', a: 0, b: 1 })
+  await dropInside('arithmetic', { operation: 'multiplication', a: 0, b: 1 })
+  await dropInside('conditional', { valueType: 'number' })
+  const compare = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Comparison operator"]') })
+  const arithmetic = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Arithmetic operation"]') })
+  let decrement = arithmetic.nth(0)
+  let multiply = arithmetic.nth(1)
+  const conditional = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Conditional' }) })
+  await expect(compare).toHaveCount(1)
+  await expect(arithmetic).toHaveCount(2)
+  await expect(decrement.locator('select.node-title')).toHaveValue('subtraction')
+  await expect(multiply.locator('select.node-title')).toHaveValue('multiplication')
+  await expect(conditional).toHaveCount(1)
+
+  await dropFunctionCall(page, definitionId, insidePoint)
+  const selfIds = await callNodeIdsInScope(page, 'factorial', definitionId)
+  expect(selfIds).toHaveLength(1)
+  const selfCall = page.locator(`node-editor .node[data-node-id="${selfIds[0]}"]`)
+
+  const positionedIds = {
+    inputs: runtime.inputsNodeId,
+    output: runtime.outputNodeId,
+    one: await one.getAttribute('data-node-id'),
+    compare: await compare.getAttribute('data-node-id'),
+    decrement: await decrement.getAttribute('data-node-id'),
+    multiply: await multiply.getAttribute('data-node-id'),
+    conditional: await conditional.getAttribute('data-node-id'),
+    self: selfIds[0],
+  }
+  if (Object.values(positionedIds).some((id) => !id)) throw new Error('Expected recursive node ids')
+  await page.locator('node-editor').evaluate(async (element, ids) => {
+    const instance = (element as unknown as { getEditorInstance(): { area: { nodeViews: Map<string, { position: { x: number; y: number } }>; translate(id: string, position: { x: number; y: number }): Promise<void> } } }).getEditorInstance()
+    const origin = instance.area.nodeViews.get(ids.inputs)!.position
+    const positions: Record<string, { x: number; y: number }> = {
+      [ids.inputs]: origin,
+      [ids.one!]: { x: origin.x + 170, y: origin.y - 140 },
+      [ids.compare!]: { x: origin.x + 340, y: origin.y - 140 },
+      [ids.decrement!]: { x: origin.x + 170, y: origin.y + 160 },
+      [ids.self]: { x: origin.x + 340, y: origin.y + 160 },
+      [ids.multiply!]: { x: origin.x + 510, y: origin.y + 160 },
+      [ids.conditional!]: { x: origin.x + 510, y: origin.y - 80 },
+      [ids.output]: { x: origin.x + 700, y: origin.y },
+    }
+    for (const [id, position] of Object.entries(positions)) await instance.area.translate(id, position)
+  }, positionedIds as Record<keyof typeof positionedIds, string>)
+  decrement = page.locator(`node-editor .node[data-node-id="${positionedIds.decrement}"]`)
+  multiply = page.locator(`node-editor .node[data-node-id="${positionedIds.multiply}"]`)
+  const recursiveScopes = await page.locator('node-editor').evaluate((element, ids) => {
+    const instance = (element as unknown as { getEditorInstance(): { getNodeScope(id: string): string | null } }).getEditorInstance()
+    return Object.fromEntries(Object.entries(ids).map(([key, id]) => [key, instance.getNodeScope(id)]))
+  }, positionedIds as Record<keyof typeof positionedIds, string>)
+  expect(recursiveScopes).toEqual(Object.fromEntries(Object.keys(positionedIds).map((key) => [key, definitionId])))
+
+  for (const node of [inputs, compare, decrement, multiply, conditional, selfCall]) {
+    const pin = node.locator('.node-pin')
+    if (await pin.count()) await pin.click()
+  }
+  const n = inputs.locator('.node-param-output-row .node-socket[aria-label="n"]')
+  const nKey = await n.getAttribute('data-socket-key')
+  if (!nKey) throw new Error('Expected stable n parameter port')
+  const liveConnections = page.locator('node-editor svg.connection[data-real-connection="true"]')
+  await connectNodePorts(page, positionedIds.inputs, nKey, positionedIds.compare!, 'a')
+  await expect(liveConnections).toHaveCount(2)
+  await connectNodePorts(page, positionedIds.one!, 'value', positionedIds.compare!, 'b')
+  await expect(liveConnections).toHaveCount(3)
+  await connectNodePorts(page, positionedIds.inputs, nKey, positionedIds.decrement!, 'a')
+  await expect(liveConnections).toHaveCount(4)
+  await connectNodePorts(page, positionedIds.decrement!, 'value', positionedIds.self, nKey)
+  await expect(liveConnections).toHaveCount(5)
+  await connectNodePorts(page, positionedIds.inputs, nKey, positionedIds.multiply!, 'a')
+  await expect(liveConnections).toHaveCount(6)
+  await connectNodePorts(page, positionedIds.self, 'value', positionedIds.multiply!, 'b')
+  await expect(liveConnections).toHaveCount(7)
+  await connectNodePorts(page, positionedIds.compare!, 'value', positionedIds.conditional!, 'condition')
+  await expect(liveConnections).toHaveCount(8)
+  await connectNodePorts(page, positionedIds.one!, 'value', positionedIds.conditional!, 'true')
+  await expect(liveConnections).toHaveCount(9)
+  await connectNodePorts(page, positionedIds.multiply!, 'value', positionedIds.conditional!, 'false')
+  await expect(liveConnections).toHaveCount(10)
+  await connectNodePorts(page, positionedIds.conditional!, 'result', positionedIds.output, 'result')
+  await expect(liveConnections).toHaveCount(10)
+
+  const latestFrame = await definitionFrame.boundingBox()
+  if (!latestFrame) throw new Error('Expected expanded factorial frame')
+  const mainPoint = { x: editorBox.x + 35, y: editorBox.y + editorBox.height - 45 }
+  expect(mainPoint.y).toBeGreaterThan(latestFrame.y + latestFrame.height)
+  await dropFunctionCall(page, definitionId, mainPoint)
+  await dropPaletteNode(page, 'cube', { x: mainPoint.x + 240, y: mainPoint.y - 30 })
+  const mainIds = await callNodeIdsInScope(page, 'factorial', null)
+  expect(mainIds).toHaveLength(1)
+  const mainCall = page.locator(`node-editor .node[data-node-id="${mainIds[0]}"]`)
+  const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
+  await cube.locator('.node-pin').click()
+  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
+  const cubeId = await cube.getAttribute('data-node-id')
+  if (!cubeId) throw new Error('Expected Main Cube id')
+  await connectNodePorts(page, mainIds[0], 'value', cubeId, 'size')
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(11)
+
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  const source = page.locator('scadlet-app .scad-output')
+  await expect(source).toContainText('function factorial(n = 5) = ((n <= 1) ? 1 : (n * factorial(n = (n - 1))));', { timeout: 15_000 })
+  expect((await source.textContent())?.match(/function factorial/g)).toHaveLength(1)
+  await expect(source).toContainText('cube(factorial(n = 5));')
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+
+  await page.reload()
+  await expect(page.locator(`node-editor .node[data-node-id="${selfIds[0]}"]`)).toHaveCount(1)
+  const restoredInputs = page.locator(`node-editor .node[data-node-id="${runtime.inputsNodeId}"]`)
+  await restoredInputs.getByRole('button', { name: 'Edit n', exact: true }).click()
+  await restoredInputs.getByLabel('Name').fill('value')
+  await restoredInputs.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(11)
+
+  const entry = page.locator(`node-palette .module-entry[data-definition-id="${definitionId}"]`)
+  await entry.getByRole('button', { name: 'Edit factorial', exact: true }).click()
+  const rename = page.getByRole('form', { name: 'Rename function' })
+  await rename.getByLabel('Function name').fill('fact')
+  await rename.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.locator(`node-editor .node[data-node-id="${selfIds[0]}"] .node-title`)).toHaveText('fact')
+  await expect(page.locator(`node-editor .node[data-node-id="${mainIds[0]}"] .node-title`)).toHaveText('fact')
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(source).toContainText('function fact(value = 5) = ((value <= 1) ? 1 : (value * fact(value = (value - 1))));', { timeout: 15_000 })
+  await expect(source).toContainText('cube(fact(value = 5));')
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+
+  // A result-type change preflights every self-Call use. Cancellation keeps
+  // the recursive graph byte-for-byte intact; confirmation removes only the
+  // two incompatible outgoing wires (self Call -> multiply and Main Call ->
+  // Cube) while preserving all Call nodes, IDs, fallbacks, and argument wire.
+  await dropPaletteNode(page, 'boolean', insidePoint, { value: true, name: 'True' })
+  const boolean = page.locator('node-editor .node').filter({ has: page.locator('.node-header input[aria-label="Boolean Name"]') })
+  const booleanId = await boolean.getAttribute('data-node-id')
+  if (!booleanId) throw new Error('Expected recursive Boolean id')
+  await page.evaluate(() => { Object.defineProperty(window, 'confirm', { configurable: true, value: () => false }) })
+  expect((await tryConnectNodePorts(page, booleanId, 'value', runtime.outputNodeId, 'result')).created).toBe(false)
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(11)
+  await expect(output.locator('.node-socket[data-socket-key="result"]')).toHaveAttribute('data-socket-type', 'number')
+
+  await page.evaluate(() => { Object.defineProperty(window, 'confirm', { configurable: true, value: () => true }) })
+  expect((await tryConnectNodePorts(page, booleanId, 'value', runtime.outputNodeId, 'result')).created).toBe(true)
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(9)
+  await expect(output.locator('.node-socket[data-socket-key="result"]')).toHaveAttribute('data-socket-type', 'boolean')
+  await expect(page.locator(`node-editor .node[data-node-id="${selfIds[0]}"] .node-socket[data-socket-key="value"]`)).toHaveAttribute('data-socket-type', 'boolean')
+  await expect(cube.locator('.node-socket[data-socket-key="size"]')).not.toHaveClass(/socket--connected/)
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(source).toContainText('function fact(value = 5) = true;', { timeout: 15_000 })
+  await expect(source).toContainText('cube(10);')
+
+  // Removing that sole result performs the recursive unresolved transition;
+  // Calls remain restorable drafts and no incompatible outgoing wire survives.
+  const booleanResultConnectionId = await page.locator('node-editor').evaluate((element, outputNodeId) => {
+    const editor = (element as unknown as { getEditorInstance(): { editor: { getConnections(): { id: string; target: string; targetInput: string }[] } } }).getEditorInstance().editor
+    return editor.getConnections().find((item) => item.target === outputNodeId && item.targetInput === 'result')?.id
+  }, runtime.outputNodeId)
+  if (!booleanResultConnectionId) throw new Error('Expected Boolean result connection')
+  await page.locator(`node-editor .connection[data-connection-id="${booleanResultConnectionId}"] .connection-hit-path`).dispatchEvent('pointerdown', { button: 0 })
+  await page.keyboard.press('Delete')
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(8)
+  await expect(output.locator('.node-socket[data-socket-key="result"]')).toHaveAttribute('data-socket-type', 'unresolved')
+  await expect(page.locator(`node-editor .node[data-node-id="${selfIds[0]}"] .node-socket[data-socket-key="value"]`)).toHaveAttribute('data-socket-type', 'unresolved')
+  await expect(page.locator(`node-editor .node[data-node-id="${mainIds[0]}"] .node-socket[data-socket-key="value"]`)).toHaveAttribute('data-socket-type', 'unresolved')
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(source).not.toContainText('function fact', { timeout: 15_000 })
+  await expect(source).toContainText('cube(10);')
+})
+
+test('restores, evaluates, renders, autosaves, and reloads direct and mutually recursive Functions', async ({ page }) => {
+  test.setTimeout(90_000)
+  await waitForLocalLibrary(page)
+  await replaceLocalProjects(page, [{
+    id: 'recursive-functions', revision: 1,
+    createdAt: '2026-09-10T00:00:00.000Z', updatedAt: '2026-09-10T00:00:00.000Z', project: RECURSIVE_FUNCTIONS_V6,
+  }], 'recursive-functions')
+  await page.reload()
+
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(27)
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  const source = page.locator('scadlet-app .scad-output')
+  await expect(source).toContainText('function factorial(n = 5) = ((n <= 1) ? 1 : (n * factorial(n = (n - 1))));', { timeout: 15_000 })
+  await expect(source).toContainText('function is_odd(n = 5) = ((n == 0) ? false : is_even(n = (n - 1)));')
+  await expect(source).toContainText('function is_even(n = 6) = ((n == 0) ? true : is_odd(n = (n - 1)));')
+  await expect(source).toContainText('cube(factorial(n = 5));')
+  const sourceText = await source.textContent()
+  expect(sourceText!.indexOf('function is_odd')).toBeLessThan(sourceText!.indexOf('function is_even'))
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+
+  await page.locator('node-editor .node[data-node-id="main-even"] .node-header').dblclick()
+  await expect(page.locator('node-editor .node[data-node-id="main-even"] .node-inspect-value')).toHaveText('= true', { timeout: 15_000 })
+  await expect(source).toContainText('echo("__SCADLET_VALUE__:", is_even(n = 6));')
+
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await page.reload()
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(27)
+  await expect(page.locator('node-editor .node[data-node-id="factorial-self"]')).toHaveCount(1)
+  await expect(page.locator('node-editor .node[data-node-id="odd-even-call"]')).toHaveCount(1)
+  await expect(page.locator('node-editor .node[data-node-id="even-odd-call"]')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(source).toContainText('cube(factorial(n = 5));', { timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+
+  // Deleting one member of the mutual SCC preflights every peer Call. A
+  // cancellation is a complete no-op; confirmation removes both the owned
+  // scope and Calls to it without disturbing the independent factorial SCC.
+  const oddEntry = page.locator('node-palette .module-entry[data-definition-id="odd"]')
+  await page.evaluate(() => { Object.defineProperty(window, 'confirm', { configurable: true, value: () => false }) })
+  await oddEntry.getByRole('button', { name: 'Delete is_odd', exact: true }).click()
+  await expect(page.locator('node-editor .definition-frame')).toHaveCount(3)
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(27)
+
+  await page.evaluate(() => { Object.defineProperty(window, 'confirm', { configurable: true, value: () => true }) })
+  await oddEntry.getByRole('button', { name: 'Delete is_odd', exact: true }).click()
+  await expect(page.locator('node-editor .definition-frame')).toHaveCount(2)
+  await expect(page.locator('node-editor .node[data-node-id="even-odd-call"]')).toHaveCount(0)
+  await expect(page.locator('node-editor .node[data-node-id="factorial-self"]')).toHaveCount(1)
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(16)
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  const saved = await readLocalRecord(page, 'recursive-functions') as { project: { definitions: { id: string; resultType?: string; graph: { nodes: { type: string; parameters: { definitionId?: string } }[] } }[] } }
+  expect(saved.project.definitions.map((definition) => definition.id)).toEqual(['factorial', 'even'])
+  expect(saved.project.definitions.find((definition) => definition.id === 'even')?.resultType).toBeUndefined()
+  expect(saved.project.definitions.flatMap((definition) => definition.graph.nodes)
+    .some((node) => node.type === 'function-call' && node.parameters.definitionId === 'odd')).toBe(false)
 })
 
 test('renders and restores a visible Compare-driven Conditional Function through real OpenSCAD-WASM', async ({ page }) => {

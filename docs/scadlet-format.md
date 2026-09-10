@@ -21,6 +21,12 @@ v6 also adds the canonical `trigonometry`, `basic-math`, and
 these consolidated types; the four v5 types are migration input, not live
 catalog entries.
 
+Recursive Function support does not change the v6 representation. Direct and
+mutual Calls already use the existing stable `definitionId`, scoped graph,
+ports, fallbacks, and connection records, so no version bump or migration is
+needed. See `docs/examples/recursive-functions-v6.scadlet` for a validated
+direct-and-mutual recursion fixture.
+
 ## Version 5: Function definitions
 
 Version 5 adds user-defined Functions alongside Modules - see "Function
@@ -367,7 +373,10 @@ not change the v3 schema.
 
 Definitions are emitted as OpenSCAD declarations in deterministic dependency
 order: resolved Functions first, then Modules in effective callee-before-caller
-order. The `module-output` Geometry connection is the one body root;
+order. Function dependencies are collapsed into strongly connected components
+(SCCs): acyclic callees precede callers, recursive SCC members retain stable
+definition/project order, and the SCCs themselves remain dependency ordered.
+The `module-output` Geometry connection is the one body root;
 an unconnected Output emits an empty body. A declaration itself is never Main
 geometry, so an unused definition does not render until a Main `module-call`
 uses it.
@@ -442,15 +451,23 @@ with two differences: there is no `geometryInputs` field, and an optional
 - A Function definition graph may only contain `function-inputs`,
   `function-output`, `function-call`, and the existing value/math vocabulary
   (`number`, `boolean`, `vector3`, `arithmetic`, `trigonometry`,
-  `basic-math`, `exponential-log`, `compare`, `conditional`, `if`).
+  `basic-math`, `exponential-log`, `compare`, `conditional`).
   Any Geometry-producing/consuming node type, Module interface node, or
   `module-call` is rejected.
 - Effective dependencies are derived only from Calls whose values/Geometry can
   reach their owning Function/Module Output. Disconnected/dead Calls do not
-  affect declaration order or cycle validation. Resolved Functions are emitted
-  in deterministic callee-before-caller order before Modules; Modules are then
-  emitted in deterministic callee-before-caller order. Direct and indirect
-  effective Function or Module recursion is rejected.
+  affect declaration order, SCC membership, or cycle validation. Resolved
+  Functions are emitted before Modules. Acyclic Function dependencies remain
+  callee-before-caller; directly and mutually recursive Functions form SCCs
+  whose members are emitted in stable definition/project order. Modules are
+  then emitted in deterministic callee-before-caller order. Direct and indirect
+  effective Module recursion remains rejected, including Module cycles whose
+  bodies also use Function Calls as value inputs.
+- Function Calls are allowed in Main, Module definitions, and Function
+  definitions (including self- and mutually recursive Calls). Module Calls are
+  allowed in Main and Module definitions only. OpenSCAD-WASM is the sole
+  evaluator; schema validation does not and cannot prove that recursion
+  terminates at runtime.
 - An unresolved Function is not emitted and cannot be used to create a new
   Call. Existing Calls may remain as disconnected drafts with an unresolved
   output so result disconnection and callee deletion can be saved safely.
@@ -470,9 +487,15 @@ The referenced definition must exist and have `kind: "function"`. A resolved
 callee gives the Call its `resultType`; its stable parameter IDs define typed
 `parameter:<id>` inputs and its per-Call fallbacks remain independent. A Call
 inside another Function participates in that caller's expression normally.
+It may target that same Function or a peer in a mutually recursive SCC.
 New Calls cannot be created for an unresolved Function, but a previously
 existing disconnected Call is valid persisted draft state and restores with
 an unresolved output. Any outgoing wire from such a Call is invalid.
+
+Recursive Function Calls need no new durable fields: the existing stable
+definition ID, scoped graph membership, parameter ports/fallbacks, and
+connections fully represent them. They therefore remain canonical format v6;
+the v4 → v5 → v6 migration chain is unchanged.
 
 Module Calls remain forbidden inside Function definitions; both Call kinds are
 valid in Module definitions.

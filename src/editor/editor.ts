@@ -309,12 +309,13 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       ? new Set(editor.getConnections().filter((item) => item.target === target.nodeId && item.targetInput === 'result').map((item) => item.id))
       : new Set<string>()
     const analysis = definitionDependencyCycle({ source: source.nodeId, target: target.nodeId }, new Map(), omitted)
-    if (analysis.cycle) showScopeTransferFeedback(analysis.cycleKind === 'module' ? 'module-recursion' : 'function-recursion')
+    if (analysis.cycle) showScopeTransferFeedback('module-recursion')
     return Boolean(analysis.cycle)
   }
 
-  // Reject recursion before Rete commits the wire. Only calls that can reach
-  // a Function Output participate, so placing or wiring a dead Call remains
+  // Reject unsupported Module recursion before Rete commits the wire.
+  // Function-only recursive SCCs are valid. Only calls that can reach a
+  // definition Output participate, so placing or wiring a dead Call remains
   // harmless. A Function Output replacement excludes the old sole result
   // wire because the established replacement flow removes it atomically.
   editor.addPipe((context) => {
@@ -325,7 +326,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       : new Set<string>()
     const analysis = definitionDependencyCycle({ source: context.data.source, target: context.data.target }, new Map(), omitted)
     if (!analysis.cycle) return context
-    showScopeTransferFeedback(analysis.cycleKind === 'module' ? 'module-recursion' : 'function-recursion')
+    showScopeTransferFeedback('module-recursion')
     return undefined
   })
 
@@ -1043,12 +1044,12 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const oldResultConnections = editor.getConnections().filter((item) => item.target === data.target && item.targetInput === 'result')
     // Keep this check inside the replacement transaction as well as in the
     // general pre-pipe above. This is defense in depth for programmatic
-    // connection creation and guarantees that a recursive candidate never
-    // removes the old sole result wire.
+    // connection creation and guarantees that an unsupported Module cycle
+    // never removes the old sole result wire. Function recursion is valid.
     const omitted = new Set(oldResultConnections.map((item) => item.id))
     const analysis = definitionDependencyCycle({ source: data.source, target: data.target }, new Map(), omitted)
     if (analysis.cycle) {
-      showScopeTransferFeedback(analysis.cycleKind === 'module' ? 'module-recursion' : 'function-recursion')
+      showScopeTransferFeedback('module-recursion')
       return false
     }
     const plan = previousType !== newType
@@ -1268,8 +1269,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   let feedbackTimer: number | undefined
   showScopeTransferFeedback = (problem: ScopeTransferProblem): void => {
     feedback.textContent = t(
-      problem === 'function-recursion' ? 'definition.functionRecursionUnsupported'
-        : problem === 'module-recursion' ? 'definition.moduleRecursionUnsupported'
+      problem === 'module-recursion' ? 'definition.moduleRecursionUnsupported'
         : problem === 'module-call' ? 'definition.moduleCallsMainOnly'
         : problem === 'function-incompatible' ? 'definition.functionScopeIncompatible'
           : 'definition.invalidScopeTransfer',
@@ -1327,7 +1327,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       if (changingScope && !problem) {
         const overrides = new Map(drag.nodeIds.map((nodeId) => [nodeId, targetScope] as const))
         const analysis = definitionDependencyCycle(undefined, overrides)
-        if (analysis.cycle) problem = analysis.cycleKind === 'module' ? 'module-recursion' : 'function-recursion'
+        if (analysis.cycle) problem = 'module-recursion'
       }
       scopeDestination = null
       if (changingScope && problem) {
@@ -1537,16 +1537,37 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const calls = editor.getNodes().filter((node): node is FunctionCallNode => node instanceof FunctionCallNode && node.definitionId === definitionId)
     const nodeIds = new Set([...memberIds, ...calls.map((call) => call.id)])
     if (memberIds.some((id) => !editor.getNode(id)) || calls.some((call) => !editor.getNode(call.id))) throw new Error(t('definition.deleteFunctionFailed'))
-    const callIds = new Set(calls.map((call) => call.id))
+    // Every effective caller becomes an unresolved draft, including callers
+    // that reach the deleted Call through Arithmetic/Conditional rather than
+    // wiring it directly into Function Output. Walk the reverse dependency
+    // closure before mutation so recursive peers and their callers are
+    // handled as one atomic lifecycle transaction.
+    const dependencyAnalysis = definitionDependencyCycle()
     const affectedCallers = new Map<string, FunctionResultType | undefined>()
-    for (const item of editor.getConnections().filter((connection) => callIds.has(connection.source))) {
-      const target = editor.getNode(item.target)
-      const callerId = target instanceof FunctionOutputNode && item.targetInput === 'result' ? definitions.scopeOf(target.id) : null
-      if (callerId && callerId !== definitionId) affectedCallers.set(callerId, undefined)
+    const pendingDeletedDependencies = [definitionId]
+    while (pendingDeletedDependencies.length > 0) {
+      const removedDependency = pendingDeletedDependencies.shift()!
+      for (const candidate of definitions.list()) {
+        if (candidate.kind !== 'function' || candidate.id === definitionId || affectedCallers.has(candidate.id)) continue
+        if (dependencyAnalysis.dependencies.get(candidate.id)?.has(removedDependency)) {
+          affectedCallers.set(candidate.id, undefined)
+          pendingDeletedDependencies.push(candidate.id)
+        }
+      }
     }
     const transitionPlan = planFunctionResultTransitions(affectedCallers)
+    const affectedOutputConnections = [...transitionPlan.resultTypes]
+      .filter(([id, resultType]) => id !== definitionId && resultType === undefined)
+      .flatMap(([id]) => {
+        const outputNodeId = definitions.get(id)?.outputNodeId
+        return outputNodeId
+          ? editor.getConnections().filter((item) => item.target === outputNodeId && item.targetInput === 'result')
+          : []
+      })
     const connections = [...new Map(editor.getConnections()
-      .filter((item) => nodeIds.has(item.source) || nodeIds.has(item.target) || transitionPlan.doomedConnections.some((doomed) => doomed.id === item.id))
+      .filter((item) => nodeIds.has(item.source) || nodeIds.has(item.target)
+        || transitionPlan.doomedConnections.some((doomed) => doomed.id === item.id)
+        || affectedOutputConnections.some((output) => output.id === item.id))
       .map((item) => [item.id, item])).values()]
     const message = t('definition.confirmDeleteFunction')
       .replace('{name}', definition.name)

@@ -146,7 +146,6 @@ const dictionaries: Record<LocaleId, Record<string, string>> = {
     'definition.deleteFunctionFailed': 'Could not delete this Function. No changes were made.',
     'definition.confirmFunctionResultTypeChange': 'Changing the result type of "{name}" will disconnect {count} outgoing Call connection(s). Continue?',
     'definition.confirmFunctionUnresolve': 'Disconnecting the result of "{name}" will disconnect {count} outgoing Call connection(s) and make it uncallable again. Continue?',
-    'definition.functionRecursionUnsupported': 'Recursive Function dependencies are not supported yet. Disconnect this Call or route it outside the Function result.',
     'definition.moduleRecursionUnsupported': 'Recursive Module dependencies are not supported yet. Disconnect this Call or route it outside the Module output.',
     'input.base': 'Base',
     'input.subtract': 'Subtract',

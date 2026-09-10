@@ -1,4 +1,7 @@
 import { ClassicPreset, NodeEditor } from 'rete'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { DefinitionRegistry } from '../editor/definitions'
@@ -11,6 +14,7 @@ import { serializeProject } from './serialize'
 import { parseScadletProject, ScadletProjectError } from './validate'
 
 const camera = { position: [0, 0, 0] as [number, number, number], target: [0, 0, 0] as [number, number, number] }
+const recursiveFixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../docs/examples/recursive-functions-v6.scadlet'), 'utf8'))
 const functionDefinition = {
   id: 'fn-double', kind: 'function' as const, name: 'double_size',
   inputsNodeId: 'fn-double-inputs', outputNodeId: 'fn-double-output',
@@ -261,7 +265,7 @@ describe('Function definition persistence (introduced in v5, canonical in v6)', 
     expect(() => parseScadletProject(withOutgoingWire)).toThrow(/unknown output cannot connect to number input/)
   })
 
-  it('rejects an effective indirect Function recursion cycle but permits the same disconnected dead Call', () => {
+  it('validates effective mutual Function recursion and the same disconnected dead Call in schema v6', () => {
     const definition = (id: string, name: string, callee: string, connected: boolean) => ({
       id, kind: 'function', name, interface: { inputs: `${id}-in`, output: `${id}-out` }, parameters: [], resultType: 'number',
       graph: { nodes: [
@@ -274,11 +278,14 @@ describe('Function definition persistence (introduced in v5, canonical in v6)', 
       }] },
     })
     const project = (deadSecondCall: boolean) => ({
-      format: 'scadlet', version: 5, metadata: { name: 'Cycles' }, graph: { nodes: [], connections: [] },
+      format: 'scadlet', version: 6, metadata: { name: 'Cycles' }, graph: { nodes: [], connections: [] },
       definitions: [definition('a', 'a', 'b', true), definition('b', 'b', 'a', !deadSecondCall)],
       editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera },
     })
-    expect(() => parseScadletProject(project(false))).toThrow(/Recursive Function dependencies are not supported yet: a → b → a/)
+    const recursive = parseScadletProject(project(false))
+    expect(recursive.version).toBe(6)
+    expect(recursive.definitions).toHaveLength(2)
+    expect(recursive.definitions.flatMap((item) => item.graph.connections)).toHaveLength(2)
     expect(parseScadletProject(project(true)).definitions).toHaveLength(2)
   })
 
@@ -321,5 +328,31 @@ describe('Function definition persistence (introduced in v5, canonical in v6)', 
       const restoredInputs = target.getNode(inputs.id) as FunctionInputsNode
       expect(Object.keys(restoredInputs.outputs)).toEqual(['parameter:x-id'])
     }
+  })
+
+  it('round-trips direct and mutual recursive v6 Calls repeatedly without duplicate ports or wires', async () => {
+    const project = parseScadletProject(recursiveFixture)
+    const target = new NodeEditor<Schemes>()
+    const restored = new DefinitionRegistry()
+    const options = {
+      editor: target,
+      creationContext: { onControlsChanged: () => {}, getModuleDefinition: (id: string) => restored.get(id) },
+      setNodePosition: () => {}, clearDefinitions: () => restored.clear(), registerDefinition: (item: Parameters<DefinitionRegistry['add']>[0]) => restored.add(item),
+      assignNodeToDefinition: (definitionId: string, nodeId: string) => restored.assignNode(definitionId, nodeId),
+    }
+    await restoreProject(project, options)
+    await restoreProject(project, options)
+
+    expect(target.getConnections()).toHaveLength(27)
+    for (const id of ['factorial-self', 'odd-even-call', 'even-odd-call']) {
+      const call = target.getNode(id) as FunctionCallNode
+      expect(call).toBeInstanceOf(FunctionCallNode)
+      expect(Object.keys(call.inputs)).toEqual(['parameter:n'])
+      expect(call.getArguments()).toHaveProperty('n')
+    }
+    const roundTrip = parseScadletProject(serializeProject(serializeOptions(target, restored)))
+    expect(roundTrip.version).toBe(6)
+    expect(roundTrip.definitions.flatMap((definition) => definition.graph.connections)).toHaveLength(26)
+    expect(roundTrip.graph.connections).toHaveLength(1)
   })
 })

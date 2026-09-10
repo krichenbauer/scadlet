@@ -24,17 +24,29 @@ describe('effective Function dependencies', () => {
     ])
     expect(analysis.cycle).toBeUndefined()
     expect(analysis.order).toEqual(['c', 'b', 'a'])
+    expect(analysis.functionComponents).toEqual([
+      { members: ['c'], recursive: false },
+      { members: ['b'], recursive: false },
+      { members: ['a'], recursive: false },
+    ])
   })
 
-  it('reports direct recursion without mutating the supplied graph', () => {
+  it('accepts direct recursion as one deterministic SCC without mutating the supplied graph', () => {
     const nodes = [node('a-out', 'a'), node('a-call', 'a', 'a')]
     const connections = [{ source: 'a-call', target: 'a-out' }]
     const before = JSON.stringify({ nodes, connections })
-    expect(analyzeFunctionDependencies(definitions, nodes, connections).cycle).toEqual(['a', 'a'])
+    expect(analyzeFunctionDependencies(definitions, nodes, connections)).toMatchObject({
+      order: ['a', 'b', 'c'],
+      functionComponents: [
+        { members: ['a'], recursive: true },
+        { members: ['b'], recursive: false },
+        { members: ['c'], recursive: false },
+      ],
+    })
     expect(JSON.stringify({ nodes, connections })).toBe(before)
   })
 
-  it('reports indirect recursion but allows an acyclic chain', () => {
+  it('accepts mutual recursion and keeps SCC members in project order', () => {
     const nodes = [
       node('a-out', 'a'), node('b-out', 'b'), node('c-out', 'c'),
       node('a-call', 'a', 'b'), node('b-call', 'b', 'c'), node('c-call', 'c', 'a'),
@@ -43,8 +55,40 @@ describe('effective Function dependencies', () => {
       { source: 'a-call', target: 'a-out' },
       { source: 'b-call', target: 'b-out' },
     ]
-    expect(analyzeFunctionDependencies(definitions, nodes, chain).cycle).toBeUndefined()
-    expect(analyzeFunctionDependencies(definitions, nodes, [...chain, { source: 'c-call', target: 'c-out' }]).cycle).toEqual(['a', 'b', 'c', 'a'])
+    expect(analyzeFunctionDependencies(definitions, nodes, chain).order).toEqual(['c', 'b', 'a'])
+    const recursiveConnections = [...chain, { source: 'c-call', target: 'c-out' }]
+    const recursive = analyzeFunctionDependencies(definitions, nodes, recursiveConnections)
+    expect(recursive.cycle).toBeUndefined()
+    expect(recursive.order).toEqual(['a', 'b', 'c'])
+    expect(recursive.functionComponents).toEqual([{ members: ['a', 'b', 'c'], recursive: true }])
+    expect(analyzeFunctionDependencies(definitions, nodes, recursiveConnections.toReversed()).order).toEqual(['a', 'b', 'c'])
+  })
+
+  it('orders acyclic callees before and callers after a recursive SCC', () => {
+    const extended = [
+      { id: 'after', kind: 'function' as const, outputNodeId: 'after-out' },
+      { id: 'a', kind: 'function' as const, outputNodeId: 'a-out' },
+      { id: 'b', kind: 'function' as const, outputNodeId: 'b-out' },
+      { id: 'before', kind: 'function' as const, outputNodeId: 'before-out' },
+    ]
+    const analysis = analyzeFunctionDependencies(extended, [
+      node('after-out', 'after'), node('after-call', 'after', 'a'),
+      node('a-out', 'a'), node('a-b', 'a', 'b'), node('a-before', 'a', 'before'),
+      node('b-out', 'b'), node('b-a', 'b', 'a'),
+      node('before-out', 'before'), node('before-value', 'before'),
+    ], [
+      { source: 'after-call', target: 'after-out' },
+      { source: 'a-b', target: 'a-out' },
+      { source: 'a-before', target: 'a-out' },
+      { source: 'b-a', target: 'b-out' },
+      { source: 'before-value', target: 'before-out' },
+    ])
+    expect(analysis.order).toEqual(['before', 'a', 'b', 'after'])
+    expect(analysis.functionComponents).toEqual([
+      { members: ['before'], recursive: false },
+      { members: ['a', 'b'], recursive: true },
+      { members: ['after'], recursive: false },
+    ])
   })
 
   it('ignores a disconnected/dead Function Call', () => {

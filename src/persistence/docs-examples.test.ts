@@ -8,7 +8,7 @@ import { parseScadletProject } from './validate'
 
 const EXAMPLES_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../docs/examples')
 
-const EXAMPLE_FIXTURES = ['empty-project.scadlet', 'sphere-fn50.scadlet', 'cube-sphere-union-translate.scadlet', 'v2-empty-cube.scadlet']
+const EXAMPLE_FIXTURES = ['empty-project.scadlet', 'sphere-fn50.scadlet', 'cube-sphere-union-translate.scadlet', 'recursive-functions-v6.scadlet', 'v2-empty-cube.scadlet']
 
 function readExample(filename: string): unknown {
   return JSON.parse(readFileSync(join(EXAMPLES_DIR, filename), 'utf-8'))
@@ -52,6 +52,18 @@ describe('docs/scadlet-format.md examples stay valid', () => {
     expect(project.graph.nodes).toHaveLength(4)
     expect(project.graph.connections).toHaveLength(3)
     expect(project.graph.nodes.find((n) => n.id === 'translate-1')?.pinned).toBe(true)
+  })
+
+  it('recursive-functions-v6.scadlet preserves direct and mutual recursive Calls', () => {
+    const project = parseScadletProject(readExample('recursive-functions-v6.scadlet'))
+    expect(project.version).toBe(6)
+    expect(project.definitions).toHaveLength(3)
+    expect(project.definitions.find((definition) => definition.id === 'factorial')?.graph.nodes)
+      .toContainEqual(expect.objectContaining({ id: 'factorial-self', type: 'function-call' }))
+    expect(project.definitions.find((definition) => definition.id === 'odd')?.graph.nodes)
+      .toContainEqual(expect.objectContaining({ id: 'odd-even-call', type: 'function-call' }))
+    expect(project.definitions.find((definition) => definition.id === 'even')?.graph.nodes)
+      .toContainEqual(expect.objectContaining({ id: 'even-odd-call', type: 'function-call' }))
   })
 })
 

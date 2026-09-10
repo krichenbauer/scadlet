@@ -5,7 +5,7 @@ import type { Schemes } from './schemes'
 import { ModuleCallNode } from './nodes/module-call-node'
 import { FUNCTION_GRAPH_ALLOWED_NODE_TYPES, identifyNodeType } from './node-catalog'
 
-export type ScopeTransferProblem = 'protected' | 'module-call' | 'connection' | 'function-incompatible' | 'function-recursion' | 'module-recursion'
+export type ScopeTransferProblem = 'protected' | 'module-call' | 'connection' | 'function-incompatible' | 'module-recursion'
 
 /** Pure transaction preflight for a completed ordinary-node drag. It checks
  * the hypothetical final scopes for every touching connection as one set;
@@ -23,7 +23,8 @@ export function scopeTransferProblem(
     if (!node || registry.isProtectedNode(nodeId)) return 'protected'
     // Calls are valid in Main and Module scopes; Function scopes are pure
     // value-expression graphs and therefore accept resolved Function Calls
-    // only. Recursion is preflighted by editor.ts after this structural gate.
+    // only. Unsupported Module recursion is preflighted by editor.ts after
+    // this structural gate; Function recursion is valid.
     if (targetIsFunction && node instanceof ModuleCallNode) return 'module-call'
     // A Function's graph may only ever contain its own closed value-
     // expression vocabulary (AGENTS.md Milestone 8 Phase 7, section 6).

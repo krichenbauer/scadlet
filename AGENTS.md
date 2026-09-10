@@ -377,7 +377,9 @@ A Module/Function call in Main or another permitted definition graph is a normal
 - A call references the stable definition ID while displaying/emitting the current source-language name.
 - Signature edits must propagate safely to all call instances; do not leave hidden live connections to removed/incompatible parameter ports.
 
-Do not intentionally add recursive definition calls in the first implementation. If direct or indirect recursion would create an evaluation/code-generation cycle, reject it clearly until recursion receives an explicit design pass.
+Function Calls may be directly or mutually recursive inside Function scopes.
+Module Calls remain forbidden in Function scopes, and direct or indirect
+Module recursion remains rejected.
 
 #### Scope and future variables
 
@@ -431,7 +433,7 @@ wheel(doubleSize(10));
 
 For a Module, the Geometry connected to the special Module Output node defines the generated Module body root. For a Function, the value connected to Function Output defines the generated expression. Call nodes emit ordinary OpenSCAD Module calls or Function expressions; no SCADlet-specific wrapper syntax belongs in exported `.scad`.
 
-Definition dependency ordering must be deterministic and readable. Do not duplicate a definition's generated source for every call. Detect unsupported definition cycles rather than recursing indefinitely in SCADlet's graph evaluation.
+Definition dependency ordering must be deterministic and readable. Do not duplicate a definition's generated source for every call. Recursive Function SCCs are supported; detect unsupported Module cycles rather than recursing indefinitely in SCADlet's graph evaluation.
 
 Do not introduce a second geometry implementation such as JSCAD or replicad for preview generation. Avoid any architecture where preview semantics can differ from exported OpenSCAD semantics.
 
@@ -816,7 +818,7 @@ Main/definition call nodes must reference the stable definition ID, not only its
 
 Definition graph membership is semantic state. The visible frame's derived bounds/padding are presentation and should preferably be recomputed from member-node positions rather than persisted as semantic truth. If later user-adjustable frame presentation becomes worth preserving, keep it under editor state.
 
-The mandatory Input/Parameters and Output interface nodes must restore deterministically and retain stable protected identities/roles. Do not serialize them as arbitrary deletable user nodes if that makes malformed definition graphs possible. Validation must reject call references to missing definitions, missing/incompatible parameter ports, invalid Function result types, or definition cycles that the current language subset does not support.
+The mandatory Input/Parameters and Output interface nodes must restore deterministically and retain stable protected identities/roles. Do not serialize them as arbitrary deletable user nodes if that makes malformed definition graphs possible. Validation must reject call references to missing definitions, missing/incompatible parameter ports, invalid Function result types, or Module recursion; Function-only recursive SCCs are valid.
 
 Old v2 projects without definitions must migrate/open as a project containing only Main with an empty definition registry. Never make existing projects unloadable merely because Milestone 8 adds reusable definitions.
 
@@ -1557,7 +1559,8 @@ Call/signature correctness:
 - signature changes must update all calls safely
 - renaming/reordering must not silently retarget connections
 - removing/changing a connected parameter must never leave dangling/ghost Rete connections
-- reject direct/indirect recursive call cycles in the initial implementation unless recursion receives an explicit later design
+- allow direct and mutual recursion between resolved Functions; continue to
+  reject direct/indirect Module recursion and every Function-to-Module call
 
 Persistence is part of Milestone 8. Extend/version `.scadlet` deliberately for project-level definitions, definition graphs/scopes, stable parameter IDs, calls, and required editor positions; migrate existing v2 projects to Main + no definitions.
 
@@ -1598,16 +1601,29 @@ Geometry nodes, Module interfaces, or Module Calls. Module scopes permit both
 Module Calls and resolved Function Calls; Function scopes permit only resolved
 Function Calls.
 
+Current call policy:
+
+| Call location | Function Call | Module Call |
+| --- | --- | --- |
+| Main | allowed | allowed |
+| Module definition | allowed | allowed |
+| Function definition | allowed, including direct and mutual recursion | forbidden |
+
 Generated OpenSCAD emits every resolved Function's `function name(...) =
-expr;` declaration in deterministic callee-before-caller order before Modules,
-then emits Modules in deterministic effective callee-before-caller order before
-Main (`evaluate.ts`). Dependencies come only from Calls that can reach the
-owning Function/Module Output; dead Calls do not participate. Effective direct
-or indirect Module recursion is rejected alongside Function recursion.
-Direct and indirect recursion are rejected before live mutation and during
-project validation. An unresolved Function is a valid, saveable editor draft
+expr;` declaration before Modules, then emits Modules in deterministic
+effective callee-before-caller order before Main (`evaluate.ts`). Dependencies
+come only from Calls that can reach the owning Function/Module Output; dead
+Calls do not participate. Function dependencies are collapsed into strongly
+connected components: acyclic callees precede callers, direct recursion forms
+a one-member recursive SCC, mutual recursion forms one multi-member SCC, and
+members retain stable definition/project order. Effective direct or indirect
+Module recursion remains rejected before live mutation and during project
+validation, including Module cycles whose bodies also use Function Calls.
+An unresolved Function is a valid, saveable editor draft
 but is never emitted; new Calls cannot be created for it, while existing Calls
 remain as disconnected unresolved drafts so lifecycle edits remain saveable.
+OpenSCAD-WASM remains the sole evaluator, and SCADlet does not attempt to prove
+that a recursive Function terminates.
 
 The canonical `.scadlet` format is version 6 (`persistence/project.ts`):
 `ScadletFunctionDefinition` adds `kind: 'function'` and an optional
