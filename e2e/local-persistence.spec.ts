@@ -734,10 +734,12 @@ test('preselects palette/header operations with readable controls and safely cha
   const arithmeticEntry = palette.locator('.node-item[data-node-type="arithmetic"]')
   await arithmeticEntry.locator('select').selectOption('power')
   await expectReadableSelect(arithmeticEntry.locator('select'))
-  await expect(arithmeticEntry.locator('.node-drag-handle')).toHaveAttribute('draggable', 'true')
-  await expect(arithmeticEntry.locator('.node-drag-handle')).toHaveAttribute('type', 'button')
-  await expect(arithmeticEntry.locator('.node-drag-handle')).toHaveAttribute('aria-label', 'Drag Arithmetic node')
-  await arithmeticEntry.locator('.node-drag-handle').dragTo(canvas, { targetPosition: { x: 300, y: 520 } })
+  await expect(arithmeticEntry).toHaveAttribute('draggable', 'true')
+  await expect(arithmeticEntry.locator('.node-drag-handle')).toHaveCount(0)
+  // Changing the native selector itself is a normal control interaction;
+  // it must not create a node before the label/free-area drag begins.
+  await expect(page.locator('node-editor .node')).toHaveCount(0)
+  await arithmeticEntry.locator('.node-operation-label').dragTo(canvas, { targetPosition: { x: 300, y: 520 } })
   const arithmetic = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Arithmetic operation"]') })
   await expect(arithmetic).toHaveCount(1)
   await expect(arithmetic.locator('select.node-title')).toHaveValue('power')
@@ -760,7 +762,7 @@ test('preselects palette/header operations with readable controls and safely cha
   const compareEntry = palette.locator('.node-item[data-node-type="compare"]')
   await compareEntry.locator('select').selectOption('>=')
   await expectReadableSelect(compareEntry.locator('select'))
-  await compareEntry.locator('.node-drag-handle').dragTo(canvas, { targetPosition: { x: 520, y: 520 } })
+  await compareEntry.locator('.node-operation-label').dragTo(canvas, { targetPosition: { x: 520, y: 520 } })
   const compare = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Comparison operator"]') })
   await expect(compare.locator('select.node-title')).toHaveValue('>=')
   await expectReadableSelect(compare.locator('select.node-title'))
@@ -768,7 +770,7 @@ test('preselects palette/header operations with readable controls and safely cha
 
   const trigEntry = palette.locator('.node-item[data-node-type="trigonometry"]')
   await trigEntry.locator('select').selectOption('sin')
-  await trigEntry.locator('.node-drag-handle').dragTo(canvas, { targetPosition: { x: 560, y: 260 } })
+  await trigEntry.locator('.node-operation-label').dragTo(canvas, { targetPosition: { x: 560, y: 260 } })
   const trig = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Trigonometric operation"]') })
   await expect(trig.locator('select.node-title')).toHaveValue('sin')
   await trig.locator('.node-pin').click()
@@ -827,6 +829,77 @@ test('preselects palette/header operations with readable controls and safely cha
   await expect(restoredTrig.locator('select.node-title')).toHaveValue('cos')
   await expect(restoredTrig.locator('.node-param-row')).toHaveCount(1)
   await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(1)
+})
+
+test('enforces dark chrome while preserving source and input text selection', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.emulateMedia({ colorScheme: 'light' })
+  await waitForLocalLibrary(page)
+
+  const darkSurfaces = await page.evaluate(() => {
+    const color = (selector: string) => {
+      const element = document.querySelector(selector)
+      return element ? getComputedStyle(element).backgroundColor : null
+    }
+    return {
+      documentScheme: getComputedStyle(document.documentElement).colorScheme,
+      document: getComputedStyle(document.documentElement).backgroundColor,
+      app: color('scadlet-app'),
+    }
+  })
+  expect(darkSurfaces.documentScheme).toBe('dark')
+  expect(darkSurfaces.document).toBe('rgb(32, 32, 32)')
+  expect(darkSurfaces.app).toBe('rgb(32, 32, 32)')
+  await expectReadableSelect(page.locator('node-palette .node-item[data-node-type="arithmetic"] select'))
+  await expect(page.locator('scadlet-app header')).toHaveCSS('background-color', 'rgb(32, 32, 32)')
+  await expect(page.locator('node-editor')).toHaveCSS('background-color', 'rgb(32, 32, 32)')
+
+  const arithmeticSelect = page.locator('node-palette .node-item[data-node-type="arithmetic"] select')
+  await arithmeticSelect.click()
+  await expect.poll(() => arithmeticSelect.evaluate((element) => element.matches(':open'))).toBe(true)
+  await page.keyboard.press('Escape')
+  await arithmeticSelect.selectOption('division')
+  await expect(arithmeticSelect).toHaveValue('division')
+  await expect(page.locator('node-editor .node')).toHaveCount(0)
+
+  // Labels/chrome cannot be selected. The normal Cube drag also confirms
+  // the editor receives a palette gesture rather than document selection.
+  const cubeEntry = page.locator('node-palette .node-item[data-node-type="cube"]')
+  const canvas = page.locator('node-editor #canvas')
+  await cubeEntry.dragTo(canvas, { targetPosition: { x: 300, y: 400 } })
+  const cube = page.locator('node-editor .node')
+  await expect(cube).toHaveCount(1)
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('')
+  const nodeTitle = await cube.locator('.node-title').boundingBox()
+  const canvasBox = await canvas.boundingBox()
+  if (!nodeTitle || !canvasBox) throw new Error('Expected node title and canvas')
+  await page.mouse.move(nodeTitle.x + 8, nodeTitle.y + nodeTitle.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(nodeTitle.x + 45, nodeTitle.y + nodeTitle.height / 2, { steps: 4 })
+  await page.mouse.up()
+  await page.mouse.move(canvasBox.x + 80, canvasBox.y + 80)
+  await page.mouse.down()
+  await page.mouse.move(canvasBox.x + 120, canvasBox.y + 100, { steps: 4 })
+  await page.mouse.up()
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('')
+
+  const projectName = page.locator('scadlet-app .project-name')
+  await projectName.fill('Selectable project name')
+  await projectName.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
+  expect(await projectName.evaluate((input: HTMLInputElement) => input.selectionStart === 0 && input.selectionEnd === input.value.length)).toBe(true)
+
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  const source = page.locator('scadlet-app .scad-output')
+  await expect(source).toContainText('cube(', { timeout: 15_000 })
+  const sourceBox = await source.boundingBox()
+  if (!sourceBox) throw new Error('Expected generated source pane')
+  await page.mouse.move(sourceBox.x + 8, sourceBox.y + 10)
+  await page.mouse.down()
+  await page.mouse.move(sourceBox.x + Math.min(sourceBox.width - 8, 120), sourceBox.y + 10, { steps: 6 })
+  await page.mouse.up()
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? '')).toContain('cube')
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+C' : 'Control+C')
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('cube')
 })
 
 test('renders and restores pow/sqrt/Compare/Conditional Function math through real OpenSCAD-WASM', async ({ page }) => {

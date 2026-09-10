@@ -17,12 +17,25 @@ export class NodeEditorElement extends LitElement {
       display: block;
       position: relative;
       overflow: hidden;
+      background: #202020;
+      color: #eee;
+      color-scheme: dark;
+      user-select: none;
+      -webkit-user-select: none;
     }
 
     #canvas {
       position: absolute;
       inset: 0;
       outline: none;
+    }
+
+    input,
+    textarea,
+    select,
+    [contenteditable='true'] {
+      user-select: text;
+      -webkit-user-select: text;
     }
 
     .definition-frame-layer {

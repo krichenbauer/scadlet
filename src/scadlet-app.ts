@@ -53,7 +53,11 @@ export class ScadletApp extends LitElement {
       width: 100vw;
       height: 100vh;
       font-family: system-ui, sans-serif;
-      color-scheme: light dark;
+      background: #202020;
+      color: #eee;
+      color-scheme: dark;
+      user-select: none;
+      -webkit-user-select: none;
     }
 
     header {
@@ -62,6 +66,7 @@ export class ScadletApp extends LitElement {
       gap: 12px;
       padding: 8px 12px;
       border-bottom: 1px solid #444;
+      background: #202020;
     }
 
     header h1 {
@@ -86,8 +91,19 @@ export class ScadletApp extends LitElement {
     button {
       font: inherit;
       padding: 4px 10px;
+      border: 1px solid #666;
+      border-radius: 4px;
+      background: #2a2a2a;
+      color: #eee;
+      color-scheme: dark;
       cursor: pointer;
     }
+
+    button:hover:not(:disabled) { background: #353535; border-color: #888; }
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible { outline: 2px solid rgb(122 192 255 / 0.55); outline-offset: 1px; }
 
     button:disabled {
       cursor: default;
@@ -102,6 +118,8 @@ export class ScadletApp extends LitElement {
       color: inherit;
       border: 1px solid transparent;
       border-radius: 4px;
+      user-select: text;
+      -webkit-user-select: text;
     }
 
     .project-name:hover,
@@ -118,7 +136,16 @@ export class ScadletApp extends LitElement {
       max-width: 180px;
       font: inherit;
       padding: 4px 6px;
+      border: 1px solid #666;
+      border-radius: 4px;
+      background: #242424;
+      color: #eee;
+      color-scheme: dark;
+      user-select: auto;
+      -webkit-user-select: auto;
     }
+
+    .project-picker option { background: #242424; color: #eee; }
 
     .persistence-status {
       margin: 0;
@@ -144,6 +171,7 @@ export class ScadletApp extends LitElement {
       grid-template-columns: 200px minmax(0, 1fr);
       min-height: 0;
       min-width: 0;
+      background: #202020;
     }
 
     node-palette {
@@ -156,6 +184,7 @@ export class ScadletApp extends LitElement {
       grid-template-columns: minmax(0, var(--editor-width, 65%)) auto minmax(0, 1fr);
       min-height: 0;
       min-width: 0;
+      background: #202020;
     }
 
     node-editor {
@@ -175,6 +204,7 @@ export class ScadletApp extends LitElement {
       flex-direction: column;
       min-height: 0;
       overflow: hidden;
+      background: #181818;
     }
 
     .scad-output {
@@ -183,8 +213,12 @@ export class ScadletApp extends LitElement {
       padding: 8px;
       overflow: auto;
       border-top: 1px solid #444;
+      background: #181818;
+      color: #eee;
       font: 12px/1.4 ui-monospace, monospace;
       white-space: pre-wrap;
+      user-select: text;
+      -webkit-user-select: text;
     }
 
     geometry-viewer {
@@ -255,7 +289,17 @@ export class ScadletApp extends LitElement {
 
     .module-dialog h2 { margin: 0; font-size: 16px; }
     .module-dialog label { display: grid; gap: 5px; }
-    .module-dialog input { font: inherit; padding: 5px; }
+    .module-dialog input {
+      padding: 5px;
+      border: 1px solid #666;
+      border-radius: 4px;
+      background: #202020;
+      color: #eee;
+      color-scheme: dark;
+      font: inherit;
+      user-select: text;
+      -webkit-user-select: text;
+    }
     .module-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
     .module-error { margin: -6px 0 0; color: #ffb3b3; font-size: 12px; }
   `

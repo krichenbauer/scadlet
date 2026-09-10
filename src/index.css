@@ -1,5 +1,13 @@
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
+  background: #202020;
+  color: #eee;
+}
+
+html,
+body {
+  background: #202020;
+  color: #eee;
 }
 
 body {
@@ -11,4 +19,6 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
 }
