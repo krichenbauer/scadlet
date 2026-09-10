@@ -8,6 +8,7 @@ import { analyzeFunctionDependencies } from './function-dependencies'
 import { FunctionCallNode } from './nodes/function-call-node'
 import { ModuleCallNode } from './nodes/module-call-node'
 import { ConditionalNode } from './nodes/value-nodes'
+import { IfNode } from './nodes/if-node'
 import { t } from '../i18n/translate'
 
 /**
@@ -33,7 +34,7 @@ export async function evaluateOpenSCAD(
 ): Promise<string> {
   if (rootNodeId !== undefined) {
     if (!editor.getNode(rootNodeId)) return ''
-    assertNoIncompleteReachableConditional(editor, [rootNodeId])
+    assertNoIncompleteReachableBranch(editor, [rootNodeId])
     const source = await evaluateGeometryRoot(engine, rootNodeId)
     const scope = definitions?.scopeOf(rootNodeId)
     const definition = scope ? definitions?.get(scope) : undefined
@@ -48,13 +49,24 @@ export async function evaluateOpenSCAD(
     .filter((connection) => mainNodeIds.has(connection.source) && mainNodeIds.has(connection.target))
     .map((connection) => connection.source))
   const roots = editor.getNodes().filter((node) => mainNodeIds.has(node.id) && !consumedNodeIds.has(node.id))
-  assertNoIncompleteReachableConditional(editor, roots.filter((node) => Boolean(node.outputs.geometry)).map((node) => node.id))
+  assertNoIncompleteReachableBranch(editor, roots
+    .filter((node) => Boolean(node.outputs.geometry))
+    // An untouched If draft has no upstream program edges and emits no
+    // source. Treating it as a Main root merely because its output is
+    // unconsumed would make harmless palette drafts block Render. Once any
+    // semantic input is wired (or Inspect explicitly roots it), it becomes
+    // effective and receives the normal completeness check below.
+    .filter((node) => !(node instanceof IfNode) || editor.getConnections().some((connection) => connection.target === node.id))
+    .map((node) => node.id))
 
   const fragments: string[] = []
   for (const node of roots) {
     engine.reset()
     const output = (await engine.fetch(node.id)) as { geometry?: GeometryValue }
-    if (output.geometry) fragments.push(output.geometry.code)
+    // Incomplete disconnected Geometry If drafts intentionally evaluate to
+    // an empty fragment. Keep them absent from Main rather than introducing
+    // a phantom trailing separator/source statement.
+    if (output.geometry?.code) fragments.push(output.geometry.code)
   }
 
   const main = fragments.join('\n')
@@ -94,7 +106,7 @@ async function evaluateFunctionBody(editor: NodeEditor<Schemes>, engine: Dataflo
 async function evaluateDefinitions(editor: NodeEditor<Schemes>, engine: DataflowEngine<Schemes>, definitions: DefinitionRegistry): Promise<string> {
   const fragments: string[] = []
   const allDefinitions = definitions.list()
-  assertNoIncompleteReachableConditional(editor, allDefinitions.map((definition) => definition.outputNodeId))
+  assertNoIncompleteReachableBranch(editor, allDefinitions.map((definition) => definition.outputNodeId))
   const analysis = analyzeFunctionDependencies(
     allDefinitions.map((definition) => ({ id: definition.id, kind: definition.kind, outputNodeId: definition.outputNodeId })),
     editor.getNodes().map((node) => ({
@@ -126,7 +138,7 @@ async function evaluateDefinitions(editor: NodeEditor<Schemes>, engine: Dataflow
  * source generation, walk only the effective upstream graph roots so a dead
  * drafting node remains harmless while an expression that reaches Main or a
  * definition body gets one clear localized failure instead of `undef`. */
-function assertNoIncompleteReachableConditional(editor: NodeEditor<Schemes>, roots: readonly string[]): void {
+function assertNoIncompleteReachableBranch(editor: NodeEditor<Schemes>, roots: readonly string[]): void {
   const incoming = new Map<string, string[]>()
   for (const connection of editor.getConnections()) {
     const list = incoming.get(connection.target) ?? []
@@ -145,6 +157,10 @@ function assertNoIncompleteReachableConditional(editor: NodeEditor<Schemes>, roo
       if (node.getValueType() === undefined || !connected.has('condition') || !connected.has('true') || !connected.has('false')) {
         throw new Error(t('conditional.incomplete'))
       }
+    }
+    if (node instanceof IfNode) {
+      const connected = new Set(editor.getConnections().filter((item) => item.target === id).map((item) => item.targetInput))
+      if (!connected.has('condition') || !connected.has('then')) throw new Error(t('if.incomplete'))
     }
     pending.push(...(incoming.get(id) ?? []))
   }

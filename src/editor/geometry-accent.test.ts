@@ -15,6 +15,7 @@ import { ModuleCallNode } from './nodes/module-call-node'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
 import { FunctionCallNode } from './nodes/function-call-node'
 import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interface-nodes'
+import { IfNode } from './nodes/if-node'
 import { ArithmeticNode, BasicMathNode, BooleanNode, CompareNode, ConditionalNode, ExponentialLogNode, NumberNode, TrigonometryNode, Vector3Node } from './nodes/value-nodes'
 import { geometrySocket, numberSocket } from './sockets'
 
@@ -24,6 +25,7 @@ describe('Geometry accent classification', () => {
       new CubeNode(), new CylinderNode(), new SphereNode(),
       new TranslateNode(), new RotateNode(), new ScaleNode(),
       new DifferenceNode(), new UnionNode(), new IntersectionNode(),
+      new IfNode(),
       new ModuleCallNode({ id: 'wheel', name: 'wheel', parameters: [], geometryInputs: [] }),
     ]) expect(hasGeometryOutput(node.outputs)).toBe(true)
   })
@@ -57,7 +59,7 @@ describe('Geometry accent classification', () => {
   })
 
   it('gives only catalog entries with Geometry output ports the palette cue', () => {
-    for (const type of ['cube', 'translate', 'union'] as const) {
+    for (const type of ['cube', 'translate', 'union', 'if'] as const) {
       expect(catalogProducesGeometry(findCatalogEntry(type)!)).toBe(true)
     }
     for (const type of ['number', 'vector3', 'arithmetic', 'compare', 'conditional'] as const) {

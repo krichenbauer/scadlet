@@ -244,6 +244,7 @@ basic-math
 exponential-log
 compare
 conditional
+if
 module-inputs
 module-output
 module-call
@@ -441,7 +442,7 @@ with two differences: there is no `geometryInputs` field, and an optional
 - A Function definition graph may only contain `function-inputs`,
   `function-output`, `function-call`, and the existing value/math vocabulary
   (`number`, `boolean`, `vector3`, `arithmetic`, `trigonometry`,
-  `basic-math`, `exponential-log`, `compare`, `conditional`).
+  `basic-math`, `exponential-log`, `compare`, `conditional`, `if`).
   Any Geometry-producing/consuming node type, Module interface node, or
   `module-call` is rejected.
 - Effective dependencies are derived only from Calls whose values/Geometry can
@@ -541,6 +542,15 @@ cannot have branch/Result connections; a resolved one must retain at least one
 branch connection. A Result connection is valid only once all three inputs are
 connected. These rules let restore reconstruct the same socket state without a
 schema-version change.
+
+`if` is the Geometry-producing counterpart to value-only `conditional`. It
+stores no parameters and has fixed ports: Boolean input `condition`, required
+Geometry input `then`, optional Geometry input `else`, and Geometry output
+`geometry`. A reachable If without Condition or Then is rejected before source
+generation; an Else-less If is valid and emits an ordinary OpenSCAD `if` block.
+It is valid in Main and Module graphs, never Function graphs. Every connected
+branch of a reachable If participates in effective definition dependencies;
+dead/disconnected If drafts do not.
 
 All source and math value outputs use the stable port id `value`; Vector3
 uses Number inputs `x`, `y`, and `z`; Arithmetic and Compare use `a`/`b`,
@@ -724,6 +734,7 @@ basic-math:    input: x (Number)             outputs: value (Number)
 exponential-log: input: x (Number)           outputs: value (Number)
 compare:       inputs: a, b (Number)         outputs: value (Boolean)
 conditional:   inputs: condition + true/false; output: result (resolved value type)
+if:            inputs: condition + then/else; output: geometry
 module-inputs: dynamic outputs: parameter:<id> (Number|Boolean|Vector3)
 module-call:   dynamic inputs: parameter:<id> (referenced signature); outputs: geometry (Geometry); parameters: definitionId, arguments
 ```

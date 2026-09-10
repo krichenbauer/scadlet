@@ -76,6 +76,7 @@ describe('docs/scadlet-format.md documented node types stay in sync with the cat
     'exponential-log',
     'compare',
     'conditional',
+    'if',
     'module-inputs',
     'module-output',
     'module-call',

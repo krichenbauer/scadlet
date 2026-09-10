@@ -240,6 +240,30 @@ describe('parseScadletProject: connections', () => {
     raw.graph.connections = [{ id: 'bad', source: 'boolean', sourceOutput: 'value', target: 'conditional', targetInput: 'true' }]
     expect(() => parseScadletProject(raw)).toThrow('incompatible socket types: boolean output cannot connect to number input')
   })
+
+  it('validates Geometry If ports in Main but rejects it from Function graphs', () => {
+    const raw = createEmptyProject('If') as any
+    raw.graph.nodes = [
+      { id: 'condition', type: 'boolean', position: { x: 0, y: 0 }, parameters: { value: true, name: 'condition' } },
+      { id: 'then', type: 'cube', position: { x: 0, y: 0 }, parameters: { sizeRepresentation: 'scalar', size: 1 } },
+      { id: 'if', type: 'if', position: { x: 0, y: 0 }, parameters: {} },
+    ]
+    raw.graph.connections = [
+      { id: 'condition', source: 'condition', sourceOutput: 'value', target: 'if', targetInput: 'condition' },
+      { id: 'then', source: 'then', sourceOutput: 'geometry', target: 'if', targetInput: 'then' },
+    ]
+    expect(() => parseScadletProject(raw)).not.toThrow()
+
+    raw.definitions = [{
+      id: 'function', kind: 'function', name: 'value', interface: { inputs: 'inputs', output: 'output' }, parameters: [],
+      graph: { nodes: [
+        { id: 'inputs', type: 'function-inputs', position: { x: 0, y: 0 }, parameters: {} },
+        { id: 'if-in-function', type: 'if', position: { x: 100, y: 0 }, parameters: {} },
+        { id: 'output', type: 'function-output', position: { x: 200, y: 0 }, parameters: {} },
+      ], connections: [] },
+    }]
+    expect(() => parseScadletProject(raw)).toThrow('not a supported node type inside a Function definition')
+  })
 })
 
 describe('parseScadletProject: editor/viewport', () => {

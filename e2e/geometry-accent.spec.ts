@@ -132,6 +132,25 @@ test('renders a restrained Geometry accent for live Geometry outputs and matchin
   await expectGeometryCue(inputs, false)
 })
 
+test('creates the Geometry If from the Control flow palette with the canonical Geometry cue', async ({ page }) => {
+  await openEmptyProject(page)
+  const palette = page.locator('node-palette')
+  const entry = palette.locator('.node-item[data-node-type="if"]')
+  await expect(entry).toHaveClass(/node-item--geometry-output/)
+  await expect(entry).toHaveAttribute('draggable', 'true')
+
+  const editor = page.locator('node-editor')
+  const canvas = await editor.boundingBox()
+  if (!canvas) throw new Error('Expected node-editor canvas')
+  await dropPaletteNode(page, 'if', { x: canvas.x + 260, y: canvas.y + 260 })
+  const ifNode = await nodeWithModelLabel(page, 'If')
+  await expectGeometryCue(ifNode, true)
+  await expect(ifNode.locator('.node-socket[data-socket-side="input"][data-socket-key="condition"][data-socket-type="boolean"]')).toHaveCount(1)
+  await expect(ifNode.locator('.node-socket[data-socket-side="input"][data-socket-key="then"][data-socket-type="geometry"]')).toHaveCount(1)
+  await expect(ifNode.locator('.node-socket[data-socket-side="input"][data-socket-key="else"][data-socket-type="geometry"]')).toHaveCount(1)
+  await expect(ifNode.locator('.node-socket[data-socket-side="output"][data-socket-key="geometry"][data-socket-type="geometry"]')).toHaveCount(1)
+})
+
 test('keeps nodes draggable from free surfaces without visible grab handles or control interference', async ({ page }) => {
   await openEmptyProject(page)
   const editor = page.locator('node-editor')

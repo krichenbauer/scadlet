@@ -1621,6 +1621,14 @@ nodes and matching operation IDs while preserving node IDs, positions,
 Trigonometry's exact active `inputPorts` so malformed/duplicate dynamic port
 sets are rejected before restore.
 
+Geometry If is a fixed-port, statement-level companion to value Conditional:
+its Boolean `condition`, required Geometry `then`, optional Geometry `else`,
+and Geometry `geometry` output emit ordinary OpenSCAD `if (...) { ... } else
+{ ... }`. It is valid in Main and Module graphs, never Function graphs. A
+reachable If missing Condition or Then is a localized evaluation error, while
+an Else-less If is valid. Every connected branch of a reachable If contributes
+to effective definition dependencies; dead/disconnected If drafts do not.
+
 ### Milestone 9 — Iteration
 
 Add a visual representation of repetition / OpenSCAD `for`.

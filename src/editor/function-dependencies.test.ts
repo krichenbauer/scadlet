@@ -60,6 +60,29 @@ describe('effective Function dependencies', () => {
     expect(analysis.cycle).toBeUndefined()
   })
 
+  it('follows all effective If inputs but ignores Calls in a dead If', () => {
+    const moduleDefinitions = [
+      { id: 'a', kind: 'module' as const, outputNodeId: 'a-out' },
+      { id: 'b', kind: 'module' as const, outputNodeId: 'b-out' },
+      { id: 'c', kind: 'module' as const, outputNodeId: 'c-out' },
+    ]
+    const nodes = [
+      node('a-out', 'a'), node('a-if', 'a'), node('condition-call', 'a', 'b'),
+      node('then-call', 'a', undefined, 'c'), node('else-call', 'a', undefined, 'b'),
+      node('dead-if', 'a'), node('dead-call', 'a', undefined, 'a'),
+      node('b-out', 'b'), node('c-out', 'c'),
+    ]
+    const analysis = analyzeFunctionDependencies(moduleDefinitions, nodes, [
+      { source: 'a-if', target: 'a-out' },
+      { source: 'condition-call', target: 'a-if' },
+      { source: 'then-call', target: 'a-if' },
+      { source: 'else-call', target: 'a-if' },
+      { source: 'dead-call', target: 'dead-if' },
+    ])
+    expect(analysis.dependencies.get('a')).toEqual(new Set(['b', 'c']))
+    expect(analysis.cycle).toBeUndefined()
+  })
+
   it('orders effective nested Module Calls and rejects only live Module recursion', () => {
     const moduleDefinitions = [
       { id: 'outer', kind: 'module' as const, outputNodeId: 'outer-out' },

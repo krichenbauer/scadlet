@@ -10,6 +10,7 @@ import { ScaleNode } from './nodes/scale-node'
 import { SphereNode } from './nodes/sphere-node'
 import { TranslateNode } from './nodes/translate-node'
 import { UnionNode } from './nodes/union-node'
+import { IfNode } from './nodes/if-node'
 import { ArithmeticNode, BasicMathNode, BooleanNode, CompareNode, ConditionalNode, ExponentialLogNode, NumberNode, TrigonometryNode, Vector3Node, validateArithmeticParams, validateBasicMathParams, validateBooleanParams, validateCompareParams, validateConditionalParams, validateExponentialLogParams, validateNumberParams, validateTrigonometryParams, validateVector3ValueParams, type TrigonometryOperation } from './nodes/value-nodes'
 import { type VariadicBooleanParams } from './nodes/boolean-op-node'
 import { validateCubeParams } from '../openscad/cube'
@@ -45,7 +46,7 @@ export const FUNCTION_CALL_DRAG_MIME_TYPE = 'application/x-scadlet-function-call
  * `src/i18n/translate.ts`, looked up via each category's `labelKey` -
  * never derive UI copy from these ids directly.
  */
-export type NodeCategoryId = 'primitives' | 'transformations' | 'boolean-operations' | 'values' | 'math'
+export type NodeCategoryId = 'primitives' | 'transformations' | 'boolean-operations' | 'control-flow' | 'values' | 'math'
 
 /** Stable, language-independent node-type ids (also the drag payload and click-fallback argument). */
 export type NodeTypeId =
@@ -67,6 +68,7 @@ export type NodeTypeId =
   | 'exponential-log'
   | 'compare'
   | 'conditional'
+  | 'if'
   | 'module-inputs'
   | 'module-output'
   | 'module-call'
@@ -248,6 +250,7 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
   { id: 'primitives', labelKey: 'category.primitives' },
   { id: 'transformations', labelKey: 'category.transformations' },
   { id: 'boolean-operations', labelKey: 'category.booleanOperations' },
+  { id: 'control-flow', labelKey: 'category.controlFlow' },
   { id: 'values', labelKey: 'category.values' },
   { id: 'math', labelKey: 'category.math' },
 ]
@@ -449,6 +452,15 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     matches: (node) => node instanceof ConditionalNode,
     serializeParams: (node) => (node as ConditionalNode).getPersistedParams() as unknown as Record<string, unknown>,
     validateParams: (value) => validateConditionalParams(value) as unknown as Record<string, unknown>,
+  },
+  {
+    type: 'if', category: 'control-flow', labelKey: 'node.if', inputs: ['condition', 'then', 'else'], outputs: ['geometry'],
+    inputSocketType: (port) => port === 'condition' ? 'boolean' : (port === 'then' || port === 'else') ? 'geometry' : undefined,
+    outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
+    create: () => new IfNode(),
+    matches: (node) => node instanceof IfNode,
+    serializeParams: validateEmptyParams,
+    validateParams: validateEmptyParams,
   },
   {
     type: 'cube',

@@ -85,6 +85,31 @@ function absoluteConditionalProject() {
   }
 }
 
+/** A visible Main-graph Geometry If fixture. The browser test below drives
+ * the normal Render button and real bundled OpenSCAD-WASM, then reloads the
+ * autosaved v6 project rather than substituting a mocked evaluator. */
+function geometryIfProject() {
+  const cube = { sizeRepresentation: 'scalar', sizeScalar: 10, sizeVector: { x: 10, y: 10, z: 10 }, size: 10 }
+  return {
+    format: 'scadlet', version: 6, metadata: { name: 'Geometry If' },
+    graph: { nodes: [
+      { id: 'left', type: 'number', position: { x: 50, y: 120 }, parameters: { value: 2, name: 'Left' } },
+      { id: 'right', type: 'number', position: { x: 50, y: 250 }, parameters: { value: 3, name: 'Right' } },
+      { id: 'compare', type: 'compare', position: { x: 260, y: 180 }, parameters: { operator: '<' } },
+      { id: 'then', type: 'cube', position: { x: 460, y: 80 }, parameters: cube },
+      { id: 'else', type: 'sphere', position: { x: 460, y: 290 }, parameters: { mode: 'radius', r: 5, d: 10 } },
+      { id: 'if', type: 'if', position: { x: 700, y: 180 }, parameters: {} },
+    ], connections: [
+      { id: 'left-compare', source: 'left', sourceOutput: 'value', target: 'compare', targetInput: 'a' },
+      { id: 'right-compare', source: 'right', sourceOutput: 'value', target: 'compare', targetInput: 'b' },
+      { id: 'condition', source: 'compare', sourceOutput: 'value', target: 'if', targetInput: 'condition' },
+      { id: 'then', source: 'then', sourceOutput: 'geometry', target: 'if', targetInput: 'then' },
+      { id: 'else', source: 'else', sourceOutput: 'geometry', target: 'if', targetInput: 'else' },
+    ] }, definitions: [],
+    editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera: CAMERA },
+  }
+}
+
 function mathFunctionProject() {
   return {
     format: 'scadlet', version: 6, metadata: { name: 'Math function' },
@@ -724,6 +749,31 @@ test('renders and restores a visible Compare-driven Conditional Function through
   await expect(page.locator('node-editor .node[data-node-id="conditional"] .node-socket[data-socket-key="result"]')).toHaveAttribute('data-socket-type', 'number')
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(source).toContainText('function absolute(x = 0) = ((x < 0) ? (x * -1) : x);', { timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+})
+
+test('renders and restores a Compare-driven Geometry If through real OpenSCAD-WASM', async ({ page }) => {
+  test.setTimeout(60_000)
+  await waitForLocalLibrary(page)
+  await replaceLocalProjects(page, [{
+    id: 'geometry-if', revision: 1,
+    createdAt: '2026-09-10T00:00:00.000Z', updatedAt: '2026-09-10T00:00:00.000Z', project: geometryIfProject(),
+  }], 'geometry-if')
+  await page.reload()
+  const node = page.locator('node-editor .node[data-node-id="if"]')
+  await expect(node).toHaveClass(/node--geometry-output/)
+  await expect(node.locator('.node-socket[data-socket-key="condition"]')).toHaveAttribute('data-socket-type', 'boolean')
+  await expect(node.locator('.node-socket[data-socket-key="then"]')).toHaveAttribute('data-socket-type', 'geometry')
+  await expect(node.locator('.node-socket[data-socket-key="else"]')).toHaveAttribute('data-socket-type', 'geometry')
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  const source = page.locator('scadlet-app .scad-output')
+  await expect(source).toContainText('if ((2 < 3)) {\n  cube(10);\n} else {\n  sphere(r=5);\n}', { timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await page.reload()
+  await expect(page.locator('node-editor .node[data-node-id="if"] .node-socket[data-socket-key="geometry"]')).toHaveAttribute('data-socket-type', 'geometry')
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(source).toContainText('if ((2 < 3)) {\n  cube(10);\n} else {\n  sphere(r=5);\n}', { timeout: 15_000 })
   await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
 })
 

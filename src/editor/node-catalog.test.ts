@@ -38,6 +38,7 @@ describe('NODE_CATALOG', () => {
         'exponential-log',
         'compare',
         'conditional',
+        'if',
       ].sort(),
     )
   })
@@ -68,6 +69,7 @@ describe('NODE_CATALOG', () => {
     expect(findCatalogEntry('exponential-log')?.category).toBe('math')
     expect(findCatalogEntry('compare')?.category).toBe('math')
     expect(findCatalogEntry('conditional')?.category).toBe('math')
+    expect(findCatalogEntry('if')?.category).toBe('control-flow')
   })
 
   it('offers canonical operation choices before creation and no legacy arithmetic entries', () => {

@@ -12,6 +12,7 @@ import { ScaleNode } from '../editor/nodes/scale-node'
 import { SphereNode } from '../editor/nodes/sphere-node'
 import { TranslateNode } from '../editor/nodes/translate-node'
 import { UnionNode } from '../editor/nodes/union-node'
+import { IfNode } from '../editor/nodes/if-node'
 import { ArithmeticNode, BooleanNode, NumberNode, Vector3Node } from '../editor/nodes/value-nodes'
 import type { Schemes } from '../editor/schemes'
 import { serializeProject } from './serialize'
@@ -251,6 +252,28 @@ describe('per-node semantic round trip (serialize -> restore -> evaluate)', () =
     await roundTrip({ editor: src, positions: {} }, dst)
 
     expect(await evaluateOpenSCAD(dst, engine)).toBe('intersection() {\n    cube(10);\n    sphere(r=5);\n}')
+  })
+
+  it('retains a pinned Geometry If and its stable condition/then/else ports', async () => {
+    const { editor: src } = createGraph()
+    const condition = new BooleanNode({ value: true })
+    const whenThen = new CubeNode()
+    const whenElse = new SphereNode()
+    const node = new IfNode()
+    for (const item of [condition, whenThen, whenElse, node]) await src.addNode(item)
+    await src.addConnection(connect(condition, 'value', node, 'condition'))
+    await src.addConnection(connect(whenThen, 'geometry', node, 'then'))
+    await src.addConnection(connect(whenElse, 'geometry', node, 'else'))
+
+    const { editor: dst, engine } = createGraph()
+    const { project, restoredPinned, restoredPositions } = await roundTrip(
+      { editor: src, positions: { [node.id]: { x: 42, y: -17 } }, pinned: new Set([node.id]) }, dst,
+    )
+    expect(project.graph.nodes.find((item) => item.id === node.id)).toMatchObject({ type: 'if', position: { x: 42, y: -17 }, parameters: {}, pinned: true })
+    expect(project.graph.connections.filter((item) => item.target === node.id).map((item) => item.targetInput).sort()).toEqual(['condition', 'else', 'then'])
+    expect(restoredPinned.has(node.id)).toBe(true)
+    expect(restoredPositions[node.id]).toEqual({ x: 42, y: -17 })
+    expect(await evaluateOpenSCAD(dst, engine)).toBe('if (true) {\n  cube(10);\n} else {\n  sphere(r=5);\n}')
   })
 })
 
