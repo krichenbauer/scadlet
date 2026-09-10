@@ -355,7 +355,7 @@ Inputs                                    Module Output
 
 Generated OpenSCAD is still ordinary Module body syntax; do not invent `return geometry`. The single Geometry root is a SCADlet teaching abstraction that makes the definition's result explicit. If several independent geometry branches should form the body, combine them explicitly with the existing variadic Union rather than giving Module Output hidden multi-root/implicit-union semantics.
 
-Ordinary Module parameters are value parameters. Do not model geometry passed into a Module as a normal OpenSCAD argument merely because SCADlet has Geometry wires. OpenSCAD `children()` is distinct child-block semantics. Leave room for a later explicit `children()`/Geometry-child interface, but do not require it in the first Milestone 8 implementation unless requested.
+Ordinary Module parameters are value parameters. Do not model Geometry passed into a Module as a normal OpenSCAD argument merely because SCADlet has Geometry wires. OpenSCAD `children()` is distinct child-block semantics. Modules now expose this explicitly through their ordered Geometry-child interface: stable `geometry:<id>` outputs on Module Inputs correspond to matching Geometry inputs on Module Calls and emit ordered `children(index);` statements. Do not collapse this back into value parameters, defaults, or hidden implicit unions.
 
 #### Function definitions
 
@@ -533,6 +533,40 @@ Keep semantic graph logic out of Lit rendering code where practical.
 
 Prefer browser-native controls and behavior over custom reimplementations.
 
+### Current visual and interaction baseline
+
+SCADlet currently has one deliberate visual theme: dark. The application must
+render dark independently of the browser or operating system's
+`prefers-color-scheme`; do not introduce a light theme or a theme switcher
+without an explicit product decision. Browser-native controls, including
+opened `<select>` option lists, must remain readable in that dark baseline.
+
+Treat SCADlet as an application UI rather than a selectable document. Ordinary
+application chrome, palette labels, canvas labels, and node presentation use
+`user-select: none`. Preserve normal text interaction for editable controls
+(`input`, `textarea`, `select`, and contenteditable controls) and for the
+generated OpenSCAD source pane, which remains selectable and copyable.
+
+Configurable palette entries show a native operation selector before creation.
+Dragging any free part of the entry, including its label/background but not the
+actual `<select>`, creates a node with the currently selected operation through
+the shared editor creation path. The selector itself remains an ordinary native
+control and must never begin a palette drag. Do not reintroduce a mandatory
+small drag handle for palette entries or canvas nodes.
+
+Canvas nodes drag from their non-interactive background/header space. Inputs,
+buttons, selects, pins, sockets, connections, and other direct-manipulation
+controls retain their own interaction and must not begin node movement.
+
+Geometry flow has one restrained visual cue: a node with at least one current
+Geometry **output socket** receives a complete thin Geometry-blue canvas
+border. The classification uses canonical socket identity/type, not a port
+key, title, DOM label, or generated source; it must therefore cover Geometry
+outputs such as Difference/Translate and dynamic Module Inputs. Value-only
+nodes remain neutral. The palette uses a compact corresponding Geometry cue
+for entries that create Geometry-producing nodes. Preserve selection, focus,
+error, socket, and control styling as higher-priority states.
+
 The main workspace uses resizable panes. Resizing must not recreate the Rete editor or Three.js scene; container-size changes should be handled by the existing components while preserving graph state, viewport state, and camera state.
 
 Node selection/deletion is part of the editor interaction baseline:
@@ -573,7 +607,7 @@ Current behavior:
 
 - expanding/collapsing must not move nodes, disturb the canvas viewport, change graph semantics, or move existing connector anchors. Structural ports live in a stable main/header row; expandable controls grow separately below it
 
-Node layout is normalized as inputs on the far left, a stable title/port row in the middle, and outputs on the far right, with expandable controls in a separate row below. Current nodes use a stable minimum width so opening controls does not shift sockets horizontally. Geometry socket type is communicated visually by its existing blue socket treatment rather than by repeating a visible `Geometry` label on every port. Semantic socket typing and accessible names must remain intact. Number, Vector3, and later genuinely distinct value types should use consistent, distinguishable socket/connection visuals without splitting Number into int/float.
+Node layout is normalized as inputs on the far left, a stable title/port row in the middle, and outputs on the far right, with expandable controls in a separate row below. Current nodes use a stable minimum width so opening controls does not shift sockets horizontally. Geometry socket type is communicated through its existing blue socket treatment and the restrained output-derived Geometry border rather than by repeating a visible `Geometry` label on every port. Semantic socket typing and accessible names must remain intact. Number, Vector3, and later genuinely distinct value types should use consistent, distinguishable socket/connection visuals without splitting Number into int/float.
 
 As parameter sockets are introduced, compactness becomes **connection-aware**: every connected input must remain visible in the collapsed state, with the corresponding inline editor disabled while the connection is authoritative. Hover during a compatible connection drag may expand the node further to reveal currently unused target ports. Expansion for this purpose must preserve the established stable-anchor invariant so the socket a user is aiming for does not jump.
 
@@ -669,7 +703,7 @@ The existing built-in catalog remains the authority for built-in node types. Use
 
 A normal click/drag on a user-defined entry creates a **call node**. Provide a distinct edit affordance/context action that locates/selects/focuses the corresponding definition frame on the same canvas rather than overloading ordinary call creation. New definition creation should be Scratch-like and discoverable (`+ New module`, `+ New function`); a small creation flow may collect the definition name and initial parameters, which remain editable afterward on the definition's Input/Parameters node.
 
-Keep future sidebar polish separate from Milestone 8 semantics. Collapsible groups, stronger category colors, searching, and other palette organization are desirable later but should not be required to implement reusable definitions correctly. Structure palette groups so such refinement remains feasible.
+Keep future sidebar polish separate from definition semantics. The current palette already gives Geometry-producing entries a restrained Geometry-blue cue; Value-only entries remain neutral. Collapsible groups, searching, and further category organization remain later UX work. Structure palette groups so such refinement remains feasible.
 
 ### Localization readiness
 
@@ -763,7 +797,7 @@ From this milestone onward, every new persistent language/editor feature must be
 
 ### Persistence of Modules and Functions
 
-Milestone 8 is a persistent language-model change and therefore requires an explicit `.scadlet` format evolution from the current v2 representation (normally a new version plus migration unless a demonstrably backward-compatible extension is preferable). Update `docs/scadlet-format.md`, types, serializer, validator, restore path, fixtures, local autosave compatibility, and migration tests together.
+Milestone 8 was a persistent language-model change and evolved the former v2 representation through v3, v4, and v5. The current canonical format is v6. Future definition-language changes must continue to update `docs/scadlet-format.md`, types, serializer, validator, restore path, fixtures, local autosave compatibility, and migration tests together.
 
 Persist definitions as project-level semantic objects with stable IDs. Conceptually each definition needs:
 
@@ -1319,9 +1353,10 @@ as `+`, `−`, `×`, `÷`, `%`, and `pow`). Trigonometry supports `sin`, `cos`,
 scopes. Compare retains its established six symbolic operator identifiers.
 
 For these families and Compare, the operation dropdown is the visible node
-title and the left palette offers the same selection before a drag. A separate
-palette drag handle keeps native selects usable, and the selected operation is
-included in node construction rather than applied afterward. Trigonometry
+title and the left palette offers the same selection before a drag. Dragging a
+free palette-entry area uses the selected operation; the native selector itself
+remains a normal non-draggable control. The selected operation is included in
+node construction rather than applied afterward. Trigonometry
 uses stable `a`/`b` identities: unary operations expose only `a` labelled X;
 `atan2` retains that wire as `a` labelled Y and adds `b` labelled X. Removing
 a connected `b` port requires localized confirmation, removes only that wire
@@ -1507,7 +1542,7 @@ Sidebar/creation UX:
 - include obvious `+ New module` / `+ New function` creation actions inspired by Scratch's custom-block workflow
 - dragging/clicking a definition entry creates a call node through the normal creation path
 - a separate edit action locates/focuses its definition frame on the same canvas
-- defer collapsible groups, stronger sidebar colors, search, and other palette polish to a later UX pass
+- retain the current restrained Geometry palette cue; defer collapsible groups, search, and other palette polish to a later UX pass
 
 Scope rules:
 
@@ -1526,7 +1561,7 @@ Call/signature correctness:
 
 Persistence is part of Milestone 8. Extend/version `.scadlet` deliberately for project-level definitions, definition graphs/scopes, stable parameter IDs, calls, and required editor positions; migrate existing v2 projects to Main + no definitions.
 
-Do not expand this milestone into variables, `children()`, iteration, function literals/closures, generic macros, or a broad type system merely because the shared definition infrastructure makes them conceivable.
+Do not expand this milestone into variables, iteration, function literals/closures, generic macros, or a broad type system merely because the shared definition infrastructure makes them conceivable.
 
 Phase 7 adds user-defined Functions alongside Modules, sharing the same
 `DefinitionRegistry`/parameter-signature infrastructure (`kind: 'function'`).
