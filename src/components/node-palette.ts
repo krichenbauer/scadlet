@@ -85,26 +85,64 @@ export class NodePaletteElement extends LitElement {
 
     .node-item--operation {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 70px 24px;
+      grid-template-columns: minmax(0, 1fr) 28px;
+      grid-template-rows: auto 28px;
       align-items: center;
-      gap: 6px;
+      gap: 3px 6px;
+      padding: 5px 8px;
       cursor: default;
     }
 
     .node-item--operation:active { cursor: default; }
-    .node-item--operation select { min-width: 0; width: 70px; font: inherit; }
+    .node-operation-label {
+      grid-column: 1 / -1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .node-item--operation select {
+      min-width: 0;
+      width: 100%;
+      height: 28px;
+      box-sizing: border-box;
+      padding: 2px 6px;
+      border: 1px solid #666;
+      border-radius: 4px;
+      background: #1d1d1d;
+      color: #f5f5f5;
+      color-scheme: dark;
+      font: inherit;
+    }
+
+    .node-item--operation select:hover { border-color: #9b9b9b; background: #252525; }
+    .node-item--operation select:focus-visible {
+      border-color: #7ac0ff;
+      outline: 2px solid rgb(122 192 255 / 0.45);
+      outline-offset: 1px;
+    }
+    .node-item--operation select:disabled { color: #999; border-color: #4a4a4a; background: #242424; }
+    .node-item--operation select option { background: #1d1d1d; color: #f5f5f5; }
+
     .node-drag-handle {
       display: grid;
       place-items: center;
-      width: 24px;
-      height: 24px;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 1px solid transparent;
       border-radius: 3px;
+      background: transparent;
       cursor: grab;
       color: #bbb;
       touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
     }
-    .node-drag-handle:hover { background: #3a3a3a; color: #fff; }
-    .node-drag-handle:active { cursor: grabbing; }
+    .node-drag-handle:hover { border-color: #5b5b5b; background: #3a3a3a; color: #fff; }
+    .node-drag-handle:focus-visible { border-color: #7ac0ff; outline: 2px solid rgb(122 192 255 / 0.45); outline-offset: 1px; }
+    .node-drag-handle:active { cursor: grabbing; background: #454545; }
 
     .module-entry { display: flex; align-items: center; gap: 4px; margin: 0 8px 4px; }
     .module-entry .module-item { margin: 0; flex: 1; }
@@ -177,20 +215,20 @@ export class NodePaletteElement extends LitElement {
     const selectedOperation = this.selectedOperations.get(entry.type) ?? config.defaultValue
     return html`
       <div role="listitem" class="node-item node-item--operation" data-node-type=${entry.type} aria-label=${t(entry.labelKey)}>
-        <span>${t(entry.labelKey)}</span>
+        <span class="node-operation-label" title=${t(entry.labelKey)}>${t(entry.labelKey)}</span>
         <select aria-label=${t(config.accessibleLabelKey)} @change=${(event: Event) => {
           const select = event.currentTarget as HTMLSelectElement
           this.selectedOperations.set(entry.type, select.value)
         }}>
           ${config.options.map((option) => html`<option value=${option.value} ?selected=${option.value === selectedOperation}>${option.label}</option>`)}
         </select>
-        <span class="node-drag-handle" role="button" tabindex="0" draggable="true"
+        <button type="button" class="node-drag-handle" draggable="true"
           aria-label=${t('palette.dragNode').replace('{name}', t(entry.labelKey))}
           @dragstart=${(event: DragEvent) => {
             const item = (event.currentTarget as HTMLElement).closest('.node-item--operation')
             const selected = item?.querySelector('select')?.value ?? selectedOperation
             this._onDragStart(event, entry.type, config.createParams(selected))
-          }}>⠇</span>
+          }}>⠇</button>
       </div>
     `
   }

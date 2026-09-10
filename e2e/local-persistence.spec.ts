@@ -252,6 +252,48 @@ async function dropPaletteNode(page: Page, type: string, position?: { x: number;
   }, { type, ...point })
 }
 
+/** Checks the rendered control rather than its source CSS so dark/light UA
+ * form defaults cannot silently reintroduce an unreadable or clipped select. */
+async function expectReadableSelect(select: Locator) {
+  const appearance = await select.evaluate((element) => {
+    const style = getComputedStyle(element)
+    const luminance = (color: string) => {
+      const channels = color.match(/\d+(?:\.\d+)?/g)?.slice(0, 3).map(Number)
+      if (!channels || channels.length !== 3) return 0
+      const linear = channels.map((channel) => {
+        const value = channel / 255
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+      })
+      return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+    }
+    const foreground = luminance(style.color)
+    const background = luminance(style.backgroundColor)
+    const contrast = (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05)
+    const rect = element.getBoundingClientRect()
+    const parent = element.parentElement?.getBoundingClientRect()
+    return {
+      background: style.backgroundColor,
+      color: style.color,
+      contrast,
+      display: style.display,
+      height: rect.height,
+      parentRight: parent?.right ?? rect.right,
+      right: rect.right,
+      scrollWidth: element.scrollWidth,
+      visibility: style.visibility,
+      width: rect.width,
+    }
+  })
+  expect(appearance.display).not.toBe('none')
+  expect(appearance.visibility).toBe('visible')
+  expect(appearance.background).not.toBe('rgba(0, 0, 0, 0)')
+  expect(appearance.contrast).toBeGreaterThanOrEqual(4.5)
+  expect(appearance.height).toBeGreaterThanOrEqual(26)
+  expect(appearance.width).toBeGreaterThanOrEqual(64)
+  expect(appearance.scrollWidth).toBeLessThanOrEqual(appearance.width + 1)
+  expect(appearance.right).toBeLessThanOrEqual(appearance.parentRight + 1)
+}
+
 async function dropModuleCall(page: Page, definitionId: string, position?: { x: number; y: number }) {
   const canvasBox = await page.locator('node-editor').boundingBox()
   if (!canvasBox) throw new Error('Expected node-editor canvas')
@@ -685,28 +727,44 @@ test('renders and restores a visible Compare-driven Conditional Function through
   await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
 })
 
-test('preselects palette/header operations and safely changes atan2 dynamic inputs', async ({ page }) => {
+test('preselects palette/header operations with readable controls and safely changes atan2 dynamic inputs', async ({ page }) => {
   await waitForLocalLibrary(page)
   const palette = page.locator('node-palette')
   const canvas = page.locator('node-editor #canvas')
   const arithmeticEntry = palette.locator('.node-item[data-node-type="arithmetic"]')
   await arithmeticEntry.locator('select').selectOption('power')
+  await expectReadableSelect(arithmeticEntry.locator('select'))
+  await expect(arithmeticEntry.locator('.node-drag-handle')).toHaveAttribute('draggable', 'true')
+  await expect(arithmeticEntry.locator('.node-drag-handle')).toHaveAttribute('type', 'button')
+  await expect(arithmeticEntry.locator('.node-drag-handle')).toHaveAttribute('aria-label', 'Drag Arithmetic node')
   await arithmeticEntry.locator('.node-drag-handle').dragTo(canvas, { targetPosition: { x: 300, y: 520 } })
   const arithmetic = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Arithmetic operation"]') })
   await expect(arithmetic).toHaveCount(1)
   await expect(arithmetic.locator('select.node-title')).toHaveValue('power')
+  await expectReadableSelect(arithmetic.locator('select.node-title'))
+  const arithmeticBox = await arithmetic.boundingBox()
+  const canvasBox = await canvas.boundingBox()
+  if (!arithmeticBox || !canvasBox) throw new Error('Expected palette-dropped Arithmetic node')
+  expect(Math.abs(arithmeticBox.x - (canvasBox.x + 300))).toBeLessThan(20)
+  expect(Math.abs(arithmeticBox.y - (canvasBox.y + 520))).toBeLessThan(20)
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('')
   await arithmetic.locator('.node-pin').click()
   await arithmetic.locator('[data-param-key="a"] input').fill('2')
   await arithmetic.locator('[data-param-key="b"] input').fill('3')
   await arithmetic.locator('select.node-title').selectOption('modulo')
+  await expect(arithmetic.locator('select.node-title')).toHaveValue('modulo')
   await arithmetic.locator('.node-header-drag').dblclick()
   await expect(arithmetic.locator('.node-inspect-value')).toHaveText('= 2', { timeout: 15_000 })
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('echo("__SCADLET_VALUE__:", (2 % 3));')
 
   const compareEntry = palette.locator('.node-item[data-node-type="compare"]')
   await compareEntry.locator('select').selectOption('>=')
+  await expectReadableSelect(compareEntry.locator('select'))
   await compareEntry.locator('.node-drag-handle').dragTo(canvas, { targetPosition: { x: 520, y: 520 } })
   const compare = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Comparison operator"]') })
   await expect(compare.locator('select.node-title')).toHaveValue('>=')
+  await expectReadableSelect(compare.locator('select.node-title'))
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('')
 
   const trigEntry = palette.locator('.node-item[data-node-type="trigonometry"]')
   await trigEntry.locator('select').selectOption('sin')
@@ -721,10 +779,25 @@ test('preselects palette/header operations and safely changes atan2 dynamic inpu
   await expect(trig.locator('[data-param-key="a"] .node-param-label')).toHaveText('Y')
   await expect(trig.locator('[data-param-key="b"] .node-param-label')).toHaveText('X')
 
-  const canvasBox = await canvas.boundingBox()
-  if (!canvasBox) throw new Error('Expected node-editor canvas')
-  await dropPaletteNode(page, 'number', { x: canvasBox.x + 40, y: canvasBox.y + 250 })
-  await dropPaletteNode(page, 'number', { x: canvasBox.x + 40, y: canvasBox.y + 390 })
+  // The operation-select styling is shared with existing semantic controls;
+  // Scalar/Vector creation must remain available and readable.
+  await dropPaletteNode(page, 'cube')
+  const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
+  await cube.locator('.node-pin').click()
+  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
+  await expect(cube.locator('[data-param-key="size"] input')).toBeVisible()
+  await dropPaletteNode(page, 'cube')
+  const vectorCube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) }).nth(1)
+  await vectorCube.locator('.node-pin').click()
+  await vectorCube.getByText('+ Size', { exact: true }).click()
+  await vectorCube.getByRole('button', { name: 'Vector', exact: true }).click()
+  await expect(vectorCube.locator('[data-param-key="sizeVector"]')).toBeVisible()
+
+  const canvasBounds = await canvas.boundingBox()
+  if (!canvasBounds) throw new Error('Expected node-editor canvas')
+  await dropPaletteNode(page, 'number', { x: canvasBounds.x + 40, y: canvasBounds.y + 250 })
+  await dropPaletteNode(page, 'number', { x: canvasBounds.x + 40, y: canvasBounds.y + 390 })
   const numbers = page.locator('node-editor .node').filter({ has: page.locator('input.node-title[aria-label^="Number"]') })
   await expect(numbers).toHaveCount(2)
   await connectSockets(page, numbers.nth(0).locator('.node-socket[data-socket-side="output"]'), trig.locator('[data-param-key="a"] .node-socket'))
@@ -749,6 +822,7 @@ test('preselects palette/header operations and safely changes atan2 dynamic inpu
   await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(1)
   await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
   await page.reload()
+  await expect(arithmetic.locator('select.node-title')).toHaveValue('modulo')
   const restoredTrig = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Trigonometric operation"]') })
   await expect(restoredTrig.locator('select.node-title')).toHaveValue('cos')
   await expect(restoredTrig.locator('.node-param-row')).toHaveCount(1)

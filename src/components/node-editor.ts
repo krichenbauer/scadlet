@@ -159,7 +159,8 @@ export class NodeEditorElement extends LitElement {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
+      gap: 6px;
+      min-width: 0;
     }
 
     .node-title {
@@ -169,15 +170,19 @@ export class NodeEditorElement extends LitElement {
 
     .node-header-drag {
       flex: none;
+      width: 18px;
       cursor: grab;
       color: #aaa;
       line-height: 20px;
+      text-align: center;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
     }
 
     .node-header-drag:active { cursor: grabbing; }
 
-    input.node-title,
-    select.node-title {
+    input.node-title {
       width: 100%;
       min-width: 0;
       padding: 1px 3px;
@@ -189,10 +194,41 @@ export class NodeEditorElement extends LitElement {
       font-weight: 600;
     }
 
+    /* Native selects need explicit colors: Chromium otherwise supplies a
+       light palette control and a transparent header select, neither of
+       which is reliably legible against the dark node surface. Keeping this
+       shared rule covers title, representation, and other node selects. */
+    .node select {
+      box-sizing: border-box;
+      min-height: 26px;
+      padding: 2px 6px;
+      border: 1px solid #666;
+      border-radius: 4px;
+      background: #202020;
+      color: #f5f5f5;
+      color-scheme: dark;
+      font: inherit;
+    }
+
+    .node select:hover { border-color: #989898; background: #292929; }
+    .node select:focus-visible {
+      border-color: #7ac0ff;
+      outline: 2px solid rgb(122 192 255 / 0.45);
+      outline-offset: 1px;
+    }
+    .node select:disabled { color: #999; border-color: #4a4a4a; background: #242424; }
+    .node select option { background: #202020; color: #f5f5f5; }
+
+    select.node-title {
+      flex: 1 1 auto;
+      width: auto;
+      min-width: 64px;
+      padding-right: 6px;
+      font-weight: 600;
+    }
+
     input.node-title:hover,
-    input.node-title:focus,
-    select.node-title:hover,
-    select.node-title:focus {
+    input.node-title:focus {
       border-color: #666;
       outline: none;
     }
