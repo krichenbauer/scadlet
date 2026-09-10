@@ -5,6 +5,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const HISTORICAL_MODULE_PARAMETERS = JSON.parse(readFileSync(join(ROOT, 'src/persistence/fixtures/pre-phase4-module-parameters-v3.scadlet'), 'utf8'))
+const LEGACY_ARITHMETIC_V5_PATH = join(ROOT, 'src/persistence/fixtures/arithmetic-v5.scadlet')
 const CAMERA = { position: [40, 40, 40], target: [0, 0, 0] }
 
 function nestedFunctionProject() {
@@ -78,6 +79,43 @@ function absoluteConditionalProject() {
         { id: 'when-true', source: 'multiply', sourceOutput: 'value', target: 'conditional', targetInput: 'true' },
         { id: 'when-false', source: 'absolute-in', sourceOutput: 'parameter:x', target: 'conditional', targetInput: 'false' },
         { id: 'result', source: 'conditional', sourceOutput: 'result', target: 'absolute-out', targetInput: 'result' },
+      ] },
+    }],
+    editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera: CAMERA },
+  }
+}
+
+function mathFunctionProject() {
+  return {
+    format: 'scadlet', version: 6, metadata: { name: 'Math function' },
+    graph: {
+      nodes: [
+        { id: 'main-math-call', type: 'function-call', position: { x: 80, y: 560 }, parameters: { definitionId: 'math-function', arguments: { x: 3 } } },
+        { id: 'main-math-cube', type: 'cube', position: { x: 340, y: 560 }, parameters: { sizeRepresentation: 'scalar', sizeScalar: 10, sizeVector: { x: 10, y: 10, z: 10 }, size: 10 } },
+      ],
+      connections: [{ id: 'main-math-size', source: 'main-math-call', sourceOutput: 'value', target: 'main-math-cube', targetInput: 'size' }],
+    },
+    definitions: [{
+      id: 'math-function', kind: 'function', name: 'bounded_root', interface: { inputs: 'math-inputs', output: 'math-output' },
+      parameters: [{ id: 'x', name: 'x', type: 'number', default: 3 }], resultType: 'number',
+      graph: { nodes: [
+        { id: 'math-inputs', type: 'function-inputs', position: { x: 40, y: 120 }, parameters: {} },
+        { id: 'power', type: 'arithmetic', position: { x: 220, y: 80 }, parameters: { operation: 'power', a: 0, b: 2 } },
+        { id: 'limit', type: 'number', position: { x: 220, y: 220 }, parameters: { value: 25, name: 'Limit' } },
+        { id: 'comparison', type: 'compare', position: { x: 410, y: 80 }, parameters: { operator: '<=' } },
+        { id: 'root', type: 'basic-math', position: { x: 410, y: 220 }, parameters: { operation: 'sqrt', x: 0 } },
+        { id: 'fallback', type: 'number', position: { x: 410, y: 340 }, parameters: { value: 5, name: 'Fallback' } },
+        { id: 'choice', type: 'conditional', position: { x: 600, y: 160 }, parameters: { valueType: 'number' } },
+        { id: 'math-output', type: 'function-output', position: { x: 800, y: 160 }, parameters: {} },
+      ], connections: [
+        { id: 'x-power', source: 'math-inputs', sourceOutput: 'parameter:x', target: 'power', targetInput: 'a' },
+        { id: 'power-compare', source: 'power', sourceOutput: 'value', target: 'comparison', targetInput: 'a' },
+        { id: 'limit-compare', source: 'limit', sourceOutput: 'value', target: 'comparison', targetInput: 'b' },
+        { id: 'power-root', source: 'power', sourceOutput: 'value', target: 'root', targetInput: 'x' },
+        { id: 'comparison-choice', source: 'comparison', sourceOutput: 'value', target: 'choice', targetInput: 'condition' },
+        { id: 'root-choice', source: 'root', sourceOutput: 'value', target: 'choice', targetInput: 'true' },
+        { id: 'fallback-choice', source: 'fallback', sourceOutput: 'value', target: 'choice', targetInput: 'false' },
+        { id: 'choice-output', source: 'choice', sourceOutput: 'result', target: 'math-output', targetInput: 'result' },
       ] },
     }],
     editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera: CAMERA },
@@ -626,6 +664,10 @@ test('renders and restores a visible Compare-driven Conditional Function through
   }], 'absolute-conditional')
   await page.reload()
   const conditional = page.locator('node-editor .node[data-node-id="conditional"]')
+  const compare = page.locator('node-editor .node[data-node-id="compare"]')
+  await expect(compare.locator('select.node-title[aria-label="Comparison operator"]')).toHaveValue('<')
+  await expect(compare.locator('select.node-title')).toHaveAttribute('title', 'Compare: <')
+  await expect(compare.locator('.node-controls select')).toHaveCount(0)
   await expect(conditional.locator('.node-socket[data-socket-key="condition"]')).toHaveAttribute('data-socket-type', 'boolean')
   await expect(conditional.locator('.node-socket[data-socket-key="true"]')).toHaveAttribute('data-socket-type', 'number')
   await expect(conditional.locator('.node-socket[data-socket-key="false"]')).toHaveAttribute('data-socket-type', 'number')
@@ -640,6 +682,101 @@ test('renders and restores a visible Compare-driven Conditional Function through
   await expect(page.locator('node-editor .node[data-node-id="conditional"] .node-socket[data-socket-key="result"]')).toHaveAttribute('data-socket-type', 'number')
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(source).toContainText('function absolute(x = 0) = ((x < 0) ? (x * -1) : x);', { timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+})
+
+test('preselects palette/header operations and safely changes atan2 dynamic inputs', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  const palette = page.locator('node-palette')
+  const canvas = page.locator('node-editor #canvas')
+  const arithmeticEntry = palette.locator('.node-item[data-node-type="arithmetic"]')
+  await arithmeticEntry.locator('select').selectOption('power')
+  await arithmeticEntry.locator('.node-drag-handle').dragTo(canvas, { targetPosition: { x: 300, y: 520 } })
+  const arithmetic = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Arithmetic operation"]') })
+  await expect(arithmetic).toHaveCount(1)
+  await expect(arithmetic.locator('select.node-title')).toHaveValue('power')
+  await arithmetic.locator('.node-pin').click()
+  await arithmetic.locator('[data-param-key="a"] input').fill('2')
+  await arithmetic.locator('[data-param-key="b"] input').fill('3')
+  await arithmetic.locator('select.node-title').selectOption('modulo')
+  await arithmetic.locator('.node-header-drag').dblclick()
+  await expect(arithmetic.locator('.node-inspect-value')).toHaveText('= 2', { timeout: 15_000 })
+
+  const compareEntry = palette.locator('.node-item[data-node-type="compare"]')
+  await compareEntry.locator('select').selectOption('>=')
+  await compareEntry.locator('.node-drag-handle').dragTo(canvas, { targetPosition: { x: 520, y: 520 } })
+  const compare = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Comparison operator"]') })
+  await expect(compare.locator('select.node-title')).toHaveValue('>=')
+
+  const trigEntry = palette.locator('.node-item[data-node-type="trigonometry"]')
+  await trigEntry.locator('select').selectOption('sin')
+  await trigEntry.locator('.node-drag-handle').dragTo(canvas, { targetPosition: { x: 560, y: 260 } })
+  const trig = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Trigonometric operation"]') })
+  await expect(trig.locator('select.node-title')).toHaveValue('sin')
+  await trig.locator('.node-pin').click()
+  await expect(trig.locator('.node-param-row')).toHaveCount(1)
+  await trig.locator('select.node-title').selectOption('atan2')
+  await expect(trig.locator('select.node-title')).toHaveValue('atan2')
+  await expect(trig.locator('.node-param-row')).toHaveCount(2)
+  await expect(trig.locator('[data-param-key="a"] .node-param-label')).toHaveText('Y')
+  await expect(trig.locator('[data-param-key="b"] .node-param-label')).toHaveText('X')
+
+  const canvasBox = await canvas.boundingBox()
+  if (!canvasBox) throw new Error('Expected node-editor canvas')
+  await dropPaletteNode(page, 'number', { x: canvasBox.x + 40, y: canvasBox.y + 250 })
+  await dropPaletteNode(page, 'number', { x: canvasBox.x + 40, y: canvasBox.y + 390 })
+  const numbers = page.locator('node-editor .node').filter({ has: page.locator('input.node-title[aria-label^="Number"]') })
+  await expect(numbers).toHaveCount(2)
+  await connectSockets(page, numbers.nth(0).locator('.node-socket[data-socket-side="output"]'), trig.locator('[data-param-key="a"] .node-socket'))
+  await connectSockets(page, numbers.nth(1).locator('.node-socket[data-socket-side="output"]'), trig.locator('[data-param-key="b"] .node-socket'))
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(2)
+
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  const projectId = await page.locator('scadlet-app .project-picker').inputValue()
+  const beforeCancel = await readLocalRecord(page, projectId) as { revision: number }
+  await page.evaluate(() => Object.defineProperty(window, 'confirm', { configurable: true, value: () => false }))
+  await trig.locator('select.node-title').selectOption('cos')
+  await expect(trig.locator('select.node-title')).toHaveValue('atan2')
+  await expect(trig.locator('.node-param-row')).toHaveCount(2)
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(2)
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden()
+  await page.waitForTimeout(700)
+  expect((await readLocalRecord(page, projectId) as { revision: number }).revision).toBe(beforeCancel.revision)
+  await page.evaluate(() => Object.defineProperty(window, 'confirm', { configurable: true, value: () => true }))
+  await trig.locator('select.node-title').selectOption('cos')
+  await expect(trig.locator('select.node-title')).toHaveValue('cos')
+  await expect(trig.locator('.node-param-row')).toHaveCount(1)
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(1)
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await page.reload()
+  const restoredTrig = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Trigonometric operation"]') })
+  await expect(restoredTrig.locator('select.node-title')).toHaveValue('cos')
+  await expect(restoredTrig.locator('.node-param-row')).toHaveCount(1)
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(1)
+})
+
+test('renders and restores pow/sqrt/Compare/Conditional Function math through real OpenSCAD-WASM', async ({ page }) => {
+  test.setTimeout(60_000)
+  await waitForLocalLibrary(page)
+  await replaceLocalProjects(page, [{
+    id: 'math-function-project', revision: 1,
+    createdAt: '2026-09-09T00:00:00.000Z', updatedAt: '2026-09-09T00:00:00.000Z', project: mathFunctionProject(),
+  }], 'math-function-project')
+  await page.reload()
+  await expect(page.locator('node-editor .node[data-node-id="power"] select.node-title')).toHaveValue('power')
+  await expect(page.locator('node-editor .node[data-node-id="root"] select.node-title')).toHaveValue('sqrt')
+  await expect(page.locator('node-editor .node[data-node-id="comparison"] select.node-title')).toHaveValue('<=')
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  const source = page.locator('scadlet-app .scad-output')
+  await expect(source).toContainText('function bounded_root(x = 3) = ((pow(x, 2) <= 25) ? sqrt(pow(x, 2)) : 5);', { timeout: 15_000 })
+  await expect(source).toContainText('cube(bounded_root(x = 3));')
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await page.locator('node-editor .node[data-node-id="comparison"] select.node-title').selectOption('<')
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await page.reload()
+  await expect(page.locator('node-editor .node[data-node-id="comparison"] select.node-title')).toHaveValue('<')
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(source).toContainText('(pow(x, 2) < 25)', { timeout: 15_000 })
   await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
 })
 
@@ -1229,7 +1366,7 @@ test('typed value nodes remain compact and a Number drives Cube Size', async ({ 
   await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(20);', { timeout: 15_000 })
 })
 
-test('source names persist and value Inspect evaluates Add headlessly through OpenSCAD', async ({ page }) => {
+test('source names persist and value Inspect evaluates Arithmetic headlessly through OpenSCAD', async ({ page }) => {
   await waitForLocalLibrary(page)
   await dropPaletteNode(page, 'number')
   const number = page.locator('node-editor .node').filter({ has: page.locator('.node-header input.node-title') })
@@ -1246,18 +1383,18 @@ test('source names persist and value Inspect evaluates Add headlessly through Op
   await restoredNumber.locator('.node-controls--primary').dblclick({ position: { x: 2, y: 2 } })
   await expect(restoredNumber.locator('.node-inspect-value')).toHaveText('= 10', { timeout: 15_000 })
 
-  await dropPaletteNode(page, 'add')
-  const add = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Add' }) })
+  await dropPaletteNode(page, 'arithmetic')
+  const add = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Arithmetic operation"]') })
   await add.locator('.node-pin').click()
   await add.locator('[data-param-key="a"] input').fill('5')
   await add.locator('[data-param-key="b"] input').fill('7')
-  await add.locator('.node-header').dblclick()
+  await add.locator('.node-header-drag').dblclick()
   await expect(add.locator('.node-inspect-value')).toHaveText('= 12', { timeout: 15_000 })
   await add.locator('[data-param-key="a"] input').fill('10')
   await expect(add.locator('.node-inspect-value')).toHaveCount(0)
   await page.waitForTimeout(500)
   await expect(add.locator('.node-inspect-value')).toHaveCount(0)
-  await add.locator('.node-header').dblclick()
+  await add.locator('.node-header-drag').dblclick()
   await expect(add.locator('.node-inspect-value')).toHaveText('= 17', { timeout: 15_000 })
   await expect(page.locator('scadlet-app .render-error')).toHaveCount(0)
 })
@@ -1307,8 +1444,8 @@ test('Boolean and Vector3 use editable source titles without redundant body labe
 
 test('focused controls stay expanded and compatible wire hover temporarily reveals targets', async ({ page }) => {
   await waitForLocalLibrary(page)
-  await dropPaletteNode(page, 'add')
-  const add = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Add' }) })
+  await dropPaletteNode(page, 'arithmetic')
+  const add = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Arithmetic operation"]') })
   await add.hover()
   const addA = add.locator('[data-param-key="a"] input')
   await expect(addA).toBeVisible({ timeout: 2_000 })
@@ -1353,11 +1490,12 @@ test('connection gestures disclose one compatible compact target repeatedly for 
   // Separate two otherwise centrally-created candidates before placing the
   // source above them, so each real pointer move has an unambiguous target.
   const moveNode = async (node: Locator, dx: number, dy: number) => {
-    const header = await node.locator('.node-header').boundingBox()
+    const dragSurface = await node.locator('.node-header-drag').count() > 0 ? node.locator('.node-header-drag') : node.locator('.node-header')
+    const header = await dragSurface.boundingBox()
     if (!header) throw new Error('Expected node header')
-    await page.mouse.move(header.x + 20, header.y + header.height / 2)
+    await page.mouse.move(header.x + header.width / 2, header.y + header.height / 2)
     await page.mouse.down()
-    await page.mouse.move(header.x + 20 + dx, header.y + header.height / 2 + dy, { steps: 6 })
+    await page.mouse.move(header.x + header.width / 2 + dx, header.y + header.height / 2 + dy, { steps: 6 })
     await page.mouse.up()
   }
   const configureScalarCube = async (cube: Locator) => {
@@ -1442,9 +1580,9 @@ test('connection gestures disclose one compatible compact target repeatedly for 
 test('a selected wire is transient and Delete removes only that connection', async ({ page }) => {
   await waitForLocalLibrary(page)
   await dropPaletteNode(page, 'number')
-  await dropPaletteNode(page, 'add')
+  await dropPaletteNode(page, 'arithmetic')
   const number = page.locator('node-editor .node').filter({ has: page.locator('.node-header input.node-title') })
-  const add = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Add' }) })
+  const add = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Arithmetic operation"]') })
   await add.locator('.node-pin').click()
   const numberHeader = await number.locator('.node-header').boundingBox()
   if (!numberHeader) throw new Error('Expected Number header')
@@ -1470,11 +1608,12 @@ test('connected compact rows preserve canonical order when expanded', async ({ p
   await waitForLocalLibrary(page)
 
   const moveNode = async (node: Locator, dx: number, dy: number) => {
-    const header = await node.locator('.node-header').boundingBox()
+    const dragSurface = await node.locator('.node-header-drag').count() > 0 ? node.locator('.node-header-drag') : node.locator('.node-header')
+    const header = await dragSurface.boundingBox()
     if (!header) throw new Error('Expected node header')
-    await page.mouse.move(header.x + 20, header.y + header.height / 2)
+    await page.mouse.move(header.x + header.width / 2, header.y + header.height / 2)
     await page.mouse.down()
-    await page.mouse.move(header.x + 20 + dx, header.y + header.height / 2, { steps: 6 })
+    await page.mouse.move(header.x + header.width / 2 + dx, header.y + header.height / 2, { steps: 6 })
     await page.mouse.up()
   }
   const visibleRowKeys = (node: Locator) => node.locator('.node-param-row').evaluateAll((rows) =>
@@ -1537,8 +1676,8 @@ test('connected compact rows preserve canonical order when expanded', async ({ p
   await page.mouse.move(5, 200)
   await expect.poll(() => visibleRowKeys(translate), { timeout: 2_000 }).toEqual(['x', 'z'])
 
-  await dropPaletteNode(page, 'add')
-  const add = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Add' }) })
+  await dropPaletteNode(page, 'arithmetic')
+  const add = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Arithmetic operation"]') })
   await moveNode(add, 190, 0)
   await connectNumber(add, 'b')
   await expect.poll(() => visibleRowKeys(add), { timeout: 2_000 }).toEqual(['b'])
@@ -1722,4 +1861,26 @@ test('imports an external file under a new local identity and preserves fallback
   await page.getByRole('button', { name: 'Save As', exact: true }).click()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe('Sphere Benchmark.scadlet')
+})
+
+test('imports the static legacy v5 arithmetic fixture as canonical v6 nodes', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  const chooserPromise = page.waitForEvent('filechooser')
+  await page.getByRole('button', { name: 'Open', exact: true }).click()
+  const chooser = await chooserPromise
+  await chooser.setFiles(LEGACY_ARITHMETIC_V5_PATH)
+  await expect(page.locator('scadlet-app .project-name')).toHaveValue('Legacy arithmetic v5')
+  for (const [id, operation] of [['add-main', 'addition'], ['subtract-main', 'subtraction'], ['multiply-main', 'multiplication'], ['divide-main', 'division']] as const) {
+    await expect(page.locator(`node-editor .node[data-node-id="${id}"] select.node-title`)).toHaveValue(operation)
+  }
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(8)
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(((((2 + 3) - 1) * 4) / 2));', { timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  const activeId = await page.locator('scadlet-app .project-picker').inputValue()
+  const saved = await readLocalRecord(page, activeId) as { project: { version: number; graph: { nodes: { type: string }[] } } }
+  expect(saved.project.version).toBe(6)
+  expect(saved.project.graph.nodes.filter((node) => node.type === 'arithmetic')).toHaveLength(4)
+  expect(saved.project.graph.nodes.some((node) => ['add', 'subtract', 'multiply', 'divide'].includes(node.type))).toBe(false)
 })

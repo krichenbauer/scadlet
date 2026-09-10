@@ -6,7 +6,7 @@ import { ClassicPreset } from 'rete'
  * needs a labeled numeric field (e.g. per-axis size, angle, distance).
  */
 export class LabeledNumberControl extends ClassicPreset.InputControl<'number'> {
-  readonly label: string
+  label: string
 
   constructor(
     label: string,
@@ -150,6 +150,26 @@ export class SelectControl<T extends string = string> extends ClassicPreset.Cont
     if (value !== this.value && this.canChange && !this.canChange(value)) return
     this.value = value
     this.onChange?.(value)
+  }
+}
+
+/** A semantic operation selector rendered directly in the node header. The
+ * optional request hook lets structurally dynamic nodes complete (or cancel)
+ * their Rete lifecycle before the visible selection is committed. */
+export class TitleSelectControl<T extends string = string> extends SelectControl<T> {
+  readonly accessibleLabel: string
+  onRequestChange?: (value: T) => boolean | Promise<boolean>
+
+  constructor(accessibleLabel: string, options: readonly { value: T; label: string }[], initial: T) {
+    super(accessibleLabel, options, initial)
+    this.accessibleLabel = accessibleLabel
+  }
+
+  async requestValue(value: T): Promise<boolean> {
+    if (value === this.value) return true
+    if (this.onRequestChange && !(await this.onRequestChange(value))) return false
+    if (!this.onRequestChange) this.setValue(value)
+    return true
   }
 }
 

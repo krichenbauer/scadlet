@@ -79,10 +79,11 @@ export function parseScadletProject(raw: unknown): ScadletProjectV1 {
  */
 function migrateScadletProject(version: number, raw: Record<string, unknown>): ScadletProjectV1 {
   if (version === SCADLET_VERSION) return validateV1(raw)
-  if (version === 4) return validateV1(migrateV4ToV5(raw))
-  if (version === 3) return validateV1(migrateV4ToV5(migrateV3ToV4(raw)))
-  if (version === 2) return validateV1(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(raw))))
-  if (version === 1) return validateV1(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(migrateV1ToV2(raw)))))
+  if (version === 5) return validateV1(migrateV5ToV6(raw))
+  if (version === 4) return validateV1(migrateV5ToV6(migrateV4ToV5(raw)))
+  if (version === 3) return validateV1(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(raw))))
+  if (version === 2) return validateV1(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(raw)))))
+  if (version === 1) return validateV1(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(migrateV1ToV2(raw))))))
   throw new ScadletProjectError(`Unsupported SCADlet project version: ${version}`)
 }
 
@@ -90,7 +91,36 @@ function migrateScadletProject(version: number, raw: Record<string, unknown>): S
  * is already a valid `kind: 'module'` definition; only the version number
  * and the (already-empty-by-default) Function registry are new. */
 function migrateV4ToV5(raw: Record<string, unknown>): Record<string, unknown> {
-  return { ...raw, version: SCADLET_VERSION }
+  return { ...raw, version: 5 }
+}
+
+/** v6 consolidates the four legacy binary arithmetic node types. Their
+ * `a`, `b`, and `value` endpoint ids already match the canonical Arithmetic
+ * node, so graph identity, layout, scopes, and every valid wire survive
+ * without endpoint rewriting. */
+function migrateV5ToV6(raw: Record<string, unknown>): Record<string, unknown> {
+  const operations: Record<string, string> = {
+    add: 'addition', subtract: 'subtraction', multiply: 'multiplication', divide: 'division',
+  }
+  const migrateGraph = (value: unknown): unknown => {
+    if (!isPlainObject(value) || !Array.isArray(value.nodes)) return value
+    return {
+      ...value,
+      nodes: value.nodes.map((item) => {
+        if (!isPlainObject(item) || typeof item.type !== 'string' || !operations[item.type]) return item
+        const parameters = item.parameters
+        return {
+          ...item,
+          type: 'arithmetic',
+          parameters: isPlainObject(parameters) ? { ...parameters, operation: operations[item.type] } : parameters,
+        }
+      }),
+    }
+  }
+  const definitions = Array.isArray(raw.definitions)
+    ? raw.definitions.map((item) => isPlainObject(item) ? { ...item, graph: migrateGraph(item.graph) } : item)
+    : raw.definitions
+  return { ...raw, version: SCADLET_VERSION, graph: migrateGraph(raw.graph), definitions }
 }
 
 /** Converts the former fixed-parameter/fixed-two-child representation into
@@ -156,7 +186,7 @@ function migrateV3ToV4(raw: Record<string, unknown>): Record<string, unknown> {
       ? { ...connection, targetInput: moduleGeometryInputPortId(first.id) }
       : connection
   }) : graph.connections
-  return { ...raw, version: SCADLET_VERSION, definitions, graph: { ...graph, connections } }
+  return { ...raw, version: 4, definitions, graph: { ...graph, connections } }
 }
 
 function validateV1(raw: Record<string, unknown>): ScadletProjectV1 {
@@ -345,6 +375,14 @@ function validateGraph(raw: unknown, graphKind: GraphKind, definition?: Definiti
   const connections = raw.connections.map((connection, index) =>
     validateConnection(connection, index, seenConnectionIds, nodesById, definition, definitions),
   )
+  const occupiedInputs = new Set<string>()
+  for (const connection of connections) {
+    const endpoint = `${connection.target}\u0000${connection.targetInput}`
+    if (occupiedInputs.has(endpoint)) {
+      throw new ScadletProjectError(`Multiple connections target input "${connection.targetInput}" on node "${connection.target}".`)
+    }
+    occupiedInputs.add(endpoint)
+  }
 
   // Conditional's branch/result sockets are dynamic but their port IDs are
   // fixed. Validation therefore checks the persisted inference state as a

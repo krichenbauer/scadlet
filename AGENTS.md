@@ -709,7 +709,7 @@ Project persistence (Milestone 5) is implemented and remains fully client-side. 
 
 ### Canonical `.scadlet` project format
 
-The canonical current `.scadlet` format (v3 after Milestone 8 Modules migration) is documented in detail in
+The canonical current `.scadlet` format (v6 after consolidated Math migration) is documented in detail in
 `docs/scadlet-format.md`, generated from and kept aligned with the actual
 implementation (`src/persistence/`, `src/editor/node-catalog.ts`). Keep
 implementation, validation, and any future migrations consistent with
@@ -1287,8 +1287,9 @@ Use a single Number type for ordinary OpenSCAD numeric values; do not introduce 
 
 Geometry-node parameters must continue to support convenient inline literals. Connecting a value should make dataflow explicit without forcing literal-only beginners to construct trivial Number nodes. Parameter/value connectors must follow the established type-color, stable-anchor, connection-aware disclosure, dirty-state, and `.scadlet` persistence rules.
 
-Implementation status: Milestone 7 provides Number, Boolean, Vector3, Add,
-Subtract, Multiply, Divide, Compare, and Conditional through the catalog categories `values` and
+Implementation status: Milestone 7 provides Number, Boolean, Vector3,
+consolidated Arithmetic/Trigonometry/Basic Math/Exponential-Logarithmic,
+Compare, and Conditional nodes through the catalog categories `values` and
 `math`. They produce OpenSCAD expressions (`[x, y, z]` and explicitly grouped
 math such as `(a + b)`), rather than JavaScript-evaluated values. Existing
 Number/Vector3/Boolean parameter sockets accept them directly and preserve
@@ -1307,6 +1308,24 @@ final branch returns it to neutral after handling incompatible Result wires.
 Both nodes are permitted in Main, Module, and Function scopes, and an
 incomplete Conditional that is reachable from Main or a definition Output is
 a localized evaluation error rather than an `undef` placeholder.
+
+The consolidated Math milestone uses canonical operation state rather than
+separate node types or display labels. Arithmetic supports `addition`,
+`subtraction`, `multiplication`, `division`, `modulo`, and `power` (displayed
+as `+`, `−`, `×`, `÷`, `%`, and `pow`). Trigonometry supports `sin`, `cos`,
+`tan`, `asin`, `acos`, `atan`, and `atan2`; Basic Math supports `abs`, `sign`,
+`sqrt`, `floor`, `ceil`, and `round`; Exponential/Logarithmic supports `exp`,
+`ln`, and `log`. All produce Number and are valid in Main, Module, and Function
+scopes. Compare retains its established six symbolic operator identifiers.
+
+For these families and Compare, the operation dropdown is the visible node
+title and the left palette offers the same selection before a drag. A separate
+palette drag handle keeps native selects usable, and the selected operation is
+included in node construction rather than applied afterward. Trigonometry
+uses stable `a`/`b` identities: unary operations expose only `a` labelled X;
+`atan2` retains that wire as `a` labelled Y and adds `b` labelled X. Removing
+a connected `b` port requires localized confirmation, removes only that wire
+through Rete, and rolls back completely on cancellation/failure.
 
 Dynamic input removal is connection-safe: an input/output port may never
 disappear while an attached Rete connection survives. Interactive
@@ -1555,12 +1574,17 @@ project validation. An unresolved Function is a valid, saveable editor draft
 but is never emitted; new Calls cannot be created for it, while existing Calls
 remain as disconnected unresolved drafts so lifecycle edits remain saveable.
 
-The canonical `.scadlet` format is version 5 (`persistence/project.ts`):
+The canonical `.scadlet` format is version 6 (`persistence/project.ts`):
 `ScadletFunctionDefinition` adds `kind: 'function'` and an optional
 `resultType`, omits `geometryInputs`, and otherwise reuses the exact same
 parameter-signature/interface-role shape as `ScadletModuleDefinition`. v4
 projects (Modules only) migrate to v5 unchanged, with an empty Function
-registry.
+registry. The v5 → v6 migration replaces persisted `add`, `subtract`,
+`multiply`, and `divide` nodes in every scope with canonical `arithmetic`
+nodes and matching operation IDs while preserving node IDs, positions,
+`a`/`b`/`value` endpoint identities, wires, and source semantics. v6 persists
+Trigonometry's exact active `inputPorts` so malformed/duplicate dynamic port
+sets are rejected before restore.
 
 ### Milestone 9 — Iteration
 

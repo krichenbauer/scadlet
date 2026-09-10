@@ -1,4 +1,4 @@
-# The `.scadlet` project file format (v5)
+# The `.scadlet` project file format (v6)
 
 This document specifies the `.scadlet` project file format as it is
 **actually implemented** in this repository, not as originally sketched in
@@ -6,11 +6,27 @@ This document specifies the `.scadlet` project file format as it is
 the code under `src/persistence/` and `src/editor/node-catalog.ts` is the
 source of truth until this document is updated to match it.
 
+## Version 6: consolidated arithmetic and math families
+
+Version 6 replaces the v5 `add`, `subtract`, `multiply`, and `divide` node
+types with one canonical `arithmetic` type. The migration maps them to the
+canonical operation identifiers `addition`, `subtraction`, `multiplication`,
+and `division`. Their `a`/`b` inputs and `value` output are unchanged, so node
+IDs, positions, scope membership, connection IDs, endpoints, pinned state,
+and generated OpenSCAD semantics are preserved. The migration runs across
+Main and every Module/Function definition graph.
+
+v6 also adds the canonical `trigonometry`, `basic-math`, and
+`exponential-log` families described below. Writers and autosave only emit
+these consolidated types; the four v5 types are migration input, not live
+catalog entries.
+
 ## Version 5: Function definitions
 
 Version 5 adds user-defined Functions alongside Modules - see "Function
 definitions (version 5)" below. Existing v4 (Module-only) projects migrate
-to v5 unchanged, with an empty Function registry.
+to v5 unchanged, with an empty Function registry, then continue through the
+v5 → v6 arithmetic migration.
 
 ## Version 4 definitions and semantic signatures
 
@@ -51,8 +67,8 @@ newer versions are rejected instead of being guessed at.
   `"version"`. The format version is **independent of the SCADlet
   application/package version** - bumping the app's `package.json`
   version never implies a format change, and vice versa.
-- The current format version is **`5`**. Versions 1–4 are accepted on input
-  and explicitly migrated to v5; writers and browser autosave always emit v5.
+- The current format version is **`6`**. Versions 1–5 are accepted on input
+  and explicitly migrated to v6; writers and browser autosave always emit v6.
 - Unknown/future format versions are rejected outright with a clear error
   (`Unsupported SCADlet project version: N`) - there is no attempt to
   guess-parse a newer format. See "Versioning and migrations" below.
@@ -74,7 +90,7 @@ exact, test-verified fixture this is based on):
 ```json
 {
   "format": "scadlet",
-  "version": 5,
+  "version": 6,
   "metadata": {
     "name": "Gearbox Experiment",
     "createdAt": "2026-09-01T00:00:00.000Z",
@@ -104,7 +120,7 @@ exact, test-verified fixture this is based on):
 | Field      | Type                | Required | Meaning                                                          |
 | ---------- | ------------------- | -------- | ----------------------------------------------------------------- |
 | `format`   | `"scadlet"` literal | Yes      | Discriminates this file as a SCADlet project, not arbitrary JSON.  |
-| `version`  | integer             | Yes      | Format version. Versions `1`–`4` migrate; v5 is current.          |
+| `version`  | integer             | Yes      | Format version. Versions `1`–`5` migrate; v6 is current.          |
 | `metadata` | object              | Yes      | Project-level descriptive information. See below.                 |
 | `graph`    | object               | Yes      | Semantic program graph: nodes + connections. See below.           |
 | `definitions` | array              | Yes      | Project-owned Module and Function definition graphs. See below.    |
@@ -222,10 +238,12 @@ intersection
 number
 boolean
 vector3
-add
-subtract
-multiply
-divide
+arithmetic
+trigonometry
+basic-math
+exponential-log
+compare
+conditional
 module-inputs
 module-output
 module-call
@@ -394,7 +412,7 @@ with two differences: there is no `geometryInputs` field, and an optional
   "graph": {
     "nodes": [
       { "id": "double-size-inputs", "type": "function-inputs", "position": { "x": 10, "y": 20 }, "parameters": {} },
-      { "id": "double-size-multiply", "type": "multiply", "position": { "x": 170, "y": 20 }, "parameters": { "a": 0, "b": 2 } },
+      { "id": "double-size-multiply", "type": "arithmetic", "position": { "x": 170, "y": 20 }, "parameters": { "operation": "multiplication", "a": 0, "b": 2 } },
       { "id": "double-size-output", "type": "function-output", "position": { "x": 330, "y": 20 }, "parameters": {} }
     ],
     "connections": [
@@ -422,8 +440,8 @@ with two differences: there is no `geometryInputs` field, and an optional
   rendered as a neutral/grey socket rather than any of the three real types.
 - A Function definition graph may only contain `function-inputs`,
   `function-output`, `function-call`, and the existing value/math vocabulary
-  (`number`, `boolean`, `vector3`, `add`, `subtract`, `multiply`, `divide`,
-  `compare`, `conditional`).
+  (`number`, `boolean`, `vector3`, `arithmetic`, `trigonometry`,
+  `basic-math`, `exponential-log`, `compare`, `conditional`).
   Any Geometry-producing/consuming node type, Module interface node, or
   `module-call` is rejected.
 - Effective dependencies are derived only from Calls whose values/Geometry can
@@ -458,8 +476,8 @@ an unresolved output. Any outgoing wire from such a Call is invalid.
 Module Calls remain forbidden inside Function definitions; both Call kinds are
 valid in Module definitions.
 
-Existing v4 projects (Modules only, no Functions) migrate to v5 unchanged,
-with an empty Function entries in the shared `definitions` array.
+Existing v4 projects (Modules only, no Functions) migrate through v5 and then
+to v6, with no Function entries added to the shared `definitions` array.
 
 ## Per-node parameter schemas
 
@@ -474,16 +492,47 @@ without retaining inactive sockets or connections.
 
 `number` stores `{ "value": number, "name": string }`; `boolean` stores
 `{ "value": boolean, "name": string }`; and `vector3` stores finite numeric
-`{ "x": number, "y": number, "z": number, "name": string }`. The four math types
-(`add`, `subtract`, `multiply`, `divide`) each store
-`{ "a": number, "b": number }`. These are fallback literals for their
+`{ "x": number, "y": number, "z": number, "name": string }`.
+
+`arithmetic` stores `{ "operation": id, "a": number, "b": number }`, where
+`id` is exactly `addition`, `subtraction`, `multiplication`, `division`,
+`modulo`, or `power`. It emits `(a + b)`, `(a - b)`, `(a * b)`, `(a / b)`,
+`(a % b)`, or `pow(a, b)` respectively.
+
+`trigonometry` stores `{ "operation": id, "a": number, "b": number,
+"inputPorts": [...] }`. Canonical operation IDs are `sin`, `cos`, `tan`,
+`asin`, `acos`, `atan`, and `atan2`. Unary operations require exactly
+`"inputPorts": ["a"]`; `atan2` requires exactly `["a", "b"]` and emits
+`atan2(y, x)`. The stable `a` input is visibly labelled X for unary operations
+and Y for `atan2`; the dynamic `b` input is labelled X. Duplicate, missing,
+out-of-order, or operation-incompatible port metadata is rejected.
+
+`basic-math` stores `{ "operation": id, "x": number }`, with `abs`, `sign`,
+`sqrt`, `floor`, `ceil`, or `round`. `exponential-log` uses the same shape with
+`exp`, `ln`, or `log`. These numbers are fallback literals for their
 input ports, not precomputed results. Generated graph values remain OpenSCAD
-expressions: a Vector3 emits `[x, y, z]` and math emits explicit grouping
-such as `(a + b)`. Connecting a value replaces the relevant fallback during
-evaluation but does not erase it from this persisted record.
+expressions: a Vector3 emits `[x, y, z]`. Connecting a value replaces the
+relevant fallback during evaluation but does not erase it from this persisted
+record.
+
+All four families are valid in Main, Module definitions, and Function
+definitions. Their operation is selected by canonical model state, while the
+palette and node header render the corresponding symbol/name directly. The
+header dropdown is the visible title; no redundant operation row is stored or
+rendered. Palette selection is included in the creation payload, so a dragged
+node enters Rete already configured for that operation.
+
+Changing between unary trigonometric operations preserves every wire.
+Changing to `atan2` retains the stable `a` wire, relabels it Y, and adds one
+`b`/X input. Changing back removes only `b`; if it is connected, the editor
+confirms first and removes that wire through Rete before the port. Cancellation
+is a complete no-op, and failures roll back the operation, port, and wire.
 
 `compare` stores `{ "operator": "<" | "<=" | ">" | ">=" | "==" | "!=" }`
-and has Number inputs `a`/`b` plus a Boolean `value` output. `conditional`
+and has Number inputs `a`/`b` plus a Boolean `value` output. Its palette and
+node header use the same direct operation selector as the four Math families,
+while the six established symbolic identifiers and generated semantics remain
+unchanged. `conditional`
 stores either `{}` while unresolved or `{ "valueType": "number" | "boolean"
 | "vector3" }` after a branch establishes its type. Its stable inputs are
 `condition` (Boolean), `true`, and `false`; its stable output is `result`.
@@ -494,7 +543,8 @@ connected. These rules let restore reconstruct the same socket state without a
 schema-version change.
 
 All source and math value outputs use the stable port id `value`; Vector3
-uses Number inputs `x`, `y`, and `z`; math uses Number inputs `a` and `b`.
+uses Number inputs `x`, `y`, and `z`; Arithmetic and Compare use `a`/`b`,
+Trigonometry uses `a` plus dynamic `b`, and the other unary families use `x`.
 `name` is a SCADlet-only human-readable source label, not an OpenSCAD
 variable or graph identity. It is optional when loading older v2 files and
 normalizes to the source type name. Number/Boolean sources have no inputs.
@@ -668,10 +718,12 @@ intersection:  dynamic inputs: child:<id>   outputs: geometry
 number:        inputs: none                 outputs: value (Number)
 boolean:       inputs: none                 outputs: value (Boolean)
 vector3:       inputs: x, y, z (Number)     outputs: value (Vector3)
-add:           inputs: a, b (Number)        outputs: value (Number)
-subtract:      inputs: a, b (Number)        outputs: value (Number)
-multiply:      inputs: a, b (Number)        outputs: value (Number)
-divide:        inputs: a, b (Number)        outputs: value (Number)
+arithmetic:    inputs: a, b (Number)        outputs: value (Number)
+trigonometry:  input: a (Number); atan2 also b (Number); outputs: value (Number)
+basic-math:    input: x (Number)             outputs: value (Number)
+exponential-log: input: x (Number)           outputs: value (Number)
+compare:       inputs: a, b (Number)         outputs: value (Boolean)
+conditional:   inputs: condition + true/false; output: result (resolved value type)
 module-inputs: dynamic outputs: parameter:<id> (Number|Boolean|Vector3)
 module-call:   dynamic inputs: parameter:<id> (referenced signature); outputs: geometry (Geometry); parameters: definitionId, arguments
 ```
@@ -765,8 +817,9 @@ in roughly this order:
 1. The input is valid JSON (`parseScadletProjectText` only).
 2. The top-level value is a plain (non-array) object.
 3. `format` is present and equals `"scadlet"`.
-4. `version` is present and numeric; only `1` is currently accepted -
-   any other number fails with `Unsupported SCADlet project version: N`.
+4. `version` is present and numeric; versions 1–6 are accepted (older ones
+   migrate to v6), while any other number fails with
+   `Unsupported SCADlet project version: N`.
 5. `metadata` is an object with a non-empty (after trim) `name`;
    `createdAt`/`updatedAt`, if present, are strings (content not
    otherwise validated).
@@ -842,16 +895,18 @@ version = 1
 `parseScadletProject` routes on `version` through a single
 `migrateScadletProject(version, raw)` function
 (`src/persistence/validate.ts`). v1 first migrates to v2, then v3, then v4,
-then v5; v2 migrates through v3/v4 to v5; v3's legacy `children` connections
+then v5 and v6; v2 migrates through v3/v4/v5 to v6; v3's legacy `children` connections
 are remapped to the deterministic first Geometry signature entry before
 validation. v4 → v5 is a pure version-number bump: every existing v4 record
 is already a valid `kind: "module"` definition, and the (already-empty
 unless populated) `definitions` array simply gains the ability to also
-contain `kind: "function"` entries going forward.
+contain `kind: "function"` entries going forward. v5 → v6 then replaces every
+legacy arithmetic type in Main and definition graphs while retaining the
+already-compatible `a`, `b`, and `value` endpoints.
 canonical form. No other call site needs to know about historical shapes:
 
 ```text
-v1 → migrate to v2 → migrate to v3 → migrate to v4 → migrate to v5 → validate against the current shape
+v1 → migrate to v2 → migrate to v3 → migrate to v4 → migrate to v5 → migrate to v6 → validate against the current shape
 ```
 
 Rules of thumb for whether a change needs a version bump:

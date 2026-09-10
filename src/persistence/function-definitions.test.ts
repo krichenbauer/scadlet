@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { DefinitionRegistry } from '../editor/definitions'
 import { FunctionCallNode } from '../editor/nodes/function-call-node'
 import { FunctionInputsNode, FunctionOutputNode } from '../editor/nodes/function-interface-nodes'
-import { BooleanNode, MathNode, NumberNode, Vector3Node } from '../editor/nodes/value-nodes'
+import { ArithmeticNode, BooleanNode, NumberNode, Vector3Node } from '../editor/nodes/value-nodes'
 import type { Schemes } from '../editor/schemes'
 import { restoreProject } from './restore'
 import { serializeProject } from './serialize'
@@ -31,7 +31,7 @@ function serializeOptions(source: NodeEditor<Schemes>, registry: DefinitionRegis
   }
 }
 
-describe('Function definition persistence (v5)', () => {
+describe('Function definition persistence (introduced in v5, canonical in v6)', () => {
   it('migrates a v4 Module-only project unchanged, with an empty Function registry', () => {
     const project = parseScadletProject({
       format: 'scadlet', version: 4,
@@ -40,7 +40,7 @@ describe('Function definition persistence (v5)', () => {
       definitions: [],
       editor: { viewport: { x: 1, y: 2, zoom: 1 } }, viewer: { camera },
     })
-    expect(project.version).toBe(5)
+    expect(project.version).toBe(6)
     expect(project.definitions).toEqual([])
   })
 
@@ -50,7 +50,7 @@ describe('Function definition persistence (v5)', () => {
     registry.add({ ...functionDefinition, resultType: 'number' })
     const inputs = new FunctionInputsNode(functionDefinition.parameters); inputs.id = functionDefinition.inputsNodeId
     const output = new FunctionOutputNode('number'); output.id = functionDefinition.outputNodeId
-    const multiply = new MathNode('Multiply', '*', 'multiply', { a: 0, b: 2 }); multiply.id = 'fn-multiply'
+    const multiply = new ArithmeticNode({ operation: 'multiplication', a: 0, b: 2 }); multiply.id = 'fn-multiply'
     const call = new FunctionCallNode({ ...functionDefinition, resultType: 'number' }, { definitionId: functionDefinition.id }); call.id = 'main-call'
     const source1 = new NumberNode({ value: 7, name: 'seven' }); source1.id = 'source-7'
     for (const node of [inputs, output, multiply, call, source1]) await source.addNode(node)

@@ -9,7 +9,7 @@ import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nod
 import { SphereNode } from './nodes/sphere-node'
 import { TranslateNode } from './nodes/translate-node'
 import { CubeNode } from './nodes/cube-node'
-import { MathNode, NumberNode } from './nodes/value-nodes'
+import { ArithmeticNode, NumberNode } from './nodes/value-nodes'
 import { graphEndpointsAreValid } from './port-lifecycle'
 import type { Schemes } from './schemes'
 
@@ -232,7 +232,7 @@ describe('typed Module parameters', () => {
   it('wraps parameter-dependent value Inspect in the definition default context', async () => {
     const { editor, engine } = graph(); const definitions = new DefinitionRegistry(); definitions.add(definition)
     const inputs = new ModuleInputsNode(definition.parameters); inputs.id = definition.inputsNodeId
-    const add = new MathNode('Add', '+', 'add', { a: 0, b: 5 }); add.id = 'ball-add'
+    const add = new ArithmeticNode({ operation: 'addition', a: 0, b: 5 }); add.id = 'ball-add'
     for (const node of [inputs, add]) await editor.addNode(node)
     definitions.assignNode(definition.id, add.id)
     await editor.addConnection(new ClassicPreset.Connection(inputs, moduleParameterPortId('radius-id'), add, 'a') as Schemes['Connection'])

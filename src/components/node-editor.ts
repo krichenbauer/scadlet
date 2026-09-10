@@ -3,7 +3,7 @@ import { customElement, query } from 'lit/decorators.js'
 
 import { createEditor, type SCADletEditor } from '../editor/editor'
 import type { InspectEvaluation } from '../editor/evaluate'
-import { FUNCTION_CALL_DRAG_MIME_TYPE, MODULE_CALL_DRAG_MIME_TYPE, NODE_DRAG_MIME_TYPE } from '../editor/node-catalog'
+import { FUNCTION_CALL_DRAG_MIME_TYPE, MODULE_CALL_DRAG_MIME_TYPE, NODE_DRAG_MIME_TYPE, NODE_DRAG_PARAMS_MIME_TYPE } from '../editor/node-catalog'
 
 /**
  * Hosts the Rete node graph. Owns the lifecycle of the underlying
@@ -167,7 +167,17 @@ export class NodeEditorElement extends LitElement {
       overflow-wrap: anywhere;
     }
 
-    input.node-title {
+    .node-header-drag {
+      flex: none;
+      cursor: grab;
+      color: #aaa;
+      line-height: 20px;
+    }
+
+    .node-header-drag:active { cursor: grabbing; }
+
+    input.node-title,
+    select.node-title {
       width: 100%;
       min-width: 0;
       padding: 1px 3px;
@@ -180,7 +190,9 @@ export class NodeEditorElement extends LitElement {
     }
 
     input.node-title:hover,
-    input.node-title:focus {
+    input.node-title:focus,
+    select.node-title:hover,
+    select.node-title:focus {
       border-color: #666;
       outline: none;
     }
@@ -570,17 +582,27 @@ export class NodeEditorElement extends LitElement {
   /** Reads the dropped node type and places it under the pointer, converted to graph coordinates by the editor. */
   private readonly _onDrop = (event: DragEvent): void => {
     const type = event.dataTransfer?.getData(NODE_DRAG_MIME_TYPE)
+    const paramsText = event.dataTransfer?.getData(NODE_DRAG_PARAMS_MIME_TYPE)
     const moduleDefinitionId = event.dataTransfer?.getData(MODULE_CALL_DRAG_MIME_TYPE)
     const functionDefinitionId = event.dataTransfer?.getData(FUNCTION_CALL_DRAG_MIME_TYPE)
     if (!type && !moduleDefinitionId && !functionDefinitionId) return
     event.preventDefault()
-    if (type) void this.addNodeAt(type, { x: event.clientX, y: event.clientY })
+    if (type) {
+      let params: Record<string, unknown> | undefined
+      if (paramsText) {
+        try {
+          const parsed: unknown = JSON.parse(paramsText)
+          if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) params = parsed as Record<string, unknown>
+        } catch { return }
+      }
+      void this.addNodeAt(type, { x: event.clientX, y: event.clientY }, params)
+    }
     else if (moduleDefinitionId) void this.addModuleCallAt(moduleDefinitionId, { x: event.clientX, y: event.clientY })
     else if (functionDefinitionId) void this.addFunctionCallAt(functionDefinitionId, { x: event.clientX, y: event.clientY })
   }
 
-  async addNodeAt(type: string, clientPosition: { x: number; y: number }): Promise<void> {
-    await this.instance?.addNodeAt(type, clientPosition)
+  async addNodeAt(type: string, clientPosition: { x: number; y: number }, params?: Record<string, unknown>): Promise<void> {
+    await this.instance?.addNodeAt(type, clientPosition, params)
   }
 
   async addModuleCallAt(definitionId: string, clientPosition: { x: number; y: number }): Promise<boolean> {

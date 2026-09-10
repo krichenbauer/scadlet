@@ -1,7 +1,7 @@
 import { LitElement, css, html, nothing } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 
-import { FUNCTION_CALL_DRAG_MIME_TYPE, MODULE_CALL_DRAG_MIME_TYPE, NODE_CATALOG, NODE_CATEGORIES, NODE_DRAG_MIME_TYPE, type NodeCategory } from '../editor/node-catalog'
+import { FUNCTION_CALL_DRAG_MIME_TYPE, MODULE_CALL_DRAG_MIME_TYPE, NODE_CATALOG, NODE_CATEGORIES, NODE_DRAG_MIME_TYPE, NODE_DRAG_PARAMS_MIME_TYPE, type NodeCatalogEntry, type NodeCategory } from '../editor/node-catalog'
 import { t } from '../i18n/translate'
 
 /**
@@ -20,6 +20,7 @@ import { t } from '../i18n/translate'
  */
 @customElement('node-palette')
 export class NodePaletteElement extends LitElement {
+  private readonly selectedOperations = new Map<string, string>()
   /** Project-owned definitions deliberately live beside the static catalog.
    * Their entry creates a generic Call node; it is never a static type named
    * after the Module's display name. */
@@ -82,6 +83,29 @@ export class NodePaletteElement extends LitElement {
       cursor: grabbing;
     }
 
+    .node-item--operation {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 70px 24px;
+      align-items: center;
+      gap: 6px;
+      cursor: default;
+    }
+
+    .node-item--operation:active { cursor: default; }
+    .node-item--operation select { min-width: 0; width: 70px; font: inherit; }
+    .node-drag-handle {
+      display: grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 3px;
+      cursor: grab;
+      color: #bbb;
+      touch-action: none;
+    }
+    .node-drag-handle:hover { background: #3a3a3a; color: #fff; }
+    .node-drag-handle:active { cursor: grabbing; }
+
     .module-entry { display: flex; align-items: center; gap: 4px; margin: 0 8px 4px; }
     .module-entry .module-item { margin: 0; flex: 1; }
     .module-action { padding: 4px 6px; }
@@ -132,27 +156,50 @@ export class NodePaletteElement extends LitElement {
     return html`
       <div class="category">
         <div class="category-title">${t(category.labelKey)}</div>
-        ${entries.map(
-          (entry) => html`
+        ${entries.map((entry) => entry.paletteOperation ? this._renderOperationEntry(entry) : html`
             <div
               role="listitem"
               class="node-item"
+              data-node-type=${entry.type}
               draggable="true"
               @dragstart=${(event: DragEvent) => this._onDragStart(event, entry.type)}
               aria-label=${t(entry.labelKey)}
             >
               ${t(entry.labelKey)}
             </div>
-          `,
-        )}
+          `)}
       </div>
     `
   }
 
-  private _onDragStart(event: DragEvent, type: string): void {
+  private _renderOperationEntry(entry: NodeCatalogEntry) {
+    const config = entry.paletteOperation!
+    const selectedOperation = this.selectedOperations.get(entry.type) ?? config.defaultValue
+    return html`
+      <div role="listitem" class="node-item node-item--operation" data-node-type=${entry.type} aria-label=${t(entry.labelKey)}>
+        <span>${t(entry.labelKey)}</span>
+        <select aria-label=${t(config.accessibleLabelKey)} @change=${(event: Event) => {
+          const select = event.currentTarget as HTMLSelectElement
+          this.selectedOperations.set(entry.type, select.value)
+        }}>
+          ${config.options.map((option) => html`<option value=${option.value} ?selected=${option.value === selectedOperation}>${option.label}</option>`)}
+        </select>
+        <span class="node-drag-handle" role="button" tabindex="0" draggable="true"
+          aria-label=${t('palette.dragNode').replace('{name}', t(entry.labelKey))}
+          @dragstart=${(event: DragEvent) => {
+            const item = (event.currentTarget as HTMLElement).closest('.node-item--operation')
+            const selected = item?.querySelector('select')?.value ?? selectedOperation
+            this._onDragStart(event, entry.type, config.createParams(selected))
+          }}>⠇</span>
+      </div>
+    `
+  }
+
+  private _onDragStart(event: DragEvent, type: string, params?: Record<string, unknown>): void {
     if (!event.dataTransfer) return
     event.dataTransfer.effectAllowed = 'copy'
     event.dataTransfer.setData(NODE_DRAG_MIME_TYPE, type)
+    if (params) event.dataTransfer.setData(NODE_DRAG_PARAMS_MIME_TYPE, JSON.stringify(params))
   }
 
   private _onModuleDragStart(event: DragEvent, definitionId: string): void {

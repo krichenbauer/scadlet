@@ -10,7 +10,7 @@ import { ScaleNode } from './nodes/scale-node'
 import { SphereNode } from './nodes/sphere-node'
 import { TranslateNode } from './nodes/translate-node'
 import { UnionNode } from './nodes/union-node'
-import { BooleanNode, CompareNode, ConditionalNode, MathNode, NumberNode, Vector3Node, validateBooleanParams, validateCompareParams, validateConditionalParams, validateMathParams, validateNumberParams, validateVector3ValueParams } from './nodes/value-nodes'
+import { ArithmeticNode, BasicMathNode, BooleanNode, CompareNode, ConditionalNode, ExponentialLogNode, NumberNode, TrigonometryNode, Vector3Node, validateArithmeticParams, validateBasicMathParams, validateBooleanParams, validateCompareParams, validateConditionalParams, validateExponentialLogParams, validateNumberParams, validateTrigonometryParams, validateVector3ValueParams, type TrigonometryOperation } from './nodes/value-nodes'
 import { type VariadicBooleanParams } from './nodes/boolean-op-node'
 import { validateCubeParams } from '../openscad/cube'
 import { validateCylinderParams } from '../openscad/cylinder'
@@ -21,7 +21,6 @@ import type { CylinderParams } from '../openscad/cylinder'
 import type { SphereParams } from '../openscad/sphere'
 import type { Vector3Params } from '../openscad/transform'
 import type { SocketType } from './sockets'
-import { t } from '../i18n/translate'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
 import { ModuleCallNode, type ModuleCallParams } from './nodes/module-call-node'
 import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interface-nodes'
@@ -30,6 +29,10 @@ import type { ModuleDefinition, ModuleParameterDefault } from './definitions'
 
 /** MIME type used to carry a node-catalog `type` id through native HTML drag-and-drop (see `node-palette.ts`/`node-editor.ts`). */
 export const NODE_DRAG_MIME_TYPE = 'application/x-scadlet-node-type'
+/** Optional validated creation parameters accompanying a static catalog
+ * drag. This keeps palette-selected operations part of construction rather
+ * than mutating an arbitrary default node after it has entered the graph. */
+export const NODE_DRAG_PARAMS_MIME_TYPE = 'application/x-scadlet-node-parameters'
 /** Carries a stable project definition ID for dynamic Module Call palette
  * entries. This intentionally differs from static catalog node types. */
 export const MODULE_CALL_DRAG_MIME_TYPE = 'application/x-scadlet-module-call'
@@ -58,10 +61,10 @@ export type NodeTypeId =
   | 'number'
   | 'boolean'
   | 'vector3'
-  | 'add'
-  | 'subtract'
-  | 'multiply'
-  | 'divide'
+  | 'arithmetic'
+  | 'trigonometry'
+  | 'basic-math'
+  | 'exponential-log'
   | 'compare'
   | 'conditional'
   | 'module-inputs'
@@ -94,6 +97,21 @@ export interface NodeCreationContext {
   /** Resolves a project-owned Module by its stable ID while constructing a
    * generic `module-call`; absent in DOM-free tests that never create calls. */
   getModuleDefinition?(definitionId: string): ModuleDefinition | undefined
+  /** Runs the one dynamic Math signature transition through the editor's
+   * connection-safe, confirmation-aware lifecycle. */
+  requestTrigonometryOperationChange?(nodeId: string, operation: TrigonometryOperation): Promise<boolean>
+}
+
+export interface PaletteOperationChoice {
+  readonly value: string
+  readonly label: string
+}
+
+export interface PaletteOperationConfig {
+  readonly accessibleLabelKey: string
+  readonly options: readonly PaletteOperationChoice[]
+  readonly defaultValue: string
+  createParams(value: string): Record<string, unknown>
 }
 
 export interface NodeCatalogEntry {
@@ -103,6 +121,8 @@ export interface NodeCatalogEntry {
   /** Interface nodes are persistent definition infrastructure, never normal
    * palette choices. */
   readonly palette?: boolean
+  /** Families whose concrete operation is selected directly in the palette. */
+  readonly paletteOperation?: PaletteOperationConfig
   /** Stable input/output port ids, in the order Rete's own port map would report them - used to validate persisted connections without constructing a node. */
   readonly inputs: readonly string[]
   readonly outputs: readonly string[]
@@ -239,7 +259,7 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
  * Shared by `persistence/validate.ts` (file validation) and `editor.ts`
  * (live node-creation/scope-transfer gating) so both enforce identically. */
 export const FUNCTION_GRAPH_ALLOWED_NODE_TYPES: ReadonlySet<NodeTypeId> = new Set([
-  'function-inputs', 'function-output', 'function-call', 'number', 'boolean', 'vector3', 'add', 'subtract', 'multiply', 'divide', 'compare', 'conditional',
+  'function-inputs', 'function-output', 'function-call', 'number', 'boolean', 'vector3', 'arithmetic', 'trigonometry', 'basic-math', 'exponential-log', 'compare', 'conditional',
 ])
 
 /**
@@ -343,22 +363,76 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     serializeParams: (node) => (node as Vector3Node).getPersistedParams() as unknown as Record<string, unknown>,
     validateParams: (value) => validateVector3ValueParams(value) as unknown as Record<string, unknown>,
   },
-  ...([
-    ['add', 'node.add', '+'],
-    ['subtract', 'node.subtract', '-'],
-    ['multiply', 'node.multiply', '*'],
-    ['divide', 'node.divide', '/'],
-  ] as const).map(([type, labelKey, operator]): NodeCatalogEntry => ({
-    type, category: 'math', labelKey, inputs: ['a', 'b'], outputs: ['value'],
+  {
+    type: 'arithmetic', category: 'math', labelKey: 'node.arithmetic', inputs: ['a', 'b'], outputs: ['value'],
+    paletteOperation: {
+      accessibleLabelKey: 'node.arithmeticOperation', defaultValue: 'addition',
+      options: [{ value: 'addition', label: '+' }, { value: 'subtraction', label: '−' }, { value: 'multiplication', label: '×' }, { value: 'division', label: '÷' }, { value: 'modulo', label: '%' }, { value: 'power', label: 'pow' }],
+      createParams: (operation) => validateArithmeticParams({ operation, a: 0, b: 0 }) as unknown as Record<string, unknown>,
+    },
     inputSocketType: (port) => ['a', 'b'].includes(port) ? 'number' : undefined,
     outputSocketType: (port) => port === 'value' ? 'number' : undefined,
-    create: (_context, params) => new MathNode(t(labelKey), operator, type, params ? validateMathParams(params) : undefined),
-    matches: (node) => node instanceof MathNode && node.type === type,
-    serializeParams: (node) => (node as MathNode).getPersistedParams() as unknown as Record<string, unknown>,
-    validateParams: (value) => validateMathParams(value) as unknown as Record<string, unknown>,
-  })),
+    create: (_context, params) => new ArithmeticNode(params ? validateArithmeticParams(params) : undefined),
+    matches: (node) => node instanceof ArithmeticNode,
+    serializeParams: (node) => (node as ArithmeticNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateArithmeticParams(value) as unknown as Record<string, unknown>,
+  },
+  {
+    type: 'trigonometry', category: 'math', labelKey: 'node.trigonometry', inputs: ['a'], outputs: ['value'],
+    paletteOperation: {
+      accessibleLabelKey: 'node.trigonometryOperation', defaultValue: 'sin',
+      options: ['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2'].map((value) => ({ value, label: value })),
+      createParams: (operation) => validateTrigonometryParams({ operation, a: 0, b: 0, inputPorts: operation === 'atan2' ? ['a', 'b'] : ['a'] }) as unknown as Record<string, unknown>,
+    },
+    isInputPort: (port, parameters) => validateTrigonometryParams(parameters).inputPorts.includes(port as 'a' | 'b'),
+    inputSocketType: (port, parameters) => validateTrigonometryParams(parameters).inputPorts.includes(port as 'a' | 'b') ? 'number' : undefined,
+    outputSocketType: (port) => port === 'value' ? 'number' : undefined,
+    create: (context, params) => {
+      const node = new TrigonometryNode(params ? validateTrigonometryParams(params) : undefined)
+      const control = node.controls.operation as import('./controls').TitleSelectControl<TrigonometryOperation>
+      if (context.requestTrigonometryOperationChange) control.onRequestChange = (operation) => context.requestTrigonometryOperationChange!(node.id, operation)
+      else control.onRequestChange = (operation) => { node.setOperation(operation); return true }
+      return node
+    },
+    matches: (node) => node instanceof TrigonometryNode,
+    serializeParams: (node) => (node as TrigonometryNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateTrigonometryParams(value) as unknown as Record<string, unknown>,
+  },
+  {
+    type: 'basic-math', category: 'math', labelKey: 'node.basicMath', inputs: ['x'], outputs: ['value'],
+    paletteOperation: {
+      accessibleLabelKey: 'node.basicMathOperation', defaultValue: 'abs',
+      options: ['abs', 'sign', 'sqrt', 'floor', 'ceil', 'round'].map((value) => ({ value, label: value })),
+      createParams: (operation) => validateBasicMathParams({ operation, x: 0 }) as unknown as Record<string, unknown>,
+    },
+    inputSocketType: (port) => port === 'x' ? 'number' : undefined,
+    outputSocketType: (port) => port === 'value' ? 'number' : undefined,
+    create: (_context, params) => new BasicMathNode(params ? validateBasicMathParams(params) : undefined),
+    matches: (node) => node instanceof BasicMathNode,
+    serializeParams: (node) => (node as BasicMathNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateBasicMathParams(value) as unknown as Record<string, unknown>,
+  },
+  {
+    type: 'exponential-log', category: 'math', labelKey: 'node.exponentialLog', inputs: ['x'], outputs: ['value'],
+    paletteOperation: {
+      accessibleLabelKey: 'node.exponentialLogOperation', defaultValue: 'exp',
+      options: ['exp', 'ln', 'log'].map((value) => ({ value, label: value })),
+      createParams: (operation) => validateExponentialLogParams({ operation, x: 0 }) as unknown as Record<string, unknown>,
+    },
+    inputSocketType: (port) => port === 'x' ? 'number' : undefined,
+    outputSocketType: (port) => port === 'value' ? 'number' : undefined,
+    create: (_context, params) => new ExponentialLogNode(params ? validateExponentialLogParams(params) : undefined),
+    matches: (node) => node instanceof ExponentialLogNode,
+    serializeParams: (node) => (node as ExponentialLogNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateExponentialLogParams(value) as unknown as Record<string, unknown>,
+  },
   {
     type: 'compare', category: 'math', labelKey: 'node.compare', inputs: ['a', 'b'], outputs: ['value'],
+    paletteOperation: {
+      accessibleLabelKey: 'node.compareOperator', defaultValue: '<',
+      options: ['<', '<=', '>', '>=', '==', '!='].map((value) => ({ value, label: value })),
+      createParams: (operator) => validateCompareParams({ operator }) as unknown as Record<string, unknown>,
+    },
     inputSocketType: (port) => ['a', 'b'].includes(port) ? 'number' : undefined,
     outputSocketType: (port) => port === 'value' ? 'boolean' : undefined,
     create: (_context, params) => new CompareNode(params ? validateCompareParams(params) : undefined),
@@ -601,6 +675,7 @@ export const NODE_CATALOG: readonly NodeCatalogEntry[] = CATALOG_ENTRIES.map((en
       notifyDirty: context.notifyDirty,
       canRemoveInputs: context.canRemoveInputs,
       getModuleDefinition: context.getModuleDefinition,
+      requestTrigonometryOperationChange: context.requestTrigonometryOperationChange,
     }
     node = entry.create(wrappedContext, params)
     wireDirtyNotifications(node, context.notifyDirty)

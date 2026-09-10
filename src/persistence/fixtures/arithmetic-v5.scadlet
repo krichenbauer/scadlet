@@ -1,0 +1,64 @@
+{
+  "format": "scadlet",
+  "version": 5,
+  "metadata": { "name": "Legacy arithmetic v5" },
+  "graph": {
+    "nodes": [
+      { "id": "number-main", "type": "number", "position": { "x": 10, "y": 20 }, "parameters": { "value": 2, "name": "Two" } },
+      { "id": "add-main", "type": "add", "position": { "x": 100, "y": 20 }, "parameters": { "a": 0, "b": 3 }, "pinned": true },
+      { "id": "subtract-main", "type": "subtract", "position": { "x": 220, "y": 20 }, "parameters": { "a": 0, "b": 1 } },
+      { "id": "multiply-main", "type": "multiply", "position": { "x": 340, "y": 20 }, "parameters": { "a": 0, "b": 4 } },
+      { "id": "divide-main", "type": "divide", "position": { "x": 460, "y": 20 }, "parameters": { "a": 0, "b": 2 } },
+      { "id": "cube-main", "type": "cube", "position": { "x": 580, "y": 20 }, "parameters": { "sizeRepresentation": "scalar", "sizeScalar": 10, "sizeVector": { "x": 10, "y": 10, "z": 10 }, "size": 10 } }
+    ],
+    "connections": [
+      { "id": "wire-number-add", "source": "number-main", "sourceOutput": "value", "target": "add-main", "targetInput": "a" },
+      { "id": "wire-add-subtract", "source": "add-main", "sourceOutput": "value", "target": "subtract-main", "targetInput": "a" },
+      { "id": "wire-subtract-multiply", "source": "subtract-main", "sourceOutput": "value", "target": "multiply-main", "targetInput": "a" },
+      { "id": "wire-multiply-divide", "source": "multiply-main", "sourceOutput": "value", "target": "divide-main", "targetInput": "a" },
+      { "id": "wire-divide-cube", "source": "divide-main", "sourceOutput": "value", "target": "cube-main", "targetInput": "size" }
+    ]
+  },
+  "definitions": [
+    {
+      "id": "legacy-module",
+      "kind": "module",
+      "name": "legacy_module",
+      "interface": { "inputs": "module-inputs", "output": "module-output" },
+      "parameters": [],
+      "geometryInputs": [],
+      "graph": {
+        "nodes": [
+          { "id": "module-inputs", "type": "module-inputs", "position": { "x": 20, "y": 220 }, "parameters": {} },
+          { "id": "module-add", "type": "add", "position": { "x": 180, "y": 220 }, "parameters": { "a": 2, "b": 3 } },
+          { "id": "module-cube", "type": "cube", "position": { "x": 340, "y": 220 }, "parameters": { "sizeRepresentation": "scalar", "sizeScalar": 10, "sizeVector": { "x": 10, "y": 10, "z": 10 }, "size": 10 } },
+          { "id": "module-output", "type": "module-output", "position": { "x": 500, "y": 220 }, "parameters": {} }
+        ],
+        "connections": [
+          { "id": "wire-module-size", "source": "module-add", "sourceOutput": "value", "target": "module-cube", "targetInput": "size" },
+          { "id": "wire-module-output", "source": "module-cube", "sourceOutput": "geometry", "target": "module-output", "targetInput": "geometry" }
+        ]
+      }
+    },
+    {
+      "id": "legacy-function",
+      "kind": "function",
+      "name": "legacy_function",
+      "interface": { "inputs": "function-inputs", "output": "function-output" },
+      "parameters": [],
+      "resultType": "number",
+      "graph": {
+        "nodes": [
+          { "id": "function-inputs", "type": "function-inputs", "position": { "x": 20, "y": 420 }, "parameters": {} },
+          { "id": "function-divide", "type": "divide", "position": { "x": 180, "y": 420 }, "parameters": { "a": 12, "b": 3 } },
+          { "id": "function-output", "type": "function-output", "position": { "x": 340, "y": 420 }, "parameters": {} }
+        ],
+        "connections": [
+          { "id": "wire-function-output", "source": "function-divide", "sourceOutput": "value", "target": "function-output", "targetInput": "result" }
+        ]
+      }
+    }
+  ],
+  "editor": { "viewport": { "x": 4, "y": -8, "zoom": 1.25 } },
+  "viewer": { "camera": { "position": [80, 80, 60], "target": [0, 0, 0] } }
+}

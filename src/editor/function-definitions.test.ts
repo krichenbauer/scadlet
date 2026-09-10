@@ -10,7 +10,7 @@ import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interfa
 import { CubeNode } from './nodes/cube-node'
 import { ModuleCallNode } from './nodes/module-call-node'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
-import { BooleanNode, MathNode, NumberNode, Vector3Node } from './nodes/value-nodes'
+import { ArithmeticNode, BasicMathNode, BooleanNode, ExponentialLogNode, NumberNode, TrigonometryNode, Vector3Node } from './nodes/value-nodes'
 import { scopeTransferProblem } from './scope-transfer'
 import type { Schemes } from './schemes'
 
@@ -74,7 +74,7 @@ describe('Function definitions (Milestone 8 Phase 7)', () => {
     definitions.add(definition)
     const inputs = new FunctionInputsNode(definition.parameters); inputs.id = definition.inputsNodeId
     const output = new FunctionOutputNode('number'); output.id = definition.outputNodeId
-    const multiply = new MathNode('Multiply', '*', 'multiply', { a: 0, b: 2 }); multiply.id = 'multiply-node'
+    const multiply = new ArithmeticNode({ operation: 'multiplication', a: 0, b: 2 }); multiply.id = 'multiply-node'
     const call = new FunctionCallNode(definition, { definitionId: definition.id }); call.id = 'call-1'
     const cube = new CubeNode(); cube.id = 'cube-1'
     for (const node of [inputs, output, multiply, call, cube]) await editor.addNode(node)
@@ -96,10 +96,10 @@ describe('Function definitions (Milestone 8 Phase 7)', () => {
     definitions.add(outer); definitions.add(inner)
     const innerInputs = new FunctionInputsNode(inner.parameters); innerInputs.id = inner.inputsNodeId
     const innerOutput = new FunctionOutputNode('number'); innerOutput.id = inner.outputNodeId
-    const innerMultiply = new MathNode('Multiply', '*', 'multiply', { a: 0, b: 2 }); innerMultiply.id = 'inner-multiply'
+    const innerMultiply = new ArithmeticNode({ operation: 'multiplication', a: 0, b: 2 }); innerMultiply.id = 'inner-multiply'
     const outerInputs = new FunctionInputsNode(outer.parameters); outerInputs.id = outer.inputsNodeId
     const outerOutput = new FunctionOutputNode('number'); outerOutput.id = outer.outputNodeId
-    const triple = new MathNode('Multiply', '*', 'multiply', { a: 0, b: 3 }); triple.id = 'triple'
+    const triple = new ArithmeticNode({ operation: 'multiplication', a: 0, b: 3 }); triple.id = 'triple'
     const nestedCall = new FunctionCallNode(inner, { definitionId: inner.id }); nestedCall.id = 'nested-double'
     const mainCall = new FunctionCallNode(outer, { definitionId: outer.id }); mainCall.id = 'main-sixfold'
     const cube = new CubeNode({ size: 10 }); cube.id = 'main-cube'
@@ -157,7 +157,7 @@ describe('Function definitions (Milestone 8 Phase 7)', () => {
     const innerOutput = new ModuleOutputNode(); innerOutput.id = inner.outputNodeId
     const diameterInputs = new FunctionInputsNode(diameter.parameters); diameterInputs.id = diameter.inputsNodeId
     const diameterOutput = new FunctionOutputNode('number'); diameterOutput.id = diameter.outputNodeId
-    const double = new MathNode('Multiply', '*', 'multiply', { a: 0, b: 2 }); double.id = 'double'
+    const double = new ArithmeticNode({ operation: 'multiplication', a: 0, b: 2 }); double.id = 'double'
     const innerCube = new CubeNode(); innerCube.id = 'inner-cube'
     const functionCall = new FunctionCallNode(diameter, { definitionId: diameter.id }); functionCall.id = 'outer-diameter'
     const moduleCall = new ModuleCallNode(inner, { definitionId: inner.id }); moduleCall.id = 'outer-inner'
@@ -237,6 +237,10 @@ describe('Function definitions (Milestone 8 Phase 7)', () => {
     const number = new NumberNode(); number.id = 'number-1'
     await editor.addNode(number)
     expect(scopeTransferProblem(editor, registry, [number.id], definition.id)).toBeNull()
+    for (const node of [new ArithmeticNode(), new TrigonometryNode(), new BasicMathNode(), new ExponentialLogNode()]) {
+      await editor.addNode(node)
+      expect(scopeTransferProblem(editor, registry, [node.id], definition.id)).toBeNull()
+    }
   })
 
   it('renames by stable id and preserves Call references', () => {

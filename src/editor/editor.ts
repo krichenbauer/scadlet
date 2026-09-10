@@ -26,7 +26,7 @@ import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nod
 import { ModuleCallNode } from './nodes/module-call-node'
 import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interface-nodes'
 import { FunctionCallNode } from './nodes/function-call-node'
-import { ConditionalNode } from './nodes/value-nodes'
+import { ConditionalNode, TrigonometryNode, type TrigonometryOperation } from './nodes/value-nodes'
 import { scopeTransferProblem, type ScopeTransferProblem } from './scope-transfer'
 import { t } from '../i18n/translate'
 import { analyzeFunctionDependencies } from './function-dependencies'
@@ -42,7 +42,7 @@ export interface SCADletEditor {
    * becomes its top-left origin in graph space. The single creation path
    * used by palette drag/drop.
    */
-  addNodeAt(type: string, clientPosition: Position): Promise<void>
+  addNodeAt(type: string, clientPosition: Position, params?: Record<string, unknown>): Promise<void>
   /** Creates a generic Call node for a project Module in Main only. Drops
    * inside a definition frame are deliberately refused in Phase 2. */
   addModuleCallAt(definitionId: string, clientPosition: Position): Promise<boolean>
@@ -131,6 +131,42 @@ export function attachSocketCompatibilityGuard(editor: NodeEditor<Schemes>): voi
       nodeId: context.data.target, key: context.data.targetInput, side: 'input',
     }) ? context : undefined
   })
+}
+
+/** Atomically changes Trigonometry's one dynamic signature. It is exported
+ * so the cancellation/rollback contract can be exercised without a browser;
+ * the live editor supplies localized confirmation and dirty suppression. */
+export async function transitionTrigonometryOperation(
+  editor: NodeEditor<Schemes>,
+  node: TrigonometryNode,
+  operation: TrigonometryOperation,
+  confirmRemoval: (connectionCount: number) => boolean,
+  updateNode: () => void | Promise<void> = () => {},
+): Promise<boolean> {
+  const previous = node.getPersistedParams()
+  if (previous.operation === operation) return true
+  const affected = operation === 'atan2' ? [] : editor.getConnections().filter(
+    (item) => item.target === node.id && item.targetInput === 'b',
+  )
+  if (affected.length > 0 && !confirmRemoval(affected.length)) return false
+
+  try {
+    for (const connection of affected) await editor.removeConnection(connection.id)
+    node.setOperation(operation)
+    await updateNode()
+    return true
+  } catch {
+    try {
+      node.setOperation(previous.operation, previous.b)
+      for (const connection of affected) {
+        if (!editor.getConnections().some((candidate) => candidate.id === connection.id)) await editor.addConnection(connection)
+      }
+      await updateNode()
+    } catch {
+      // The caller reports failure; no partial change is intentionally saved.
+    }
+    return false
+  }
 }
 
 /**
@@ -564,11 +600,25 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // re-framed the whole viewport around every node (jarring, and doubly
   // pointless once nodes get real positions instead of all stacking at
   // (0, 0)). The current pan/zoom must survive node creation unchanged.
+  async function requestTrigonometryOperationChange(nodeId: string, operation: TrigonometryOperation): Promise<boolean> {
+    const node = editor.getNode(nodeId)
+    if (!(node instanceof TrigonometryNode)) return false
+    const previousDirtySuspended = dirtySuspended
+    dirtySuspended = true
+    const changed = await transitionTrigonometryOperation(editor, node, operation, (count) => {
+      try { return window.confirm(t('math.confirmRemoveAtan2Input').replace('{count}', String(count))) } catch { return false }
+    }, () => area.update('node', node.id))
+    dirtySuspended = previousDirtySuspended
+    if (changed && !previousDirtySuspended) notifySemanticDirty()
+    return changed
+  }
+
   const creationContext: NodeCreationContext = {
     onControlsChanged: (id) => { void area.update('node', id); notifySemanticDirty() },
     notifyDirty: notifySemanticDirty,
     canRemoveInputs: (nodeId, keys) => !hasConnectedInputs(editor, nodeId, keys),
     getModuleDefinition: (definitionId) => definitions.get(definitionId),
+    requestTrigonometryOperationChange,
   }
 
   async function addModuleParameter(definitionId: string, input: { name: string; type: ModuleParameterType; default: ModuleParameterDefault }): Promise<void> {
@@ -1299,7 +1349,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return context
   })
 
-  async function addNodeAt(type: string, clientPosition: Position, scope: string | null | undefined = undefined): Promise<void> {
+  async function addNodeAt(type: string, clientPosition: Position, params?: Record<string, unknown>, scope: string | null | undefined = undefined): Promise<void> {
     const entry = findCatalogEntry(type)
     if (!entry) return
 
@@ -1314,7 +1364,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       return
     }
 
-    const node = entry.create(creationContext)
+    let validatedParams: Record<string, unknown> | undefined
+    try { validatedParams = params === undefined ? undefined : entry.validateParams(params) } catch { return }
+    const node = entry.create(creationContext, validatedParams)
     if (owner !== null) definitions.assignNode(owner, node.id)
     await editor.addNode(node)
 

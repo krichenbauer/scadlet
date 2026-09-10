@@ -36,7 +36,7 @@ describe('v3 Module definition persistence', () => {
       now: () => '2026-09-05T00:00:00.000Z',
     }))
 
-    expect(project.version).toBe(5)
+    expect(project.version).toBe(6)
     expect(project.graph.nodes).toEqual([])
     expect(project.definitions).toHaveLength(1)
     expect(project.definitions[0]).toMatchObject({ id: definition.id, kind: 'module', name: 'wheel', interface: { inputs: inputs.id, output: output.id } })
@@ -64,7 +64,7 @@ describe('v3 Module definition persistence', () => {
       graph: { nodes: [], connections: [] },
       editor: { viewport: { x: 12, y: -4, zoom: 1.3 } }, viewer: { camera },
     })
-    expect(project.version).toBe(5)
+    expect(project.version).toBe(6)
     expect(project.definitions).toEqual([])
     expect(project.editor.viewport).toEqual({ x: 12, y: -4, zoom: 1.3 })
   })

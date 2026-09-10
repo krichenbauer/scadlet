@@ -4,7 +4,7 @@ import type { AreaPlugin } from 'rete-area-plugin'
 import type { ConnectionPlugin } from 'rete-connection-plugin'
 import { classicConnectionPath, getDOMSocketPosition } from 'rete-render-utils'
 
-import { CheckboxControl, LabeledNumberControl, LabeledTextControl, ModuleGeometryInputAddControl, ModuleGeometryInputEditControl, ModuleParameterAddControl, ModuleParameterEditControl, ParameterActionsControl, RepresentationSelectControl, SelectControl, Vector3Control, type ParameterAction } from './controls'
+import { CheckboxControl, LabeledNumberControl, LabeledTextControl, ModuleGeometryInputAddControl, ModuleGeometryInputEditControl, ModuleParameterAddControl, ModuleParameterEditControl, ParameterActionsControl, RepresentationSelectControl, SelectControl, TitleSelectControl, Vector3Control, type ParameterAction } from './controls'
 import { ModuleInputsNode } from './nodes/module-interface-nodes'
 import { ModuleOutputNode } from './nodes/module-interface-nodes'
 import { FunctionOutputNode } from './nodes/function-interface-nodes'
@@ -390,12 +390,15 @@ function renderNode(
   const sourceNameControl = node.outputs.value && node.controls.name instanceof LabeledTextControl
     ? node.controls.name
     : undefined
+  const titleSelectControl = Object.values(node.controls).find(
+    (control): control is TitleSelectControl => control instanceof TitleSelectControl,
+  )
   // Controls that don't have a co-located parameter input row go in `.node-controls` when expanded.
   const representationControls = Object.values(node.controls).filter(
     (control): control is RepresentationSelectControl => control instanceof RepresentationSelectControl,
   )
   const standaloneControls = Object.entries(node.controls).filter(
-    ([key, ctrl]) => ctrl && !paramInputKeys.has(key) && !(ctrl instanceof RepresentationSelectControl) && !(sourceNameControl && key === 'name'),
+    ([key, ctrl]) => ctrl && !paramInputKeys.has(key) && !(ctrl instanceof RepresentationSelectControl) && !(ctrl instanceof TitleSelectControl) && !(sourceNameControl && key === 'name'),
   )
   // Literal value sources have no inputs, so their primary control is part
   // of the compact node rather than hidden behind hover/pinning. Other
@@ -473,7 +476,7 @@ function renderNode(
 
   const body = document.createElement('div')
   body.className = 'node-body'
-  body.appendChild(renderHeader(node, presentation, hasCollapsibleContent, inspected, notifyDirty, sourceNameControl))
+  body.appendChild(renderHeader(node, presentation, hasCollapsibleContent, inspected, notifyDirty, sourceNameControl, titleSelectControl))
   main.appendChild(body)
 
   if (outputClasses.main.length > 0) {
@@ -592,11 +595,21 @@ function renderHeader(
   inspected: boolean,
   notifyDirty: () => void,
   sourceNameControl: LabeledTextControl | undefined,
+  titleSelectControl: TitleSelectControl | undefined,
 ): HTMLElement {
   const header = document.createElement('div')
   header.className = 'node-header'
 
-  const title = sourceNameControl ? document.createElement('input') : document.createElement('div')
+  if (titleSelectControl) {
+    const drag = document.createElement('span')
+    drag.className = 'node-header-drag'
+    drag.textContent = '⠇'
+    drag.title = t('node.drag')
+    drag.setAttribute('aria-label', t('node.drag'))
+    header.appendChild(drag)
+  }
+
+  const title = sourceNameControl ? document.createElement('input') : titleSelectControl ? document.createElement('select') : document.createElement('div')
   title.className = 'node-title'
   if (title instanceof HTMLInputElement) {
     const nameControl = sourceNameControl!
@@ -611,6 +624,32 @@ function renderHeader(
     title.addEventListener('input', () => nameControl.setValue(title.value))
     title.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') title.blur()
+    })
+  } else if (title instanceof HTMLSelectElement) {
+    const operationControl = titleSelectControl!
+    title.setAttribute('aria-label', operationControl.accessibleLabel)
+    title.title = `${node.label}: ${operationControl.options.find((option) => option.value === operationControl.value)?.label ?? operationControl.value}`
+    for (const option of operationControl.options) {
+      const item = document.createElement('option')
+      item.value = option.value
+      item.textContent = option.label
+      item.selected = option.value === operationControl.value
+      title.appendChild(item)
+    }
+    title.addEventListener('pointerdown', (event) => event.stopPropagation())
+    title.addEventListener('dblclick', (event) => event.stopPropagation())
+    title.addEventListener('change', async () => {
+      const requested = title.value
+      title.disabled = true
+      try {
+        if (!(await operationControl.requestValue(requested))) title.value = operationControl.value
+        const selectedLabel = operationControl.options.find((option) => option.value === operationControl.value)?.label ?? operationControl.value
+        title.title = `${node.label}: ${selectedLabel}`
+      } catch {
+        title.value = operationControl.value
+      } finally {
+        title.disabled = false
+      }
     })
   } else {
     title.textContent = node.label

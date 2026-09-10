@@ -2,13 +2,21 @@ import { ClassicPreset } from 'rete'
 import type { DataflowNode } from 'rete-engine'
 
 import { t } from '../../i18n/translate'
-import { CheckboxControl, LabeledNumberControl, LabeledTextControl, SelectControl } from '../controls'
+import { CheckboxControl, LabeledNumberControl, LabeledTextControl, TitleSelectControl } from '../controls'
 import { booleanSocket, numberSocket, unresolvedSocket, vector3Socket, type BooleanValue, type NumberValue, type Vector3Value } from '../sockets'
 
 export interface NumberParams { value: number; name?: string }
 export interface BooleanParams { value: boolean; name?: string }
 export interface Vector3ValueParams { x: number; y: number; z: number; name?: string }
-export interface MathParams { a: number; b: number }
+export type ArithmeticOperation = 'addition' | 'subtraction' | 'multiplication' | 'division' | 'modulo' | 'power'
+export interface ArithmeticParams { operation: ArithmeticOperation; a: number; b: number }
+export type TrigonometryOperation = 'sin' | 'cos' | 'tan' | 'asin' | 'acos' | 'atan' | 'atan2'
+export type TrigonometryInputPort = 'a' | 'b'
+export interface TrigonometryParams { operation: TrigonometryOperation; a: number; b: number; inputPorts: TrigonometryInputPort[] }
+export type BasicMathOperation = 'abs' | 'sign' | 'sqrt' | 'floor' | 'ceil' | 'round'
+export interface BasicMathParams { operation: BasicMathOperation; x: number }
+export type ExponentialLogOperation = 'exp' | 'ln' | 'log'
+export interface ExponentialLogParams { operation: ExponentialLogOperation; x: number }
 export type CompareOperator = '<' | '<=' | '>' | '>=' | '==' | '!='
 export interface CompareParams { operator: CompareOperator }
 export type ConditionalValueType = 'number' | 'boolean' | 'vector3'
@@ -40,9 +48,57 @@ export function validateVector3ValueParams(value: unknown): Vector3ValueParams {
   return { x: finiteNumber(params.x, 'x'), y: finiteNumber(params.y, 'y'), z: finiteNumber(params.z, 'z'), name: typeof params.name === 'string' ? params.name : 'Vector3' }
 }
 
-export function validateMathParams(value: unknown): MathParams {
+function exactOperation<T extends string>(value: unknown, operations: readonly T[], family: string): T {
+  if (typeof value !== 'string' || !operations.includes(value as T)) {
+    throw new Error(`Invalid parameters: "operation" must be a supported ${family} operation`)
+  }
+  return value as T
+}
+
+export const ARITHMETIC_OPERATIONS = ['addition', 'subtraction', 'multiplication', 'division', 'modulo', 'power'] as const
+export const TRIGONOMETRY_OPERATIONS = ['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2'] as const
+export const BASIC_MATH_OPERATIONS = ['abs', 'sign', 'sqrt', 'floor', 'ceil', 'round'] as const
+export const EXPONENTIAL_LOG_OPERATIONS = ['exp', 'ln', 'log'] as const
+
+export function validateArithmeticParams(value: unknown): ArithmeticParams {
   const params = object(value)
-  return { a: finiteNumber(params.a, 'a'), b: finiteNumber(params.b, 'b') }
+  return {
+    operation: exactOperation(params.operation, ARITHMETIC_OPERATIONS, 'Arithmetic'),
+    a: finiteNumber(params.a, 'a'),
+    b: finiteNumber(params.b, 'b'),
+  }
+}
+
+export function validateTrigonometryParams(value: unknown): TrigonometryParams {
+  const params = object(value)
+  const operation = exactOperation(params.operation, TRIGONOMETRY_OPERATIONS, 'Trigonometry')
+  if (!Array.isArray(params.inputPorts) || params.inputPorts.some((port) => port !== 'a' && port !== 'b')) {
+    throw new Error('Invalid parameters: "inputPorts" must contain canonical Trigonometry port ids')
+  }
+  const inputPorts = params.inputPorts as TrigonometryInputPort[]
+  if (new Set(inputPorts).size !== inputPorts.length) {
+    throw new Error('Invalid parameters: duplicate Trigonometry input ports')
+  }
+  const expected = operation === 'atan2' ? ['a', 'b'] : ['a']
+  if (inputPorts.length !== expected.length || expected.some((port, index) => inputPorts[index] !== port)) {
+    throw new Error(`Invalid parameters: ${operation} requires inputPorts [${expected.join(', ')}]`)
+  }
+  return {
+    operation,
+    a: finiteNumber(params.a, 'a'),
+    b: finiteNumber(params.b, 'b'),
+    inputPorts: [...expected] as TrigonometryInputPort[],
+  }
+}
+
+export function validateBasicMathParams(value: unknown): BasicMathParams {
+  const params = object(value)
+  return { operation: exactOperation(params.operation, BASIC_MATH_OPERATIONS, 'Basic Math'), x: finiteNumber(params.x, 'x') }
+}
+
+export function validateExponentialLogParams(value: unknown): ExponentialLogParams {
+  const params = object(value)
+  return { operation: exactOperation(params.operation, EXPONENTIAL_LOG_OPERATIONS, 'Exponential / Logarithmic'), x: finiteNumber(params.x, 'x') }
 }
 
 export function validateCompareParams(value: unknown): CompareParams {
@@ -115,18 +171,16 @@ export class Vector3Node extends ClassicPreset.Node<Record<string, ClassicPreset
   }
 }
 
-export type MathOperator = '+' | '-' | '*' | '/'
+const arithmeticOptions = [
+  { value: 'addition', label: '+' }, { value: 'subtraction', label: '−' },
+  { value: 'multiplication', label: '×' }, { value: 'division', label: '÷' },
+  { value: 'modulo', label: '%' }, { value: 'power', label: 'pow' },
+] as const
 
-/** The four small arithmetic nodes share only their stable operator and label;
- * their output deliberately preserves explicit grouping for OpenSCAD. */
-export class MathNode extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { value: ClassicPreset.Socket }, Record<string, LabeledNumberControl>> implements DataflowNode {
-  private readonly operator: MathOperator
-  readonly type: string
-
-  constructor(label: string, operator: MathOperator, type: string, params: MathParams = { a: 0, b: 0 }) {
-    super(label)
-    this.operator = operator
-    this.type = type
+export class ArithmeticNode extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { value: ClassicPreset.Socket }, Record<string, LabeledNumberControl | TitleSelectControl<ArithmeticOperation>>> implements DataflowNode {
+  constructor(params: ArithmeticParams = { operation: 'addition', a: 0, b: 0 }) {
+    super(t('node.arithmetic'))
+    this.addControl('operation', new TitleSelectControl(t('node.arithmeticOperation'), arithmeticOptions, params.operation))
     for (const [key, value, labelText] of [['a', params.a, t('input.a')], ['b', params.b, t('input.b')]] as const) {
       this.addInput(key, new ClassicPreset.Input(numberSocket, labelText))
       this.addControl(key, new LabeledNumberControl(labelText, { initial: value }))
@@ -134,24 +188,116 @@ export class MathNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
     this.addOutput('value', new ClassicPreset.Output(numberSocket, t('output.number')))
   }
 
-  getPersistedParams(): MathParams { return { a: this.controls.a.value ?? 0, b: this.controls.b.value ?? 0 } }
+  getPersistedParams(): ArithmeticParams {
+    return { operation: (this.controls.operation as TitleSelectControl<ArithmeticOperation>).value, a: (this.controls.a as LabeledNumberControl).value ?? 0, b: (this.controls.b as LabeledNumberControl).value ?? 0 }
+  }
   data(inputs: Record<string, NumberValue[] | undefined>): { value: NumberValue } {
     const params = this.getPersistedParams()
     const a = inputs.a?.[0]?.code ?? String(params.a)
     const b = inputs.b?.[0]?.code ?? String(params.b)
-    return { value: { code: `(${a} ${this.operator} ${b})` } }
+    const operators: Record<Exclude<ArithmeticOperation, 'power'>, string> = { addition: '+', subtraction: '-', multiplication: '*', division: '/', modulo: '%' }
+    return { value: { code: params.operation === 'power' ? `pow(${a}, ${b})` : `(${a} ${operators[params.operation]} ${b})` } }
   }
+}
+
+const trigonometryOptions = TRIGONOMETRY_OPERATIONS.map((value) => ({ value, label: value }))
+
+export class TrigonometryNode extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { value: ClassicPreset.Socket }, Record<string, LabeledNumberControl | TitleSelectControl<TrigonometryOperation>>> implements DataflowNode {
+  private secondaryFallback: number
+
+  constructor(params: TrigonometryParams = { operation: 'sin', a: 0, b: 0, inputPorts: ['a'] }) {
+    super(t('node.trigonometry'))
+    this.secondaryFallback = params.b
+    this.addControl('operation', new TitleSelectControl(t('node.trigonometryOperation'), trigonometryOptions, params.operation))
+    this.addPrimaryInput(params.operation, params.a)
+    if (params.operation === 'atan2') this.addSecondaryInput(params.b)
+    this.addOutput('value', new ClassicPreset.Output(numberSocket, t('output.number')))
+  }
+
+  private addPrimaryInput(operation: TrigonometryOperation, value: number): void {
+    const label = operation === 'atan2' ? t('input.y') : t('input.x')
+    this.addInput('a', new ClassicPreset.Input(numberSocket, label))
+    this.addControl('a', new LabeledNumberControl(label, { initial: value }))
+  }
+
+  private addSecondaryInput(value: number): void {
+    this.addInput('b', new ClassicPreset.Input(numberSocket, t('input.x')))
+    this.addControl('b', new LabeledNumberControl(t('input.x'), { initial: value }))
+  }
+
+  /** Commits a preflighted operation transition. The editor removes any
+   * affected `b` wire first; direct callers are protected by Rete's port
+   * removal guard when the node belongs to the live editor. */
+  setOperation(operation: TrigonometryOperation, secondaryFallback?: number): void {
+    const control = this.controls.operation as TitleSelectControl<TrigonometryOperation>
+    if (operation === control.value) return
+    const previous = this.getPersistedParams()
+    this.secondaryFallback = previous.b
+    if (operation === 'atan2') {
+      if (!this.inputs.b) this.addSecondaryInput(secondaryFallback ?? previous.b)
+    } else if (this.inputs.b) {
+      this.removeInput('b')
+      this.removeControl('b')
+    }
+    const primary = this.inputs.a
+    const primaryControl = this.controls.a as LabeledNumberControl
+    const label = operation === 'atan2' ? t('input.y') : t('input.x')
+    if (primary) primary.label = label
+    primaryControl.label = label
+    control.value = operation
+  }
+
+  getPersistedParams(): TrigonometryParams {
+    return {
+      operation: (this.controls.operation as TitleSelectControl<TrigonometryOperation>).value,
+      a: (this.controls.a as LabeledNumberControl).value ?? 0,
+      b: (this.controls.b as LabeledNumberControl | undefined)?.value ?? this.secondaryFallback,
+      inputPorts: this.inputs.b ? ['a', 'b'] : ['a'],
+    }
+  }
+
+  data(inputs: Record<string, NumberValue[] | undefined>): { value: NumberValue } {
+    const params = this.getPersistedParams()
+    const a = inputs.a?.[0]?.code ?? String(params.a)
+    const b = inputs.b?.[0]?.code ?? String(params.b)
+    return { value: { code: params.operation === 'atan2' ? `atan2(${a}, ${b})` : `${params.operation}(${a})` } }
+  }
+}
+
+abstract class UnaryMathNode<Operation extends string, Params extends { operation: Operation; x: number }> extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { value: ClassicPreset.Socket }, Record<string, LabeledNumberControl | TitleSelectControl<Operation>>> implements DataflowNode {
+  constructor(label: string, accessibleLabel: string, options: readonly { value: Operation; label: string }[], params: Params) {
+    super(label)
+    this.addControl('operation', new TitleSelectControl(accessibleLabel, options, params.operation))
+    this.addInput('x', new ClassicPreset.Input(numberSocket, t('input.x')))
+    this.addControl('x', new LabeledNumberControl(t('input.x'), { initial: params.x }))
+    this.addOutput('value', new ClassicPreset.Output(numberSocket, t('output.number')))
+  }
+  protected persisted(): Params { return { operation: (this.controls.operation as TitleSelectControl<Operation>).value, x: (this.controls.x as LabeledNumberControl).value ?? 0 } as Params }
+  data(inputs: Record<string, NumberValue[] | undefined>): { value: NumberValue } {
+    const params = this.persisted()
+    return { value: { code: `${params.operation}(${inputs.x?.[0]?.code ?? String(params.x)})` } }
+  }
+}
+
+export class BasicMathNode extends UnaryMathNode<BasicMathOperation, BasicMathParams> {
+  constructor(params: BasicMathParams = { operation: 'abs', x: 0 }) { super(t('node.basicMath'), t('node.basicMathOperation'), BASIC_MATH_OPERATIONS.map((value) => ({ value, label: value })), params) }
+  getPersistedParams(): BasicMathParams { return this.persisted() }
+}
+
+export class ExponentialLogNode extends UnaryMathNode<ExponentialLogOperation, ExponentialLogParams> {
+  constructor(params: ExponentialLogParams = { operation: 'exp', x: 0 }) { super(t('node.exponentialLog'), t('node.exponentialLogOperation'), EXPONENTIAL_LOG_OPERATIONS.map((value) => ({ value, label: value })), params) }
+  getPersistedParams(): ExponentialLogParams { return this.persisted() }
 }
 
 /** A deliberately numeric-only comparison. Its Boolean result can feed a
  * Conditional or any existing Boolean parameter without adding implicit
  * OpenSCAD coercions. */
-export class CompareNode extends ClassicPreset.Node<{ a: ClassicPreset.Socket; b: ClassicPreset.Socket }, { value: ClassicPreset.Socket }, { operator: SelectControl<CompareOperator> }> implements DataflowNode {
+export class CompareNode extends ClassicPreset.Node<{ a: ClassicPreset.Socket; b: ClassicPreset.Socket }, { value: ClassicPreset.Socket }, { operator: TitleSelectControl<CompareOperator> }> implements DataflowNode {
   constructor(params: CompareParams = { operator: '<' }) {
     super(t('node.compare'))
     this.addInput('a', new ClassicPreset.Input(numberSocket, t('input.a')))
     this.addInput('b', new ClassicPreset.Input(numberSocket, t('input.b')))
-    this.addControl('operator', new SelectControl(t('control.operator'), [
+    this.addControl('operator', new TitleSelectControl(t('node.compareOperator'), [
       { value: '<', label: '<' }, { value: '<=', label: '<=' }, { value: '>', label: '>' },
       { value: '>=', label: '>=' }, { value: '==', label: '==' }, { value: '!=', label: '!=' },
     ], params.operator))

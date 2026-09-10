@@ -3,9 +3,10 @@ import { DataflowEngine } from 'rete-engine'
 import { describe, expect, it } from 'vitest'
 
 import { evaluateInspectNode, evaluateOpenSCAD } from '../evaluate'
+import { transitionTrigonometryOperation } from '../editor'
 import type { Schemes } from '../schemes'
 import { CubeNode } from './cube-node'
-import { BooleanNode, CompareNode, ConditionalNode, MathNode, NumberNode, Vector3Node } from './value-nodes'
+import { ArithmeticNode, BASIC_MATH_OPERATIONS, BasicMathNode, BooleanNode, CompareNode, ConditionalNode, EXPONENTIAL_LOG_OPERATIONS, ExponentialLogNode, NumberNode, TRIGONOMETRY_OPERATIONS, TrigonometryNode, Vector3Node } from './value-nodes'
 
 function engine(): DataflowEngine<Schemes> {
   return new DataflowEngine<Schemes>((node) => ({ inputs: () => Object.keys(node.inputs), outputs: () => Object.keys(node.outputs) }))
@@ -20,8 +21,8 @@ describe('Milestone 7 value nodes', () => {
     expect(new NumberNode({ value: 20 }).data().value.code).toBe('20')
     expect(new BooleanNode({ value: true }).data().value.code).toBe('true')
     expect(new Vector3Node({ x: 1, y: 2, z: 3 }).data({}).value.code).toBe('[1, 2, 3]')
-    expect(new MathNode('Add', '+', 'add', { a: 5, b: 10 }).data({}).value.code).toBe('(5 + 10)')
-    expect(new MathNode('Divide', '/', 'divide', { a: 1, b: 0 }).data({}).value.code).toBe('(1 / 0)')
+    expect(new ArithmeticNode({ operation: 'addition', a: 5, b: 10 }).data({}).value.code).toBe('(5 + 10)')
+    expect(new ArithmeticNode({ operation: 'division', a: 1, b: 0 }).data({}).value.code).toBe('(1 / 0)')
   })
 
   it('keeps source names as descriptive persisted metadata, not OpenSCAD identifiers', () => {
@@ -54,7 +55,7 @@ describe('Milestone 7 value nodes', () => {
     const dataflow = engine()
     const left = new NumberNode({ value: 5 })
     const right = new NumberNode({ value: 10 })
-    const add = new MathNode('Add', '+', 'add')
+    const add = new ArithmeticNode()
     editor.use(dataflow)
     await editor.addNode(left); await editor.addNode(right); await editor.addNode(add)
     await editor.addConnection(connect(left, 'value', add, 'a'))
@@ -71,6 +72,121 @@ describe('Milestone 7 value nodes', () => {
       expect(compare.getPersistedParams()).toEqual({ operator })
       expect(compare.data({ a: [{ code: 'a' }], b: [{ code: 'b' }] }).value.code).toBe(`(a ${operator} b)`)
     }
+  })
+
+  it('exposes exact Arithmetic signatures and OpenSCAD for every operation', () => {
+    const cases = [
+      ['addition', '(a + b)'], ['subtraction', '(a - b)'], ['multiplication', '(a * b)'],
+      ['division', '(a / b)'], ['modulo', '(a % b)'], ['power', 'pow(a, b)'],
+    ] as const
+    for (const [operation, source] of cases) {
+      const node = new ArithmeticNode({ operation, a: 1, b: 2 })
+      expect(Object.keys(node.inputs)).toEqual(['a', 'b'])
+      expect(node.inputs.a?.label).toBe('A')
+      expect(node.inputs.b?.label).toBe('B')
+      expect(node.inputs.a?.socket.name).toBe('number')
+      expect(node.inputs.b?.socket.name).toBe('number')
+      expect(Object.keys(node.outputs)).toEqual(['value'])
+      expect(node.outputs.value?.socket.name).toBe('number')
+      expect(node.data({ a: [{ code: 'a' }], b: [{ code: 'b' }] }).value.code).toBe(source)
+    }
+  })
+
+  it('exposes exact unary Math signatures and OpenSCAD expressions', () => {
+    for (const operation of BASIC_MATH_OPERATIONS) {
+      const node = new BasicMathNode({ operation, x: 4 })
+      expect(Object.keys(node.inputs)).toEqual(['x'])
+      expect(node.inputs.x?.label).toBe('X')
+      expect(node.inputs.x?.socket.name).toBe('number')
+      expect(node.outputs.value?.socket.name).toBe('number')
+      expect(node.data({ x: [{ code: 'x' }] }).value.code).toBe(`${operation}(x)`)
+    }
+    for (const operation of EXPONENTIAL_LOG_OPERATIONS) {
+      const node = new ExponentialLogNode({ operation, x: 4 })
+      expect(Object.keys(node.inputs)).toEqual(['x'])
+      expect(node.inputs.x?.label).toBe('X')
+      expect(node.outputs.value?.socket.name).toBe('number')
+      expect(node.data({ x: [{ code: 'x' }] }).value.code).toBe(`${operation}(x)`)
+    }
+    for (const operation of TRIGONOMETRY_OPERATIONS.filter((item) => item !== 'atan2')) {
+      const node = new TrigonometryNode({ operation, a: 4, b: 0, inputPorts: ['a'] })
+      expect(Object.keys(node.inputs)).toEqual(['a'])
+      expect(node.inputs.a?.label).toBe('X')
+      expect(node.inputs.a?.socket.name).toBe('number')
+      expect(node.outputs.value?.socket.name).toBe('number')
+      expect(node.data({ a: [{ code: 'x' }] }).value.code).toBe(`${operation}(x)`)
+    }
+  })
+
+  it('uses stable a/b ids with semantic y/x labels for atan2(y, x)', () => {
+    const node = new TrigonometryNode({ operation: 'atan2', a: 1, b: 2, inputPorts: ['a', 'b'] })
+    expect(Object.keys(node.inputs)).toEqual(['a', 'b'])
+    expect(node.inputs.a?.label).toBe('Y')
+    expect(node.inputs.b?.label).toBe('X')
+    expect(node.getPersistedParams().inputPorts).toEqual(['a', 'b'])
+    expect(node.data({ a: [{ code: 'y' }], b: [{ code: 'x' }] }).value.code).toBe('atan2(y, x)')
+  })
+
+  it('preserves compatible wires when fixed-shape Arithmetic, Compare, and unary operations change', async () => {
+    const editor = new NodeEditor<Schemes>()
+    const source = new NumberNode({ value: 2 })
+    const arithmetic = new ArithmeticNode()
+    const compare = new CompareNode()
+    const basic = new BasicMathNode()
+    const exponential = new ExponentialLogNode()
+    for (const node of [source, arithmetic, compare, basic, exponential]) await editor.addNode(node)
+    await editor.addConnection(connect(source, 'value', arithmetic, 'a'))
+    await editor.addConnection(connect(source, 'value', compare, 'a'))
+    await editor.addConnection(connect(source, 'value', basic, 'x'))
+    await editor.addConnection(connect(source, 'value', exponential, 'x'))
+    const ids = editor.getConnections().map((item) => item.id)
+    await (arithmetic.controls.operation as { requestValue(value: 'power'): Promise<boolean> }).requestValue('power')
+    await compare.controls.operator.requestValue('>=')
+    await (basic.controls.operation as { requestValue(value: 'sqrt'): Promise<boolean> }).requestValue('sqrt')
+    await (exponential.controls.operation as { requestValue(value: 'ln'): Promise<boolean> }).requestValue('ln')
+    expect(editor.getConnections().map((item) => item.id)).toEqual(ids)
+  })
+
+  it('adds atan2 input once, cancels connected removal without mutation, then removes only b on confirmation', async () => {
+    const editor = new NodeEditor<Schemes>()
+    const y = new NumberNode({ value: 2 })
+    const x = new NumberNode({ value: 3 })
+    const trig = new TrigonometryNode()
+    const arithmetic = new ArithmeticNode()
+    for (const node of [y, x, trig, arithmetic]) await editor.addNode(node)
+    const first = connect(y, 'value', trig, 'a')
+    const downstream = connect(trig, 'value', arithmetic, 'a')
+    await editor.addConnection(first); await editor.addConnection(downstream)
+
+    expect(await transitionTrigonometryOperation(editor, trig, 'atan2', () => true)).toBe(true)
+    expect(Object.keys(trig.inputs)).toEqual(['a', 'b'])
+    expect(editor.getConnections().map((item) => item.id)).toEqual([first.id, downstream.id])
+    const second = connect(x, 'value', trig, 'b')
+    await editor.addConnection(second)
+    const before = structuredClone(trig.getPersistedParams())
+    const beforeConnections = editor.getConnections().map((item) => item.id)
+    expect(await transitionTrigonometryOperation(editor, trig, 'sin', () => false)).toBe(false)
+    expect(trig.getPersistedParams()).toEqual(before)
+    expect(editor.getConnections().map((item) => item.id)).toEqual(beforeConnections)
+
+    expect(await transitionTrigonometryOperation(editor, trig, 'cos', () => true)).toBe(true)
+    expect(Object.keys(trig.inputs)).toEqual(['a'])
+    expect(editor.getConnections().map((item) => item.id)).toEqual([first.id, downstream.id])
+    expect(trig.getPersistedParams()).toEqual({ operation: 'cos', a: 0, b: 0, inputPorts: ['a'] })
+    await transitionTrigonometryOperation(editor, trig, 'atan2', () => true)
+    await transitionTrigonometryOperation(editor, trig, 'tan', () => true)
+    expect(Object.keys(trig.inputs)).toEqual(['a'])
+  })
+
+  it('rolls an atan2 removal and its wire back when the renderer update fails', async () => {
+    const editor = new NodeEditor<Schemes>()
+    const x = new NumberNode({ value: 3 })
+    const trig = new TrigonometryNode({ operation: 'atan2', a: 1, b: 9, inputPorts: ['a', 'b'] })
+    await editor.addNode(x); await editor.addNode(trig)
+    const wire = connect(x, 'value', trig, 'b'); await editor.addConnection(wire)
+    expect(await transitionTrigonometryOperation(editor, trig, 'sin', () => true, () => { throw new Error('render failed') })).toBe(false)
+    expect(trig.getPersistedParams()).toEqual({ operation: 'atan2', a: 1, b: 9, inputPorts: ['a', 'b'] })
+    expect(editor.getConnections().map((item) => item.id)).toEqual([wire.id])
   })
 
   it('infers Conditional Number, Boolean, and Vector3 expressions without changing stable port ids', () => {
@@ -99,7 +215,7 @@ describe('Milestone 7 value nodes', () => {
     const left = new NumberNode({ value: 2 })
     const right = new NumberNode({ value: 3 })
     const compare = new CompareNode({ operator: '<=' })
-    const add = new MathNode('Add', '+', 'add', { a: 1, b: 2 })
+    const add = new ArithmeticNode({ operation: 'addition', a: 1, b: 2 })
     const conditional = new ConditionalNode({ valueType: 'number' })
     const cube = new CubeNode({ sizeRepresentation: 'scalar', size: 1 })
     for (const node of [left, right, compare, add, conditional, cube]) await editor.addNode(node)

@@ -32,10 +32,10 @@ describe('NODE_CATALOG', () => {
         'number',
         'boolean',
         'vector3',
-        'add',
-        'subtract',
-        'multiply',
-        'divide',
+        'arithmetic',
+        'trigonometry',
+        'basic-math',
+        'exponential-log',
         'compare',
         'conditional',
       ].sort(),
@@ -62,9 +62,23 @@ describe('NODE_CATALOG', () => {
     expect(findCatalogEntry('number')?.category).toBe('values')
     expect(findCatalogEntry('boolean')?.category).toBe('values')
     expect(findCatalogEntry('vector3')?.category).toBe('values')
-    expect(findCatalogEntry('add')?.category).toBe('math')
+    expect(findCatalogEntry('arithmetic')?.category).toBe('math')
+    expect(findCatalogEntry('trigonometry')?.category).toBe('math')
+    expect(findCatalogEntry('basic-math')?.category).toBe('math')
+    expect(findCatalogEntry('exponential-log')?.category).toBe('math')
     expect(findCatalogEntry('compare')?.category).toBe('math')
     expect(findCatalogEntry('conditional')?.category).toBe('math')
+  })
+
+  it('offers canonical operation choices before creation and no legacy arithmetic entries', () => {
+    expect(NODE_CATALOG.filter((entry) => ['add', 'subtract', 'multiply', 'divide'].includes(entry.type))).toEqual([])
+    expect(findCatalogEntry('arithmetic')?.paletteOperation?.options.map((item) => item.label)).toEqual(['+', '−', '×', '÷', '%', 'pow'])
+    expect(findCatalogEntry('trigonometry')?.paletteOperation?.options.map((item) => item.value)).toEqual(['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2'])
+    expect(findCatalogEntry('basic-math')?.paletteOperation?.options.map((item) => item.value)).toEqual(['abs', 'sign', 'sqrt', 'floor', 'ceil', 'round'])
+    expect(findCatalogEntry('exponential-log')?.paletteOperation?.options.map((item) => item.value)).toEqual(['exp', 'ln', 'log'])
+    expect(findCatalogEntry('compare')?.paletteOperation?.options.map((item) => item.value)).toEqual(['<', '<=', '>', '>=', '==', '!='])
+    const arithmetic = findCatalogEntry('arithmetic')!
+    expect(arithmetic.serializeParams(arithmetic.create(noopContext, arithmetic.paletteOperation!.createParams('power')))).toEqual({ operation: 'power', a: 0, b: 0 })
   })
 
   it('never uses display strings (e.g. "CSG") as category ids', () => {
@@ -177,6 +191,13 @@ describe('NODE_CATALOG dirty-notification wiring', () => {
     const { context, notifyDirty } = contextWithDirtySpy()
     findCatalogEntry('cylinder')!.create(context, { h: 5, mode: 'diameter', r: 1, d: 2, r1: 3, r2: 4, center: true, fn: 50 })
     expect(notifyDirty).not.toHaveBeenCalled()
+  })
+
+  it('fixed-shape title operation changes notify dirty exactly once', async () => {
+    const { context, notifyDirty } = contextWithDirtySpy()
+    const arithmetic = findCatalogEntry('arithmetic')!.create(context) as import('./nodes/value-nodes').ArithmeticNode
+    await (arithmetic.controls.operation as import('./controls').TitleSelectControl<'addition' | 'power'>).requestValue('power')
+    expect(notifyDirty).toHaveBeenCalledTimes(1)
   })
 
   it('Cube active semantic parameter edits notify dirty', () => {
