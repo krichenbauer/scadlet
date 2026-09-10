@@ -22,6 +22,7 @@ export class NodeEditorElement extends LitElement {
       color-scheme: dark;
       user-select: none;
       -webkit-user-select: none;
+      --geometry-socket-color: var(--scadlet-geometry-socket, #7ac0ff);
     }
 
     #canvas {
@@ -122,12 +123,19 @@ export class NodeEditorElement extends LitElement {
       background: #2a2a2a;
       color: #eee;
       font: 13px system-ui, sans-serif;
-      box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
+      /* The transparent inset layer gives Geometry nodes a narrow left edge
+         without changing node dimensions or stable socket anchors. */
+      --node-geometry-accent: transparent;
+      box-shadow: inset 4px 0 0 var(--node-geometry-accent), 0 2px 6px rgb(0 0 0 / 0.4);
+    }
+
+    .node--geometry-output {
+      --node-geometry-accent: var(--geometry-socket-color);
     }
 
     .node--selected {
       border-color: #7ac0ff;
-      box-shadow: 0 0 0 2px rgb(122 192 255 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
+      box-shadow: inset 4px 0 0 var(--node-geometry-accent), 0 0 0 2px rgb(122 192 255 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
     }
 
     /*
@@ -338,7 +346,7 @@ export class NodeEditorElement extends LitElement {
      * full type-color framework.
      */
     .node-socket[data-socket-type='geometry'] {
-      background: #7ac0ff;
+      background: var(--geometry-socket-color);
     }
 
     .node-socket[data-socket-type='number'] {

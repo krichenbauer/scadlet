@@ -2,6 +2,7 @@ import { LitElement, css, html, nothing } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 
 import { FUNCTION_CALL_DRAG_MIME_TYPE, MODULE_CALL_DRAG_MIME_TYPE, NODE_CATALOG, NODE_CATEGORIES, NODE_DRAG_MIME_TYPE, NODE_DRAG_PARAMS_MIME_TYPE, type NodeCatalogEntry, type NodeCategory } from '../editor/node-catalog'
+import { catalogProducesGeometry } from '../editor/geometry-accent'
 import { t } from '../i18n/translate'
 
 /**
@@ -41,6 +42,7 @@ export class NodePaletteElement extends LitElement {
       color-scheme: dark;
       user-select: none;
       -webkit-user-select: none;
+      --geometry-socket-color: var(--scadlet-geometry-socket, #7ac0ff);
     }
 
     h2 {
@@ -84,6 +86,13 @@ export class NodePaletteElement extends LitElement {
 
     .node-item:active {
       cursor: grabbing;
+    }
+
+    /* The same narrow inset edge used on Geometry-producing canvas nodes.
+       It adds no layout width, so palette scanning and drag targets stay
+       exactly as compact as before. */
+    .node-item--geometry-output {
+      box-shadow: inset 3px 0 0 var(--geometry-socket-color);
     }
 
     .node-item--operation {
@@ -148,7 +157,7 @@ export class NodePaletteElement extends LitElement {
         <div class="category-title">${t('definition.myModules')}</div>
         ${this.modules.map((module) => html`
           <div class="module-entry" data-definition-id=${module.id}>
-            <div role="listitem" class="node-item module-item" draggable="true"
+            <div role="listitem" class="node-item module-item node-item--geometry-output" draggable="true"
               @dragstart=${(event: DragEvent) => this._onModuleDragStart(event, module.id)} aria-label=${module.name}>${module.name}</div>
             <button type="button" class="module-action" aria-label=${t('definition.focusModule').replace('{name}', module.name)} @click=${() => this._moduleAction('focus-module', module.id)}>⌖</button>
             <button type="button" class="module-action" aria-label=${t('definition.editModule').replace('{name}', module.name)} @click=${() => this._moduleAction('edit-module', module.id)}>✎</button>
@@ -183,7 +192,7 @@ export class NodePaletteElement extends LitElement {
         ${entries.map((entry) => entry.paletteOperation ? this._renderOperationEntry(entry) : html`
             <div
               role="listitem"
-              class="node-item"
+              class=${catalogProducesGeometry(entry) ? 'node-item node-item--geometry-output' : 'node-item'}
               data-node-type=${entry.type}
               draggable="true"
               @dragstart=${(event: DragEvent) => this._onDragStart(event, entry.type)}
@@ -200,7 +209,7 @@ export class NodePaletteElement extends LitElement {
     const config = entry.paletteOperation!
     const selectedOperation = this.selectedOperations.get(entry.type) ?? config.defaultValue
     return html`
-      <div role="listitem" class="node-item node-item--operation" data-node-type=${entry.type} draggable="true"
+      <div role="listitem" class=${catalogProducesGeometry(entry) ? 'node-item node-item--operation node-item--geometry-output' : 'node-item node-item--operation'} data-node-type=${entry.type} draggable="true"
         @dragstart=${(event: DragEvent) => this._onOperationDragStart(event, entry, selectedOperation)} aria-label=${t(entry.labelKey)}>
         <span class="node-operation-label" title=${t(entry.labelKey)}>${t(entry.labelKey)}</span>
         <select aria-label=${t(config.accessibleLabelKey)} @pointerdown=${this._stopOperationControlGesture} @dragstart=${this._stopOperationControlGesture} @change=${(event: Event) => {

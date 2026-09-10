@@ -20,6 +20,7 @@ import { compatiblePortKeys, type ConnectionGestureManager } from './connection-
 import { nearestSnapTarget, type SnapCandidate } from './connection-gesture'
 import type { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData } from './connection-compatibility'
+import { hasGeometryOutput } from './geometry-accent'
 
 type Position = { x: number; y: number }
 type Side = 'input' | 'output'
@@ -355,6 +356,12 @@ function renderNode(
   element.classList.add('node')
   element.dataset.nodeId = node.id
   element.classList.toggle('node--selected', Boolean(node.selected))
+  // This is deliberately recalculated from live Rete output ports on every
+  // render. In particular, Module Inputs changes as Geometry child outputs
+  // are added or removed; no node label/category cache participates.
+  const producesGeometry = hasGeometryOutput(node.outputs)
+  element.classList.toggle('node--geometry-output', producesGeometry)
+  element.dataset.geometryOutput = String(producesGeometry)
 
   const inspected = inspect.isInspected(node.id)
   element.classList.toggle('node--inspected', inspected)
