@@ -755,7 +755,7 @@ test('preselects palette/header operations with readable controls and safely cha
   await arithmetic.locator('[data-param-key="b"] input').fill('3')
   await arithmetic.locator('select.node-title').selectOption('modulo')
   await expect(arithmetic.locator('select.node-title')).toHaveValue('modulo')
-  await arithmetic.locator('.node-header-drag').dblclick()
+  await arithmetic.locator('.node-body').dblclick({ position: { x: 2, y: 10 } })
   await expect(arithmetic.locator('.node-inspect-value')).toHaveText('= 2', { timeout: 15_000 })
   await expect(page.locator('scadlet-app .scad-output')).toContainText('echo("__SCADLET_VALUE__:", (2 % 3));')
 
@@ -1535,13 +1535,13 @@ test('source names persist and value Inspect evaluates Arithmetic headlessly thr
   await add.locator('.node-pin').click()
   await add.locator('[data-param-key="a"] input').fill('5')
   await add.locator('[data-param-key="b"] input').fill('7')
-  await add.locator('.node-header-drag').dblclick()
+  await add.locator('.node-body').dblclick({ position: { x: 2, y: 10 } })
   await expect(add.locator('.node-inspect-value')).toHaveText('= 12', { timeout: 15_000 })
   await add.locator('[data-param-key="a"] input').fill('10')
   await expect(add.locator('.node-inspect-value')).toHaveCount(0)
   await page.waitForTimeout(500)
   await expect(add.locator('.node-inspect-value')).toHaveCount(0)
-  await add.locator('.node-header-drag').dblclick()
+  await add.locator('.node-body').dblclick({ position: { x: 2, y: 10 } })
   await expect(add.locator('.node-inspect-value')).toHaveText('= 17', { timeout: 15_000 })
   await expect(page.locator('scadlet-app .render-error')).toHaveCount(0)
 })
@@ -1637,12 +1637,11 @@ test('connection gestures disclose one compatible compact target repeatedly for 
   // Separate two otherwise centrally-created candidates before placing the
   // source above them, so each real pointer move has an unambiguous target.
   const moveNode = async (node: Locator, dx: number, dy: number) => {
-    const dragSurface = await node.locator('.node-header-drag').count() > 0 ? node.locator('.node-header-drag') : node.locator('.node-header')
-    const header = await dragSurface.boundingBox()
+    const header = await node.locator('.node-body').boundingBox()
     if (!header) throw new Error('Expected node header')
-    await page.mouse.move(header.x + header.width / 2, header.y + header.height / 2)
+    await page.mouse.move(header.x + 2, header.y + header.height / 2)
     await page.mouse.down()
-    await page.mouse.move(header.x + header.width / 2 + dx, header.y + header.height / 2 + dy, { steps: 6 })
+    await page.mouse.move(header.x + 2 + dx, header.y + header.height / 2 + dy, { steps: 6 })
     await page.mouse.up()
   }
   const configureScalarCube = async (cube: Locator) => {
@@ -1755,12 +1754,11 @@ test('connected compact rows preserve canonical order when expanded', async ({ p
   await waitForLocalLibrary(page)
 
   const moveNode = async (node: Locator, dx: number, dy: number) => {
-    const dragSurface = await node.locator('.node-header-drag').count() > 0 ? node.locator('.node-header-drag') : node.locator('.node-header')
-    const header = await dragSurface.boundingBox()
+    const header = await node.locator('.node-body').boundingBox()
     if (!header) throw new Error('Expected node header')
-    await page.mouse.move(header.x + header.width / 2, header.y + header.height / 2)
+    await page.mouse.move(header.x + 2, header.y + header.height / 2)
     await page.mouse.down()
-    await page.mouse.move(header.x + header.width / 2 + dx, header.y + header.height / 2, { steps: 6 })
+    await page.mouse.move(header.x + 2 + dx, header.y + header.height / 2, { steps: 6 })
     await page.mouse.up()
   }
   const visibleRowKeys = (node: Locator) => node.locator('.node-param-row').evaluateAll((rows) =>

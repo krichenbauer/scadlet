@@ -607,15 +607,6 @@ function renderHeader(
   const header = document.createElement('div')
   header.className = 'node-header'
 
-  if (titleSelectControl) {
-    const drag = document.createElement('span')
-    drag.className = 'node-header-drag'
-    drag.textContent = '⠇'
-    drag.title = t('node.drag')
-    drag.setAttribute('aria-label', t('node.drag'))
-    header.appendChild(drag)
-  }
-
   const title = sourceNameControl ? document.createElement('input') : titleSelectControl ? document.createElement('select') : document.createElement('div')
   title.className = 'node-title'
   if (title instanceof HTMLInputElement) {

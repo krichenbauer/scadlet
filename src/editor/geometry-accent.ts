@@ -1,4 +1,6 @@
 import type { NodeCatalogEntry } from './node-catalog'
+import type { ClassicPreset } from 'rete'
+import { geometrySocket } from './sockets'
 
 /**
  * Presentation-only Geometry classification.  The Rete output ports are the
@@ -7,9 +9,9 @@ import type { NodeCatalogEntry } from './node-catalog'
  * Inputs signature naturally re-classify on every renderer update.
  */
 export function hasGeometryOutput(
-  outputs: Readonly<Record<string, { socket?: { name?: string } } | undefined>>,
+  outputs: Readonly<Record<string, { socket?: ClassicPreset.Socket } | undefined>>,
 ): boolean {
-  return Object.values(outputs).some((output) => output?.socket?.name === 'geometry')
+  return Object.values(outputs).some((output) => output?.socket === geometrySocket)
 }
 
 /** The catalog counterpart used before a palette item has instantiated a

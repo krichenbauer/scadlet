@@ -123,19 +123,18 @@ export class NodeEditorElement extends LitElement {
       background: #2a2a2a;
       color: #eee;
       font: 13px system-ui, sans-serif;
-      /* The transparent inset layer gives Geometry nodes a narrow left edge
-         without changing node dimensions or stable socket anchors. */
-      --node-geometry-accent: transparent;
-      box-shadow: inset 4px 0 0 var(--node-geometry-accent), 0 2px 6px rgb(0 0 0 / 0.4);
+      box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
     }
 
     .node--geometry-output {
-      --node-geometry-accent: var(--geometry-socket-color);
+      /* A complete thin border makes Geometry flow scannable without
+         changing node dimensions, border-radius clipping, or socket anchors. */
+      border-color: var(--geometry-socket-color);
     }
 
     .node--selected {
       border-color: #7ac0ff;
-      box-shadow: inset 4px 0 0 var(--node-geometry-accent), 0 0 0 2px rgb(122 192 255 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
+      box-shadow: 0 0 0 2px rgb(122 192 255 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
     }
 
     /*
@@ -188,20 +187,6 @@ export class NodeEditorElement extends LitElement {
       font-weight: 600;
       overflow-wrap: anywhere;
     }
-
-    .node-header-drag {
-      flex: none;
-      width: 18px;
-      cursor: grab;
-      color: #aaa;
-      line-height: 20px;
-      text-align: center;
-      touch-action: none;
-      user-select: none;
-      -webkit-user-select: none;
-    }
-
-    .node-header-drag:active { cursor: grabbing; }
 
     input.node-title {
       width: 100%;

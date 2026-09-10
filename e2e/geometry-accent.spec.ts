@@ -42,9 +42,19 @@ async function nodeWithModelLabel(page: Page, label: string): Promise<Locator> {
 async function expectGeometryCue(node: Locator, expected: boolean): Promise<void> {
   await expect(node).toHaveAttribute('data-geometry-output', String(expected))
   await expect(node).toHaveClass(expected ? /node--geometry-output/ : /^(?!.*node--geometry-output).*$/)
-  const shadow = await node.evaluate((element) => getComputedStyle(element).boxShadow)
-  if (expected) expect(shadow).toContain('rgb(122, 192, 255)')
-  else expect(shadow).not.toContain('rgb(122, 192, 255)')
+  const style = await node.evaluate((element) => {
+    const computed = getComputedStyle(element)
+    return {
+      border: [computed.borderTopColor, computed.borderRightColor, computed.borderBottomColor, computed.borderLeftColor],
+      shadow: computed.boxShadow,
+    }
+  })
+  if (expected) {
+    expect(style.border).toEqual(['rgb(122, 192, 255)', 'rgb(122, 192, 255)', 'rgb(122, 192, 255)', 'rgb(122, 192, 255)'])
+    expect(style.shadow).not.toContain('inset')
+  } else {
+    expect(style.border).toEqual(['rgb(102, 102, 102)', 'rgb(102, 102, 102)', 'rgb(102, 102, 102)', 'rgb(102, 102, 102)'])
+  }
 }
 
 test.beforeEach(async ({ context }) => {
@@ -69,6 +79,8 @@ test('renders a restrained Geometry accent for live Geometry outputs and matchin
   const canvas = await editor.boundingBox()
   if (!canvas) throw new Error('Expected node-editor canvas')
   await dropPaletteNode(page, 'cube', { x: canvas.x + 110, y: canvas.y + 160 })
+  await dropPaletteNode(page, 'translate', { x: canvas.x + 110, y: canvas.y + 300 })
+  await dropPaletteNode(page, 'difference', { x: canvas.x + 110, y: canvas.y + 450 })
   await dropPaletteNode(page, 'number', { x: canvas.x + 380, y: canvas.y + 160 })
   await dropPaletteNode(page, 'arithmetic', { x: canvas.x + 380, y: canvas.y + 300 })
   await dropPaletteNode(page, 'compare', { x: canvas.x + 380, y: canvas.y + 430 })
@@ -76,13 +88,15 @@ test('renders a restrained Geometry accent for live Geometry outputs and matchin
 
   const cube = await nodeWithModelLabel(page, 'Cube')
   await expectGeometryCue(cube, true)
+  await expectGeometryCue(await nodeWithModelLabel(page, 'Translate'), true)
+  await expectGeometryCue(await nodeWithModelLabel(page, 'Difference'), true)
   await expectGeometryCue(await nodeWithModelLabel(page, 'Number'), false)
   await expectGeometryCue(await nodeWithModelLabel(page, 'Arithmetic'), false)
   await expectGeometryCue(await nodeWithModelLabel(page, 'Compare'), false)
   await expectGeometryCue(await nodeWithModelLabel(page, 'Conditional'), false)
 
   // Selection/focus adds its established selection layer without replacing
-  // the Geometry inset edge.
+  // the complete Geometry border.
   await cube.locator('.node-title').click()
   await expect(cube).toHaveClass(/node--selected/)
   await expectGeometryCue(cube, true)
@@ -116,4 +130,63 @@ test('renders a restrained Geometry accent for live Geometry outputs and matchin
   await inputs.getByRole('button', { name: 'Edit Geometry 1', exact: true }).click()
   await inputs.getByRole('button', { name: 'Delete geometry input', exact: true }).click()
   await expectGeometryCue(inputs, false)
+})
+
+test('keeps nodes draggable from free surfaces without visible grab handles or control interference', async ({ page }) => {
+  await openEmptyProject(page)
+  const editor = page.locator('node-editor')
+  const canvas = await editor.boundingBox()
+  if (!canvas) throw new Error('Expected node-editor canvas')
+  await dropPaletteNode(page, 'arithmetic', { x: canvas.x + 220, y: canvas.y + 180 })
+  await dropPaletteNode(page, 'number', { x: canvas.x + 460, y: canvas.y + 180 })
+  await dropPaletteNode(page, 'boolean', { x: canvas.x + 460, y: canvas.y + 330 })
+
+  const arithmetic = await nodeWithModelLabel(page, 'Arithmetic')
+  const number = await nodeWithModelLabel(page, 'Number')
+  const boolean = await nodeWithModelLabel(page, 'Boolean')
+  await expect(page.locator('node-editor .node-header-drag')).toHaveCount(0)
+
+  const beforeDrag = await arithmetic.boundingBox()
+  const freeBody = await arithmetic.locator('.node-body').boundingBox()
+  if (!beforeDrag || !freeBody) throw new Error('Expected Arithmetic node bounds')
+  await page.mouse.move(freeBody.x + 2, freeBody.y + freeBody.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(freeBody.x + 92, freeBody.y + freeBody.height / 2 + 48, { steps: 6 })
+  await page.mouse.up()
+  const afterDrag = await arithmetic.boundingBox()
+  if (!afterDrag) throw new Error('Expected moved Arithmetic node bounds')
+  expect(afterDrag.x - beforeDrag.x).toBeCloseTo(90, 0)
+  expect(afterDrag.y - beforeDrag.y).toBeCloseTo(48, 0)
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('')
+
+  const position = async (node: Locator) => {
+    const box = await node.boundingBox()
+    if (!box) throw new Error('Expected node bounds')
+    return { x: box.x, y: box.y }
+  }
+  const expectUnmoved = async (node: Locator, before: { x: number; y: number }) => {
+    const after = await position(node)
+    expect(after.x).toBeCloseTo(before.x, 0)
+    expect(after.y).toBeCloseTo(before.y, 0)
+  }
+
+  const arithmeticBeforeControl = await position(arithmetic)
+  await arithmetic.locator('select.node-title').selectOption('modulo')
+  await expect(arithmetic.locator('select.node-title')).toHaveValue('modulo')
+  await expectUnmoved(arithmetic, arithmeticBeforeControl)
+
+  const numberBeforeInput = await position(number)
+  await number.locator('input.node-title').fill('Width')
+  await number.locator('.node-controls--primary input[type="number"]').fill('12')
+  await expectUnmoved(number, numberBeforeInput)
+
+  const booleanBeforeCheckbox = await position(boolean)
+  await boolean.locator('.node-controls--primary input[type="checkbox"]').check()
+  await expect(boolean.locator('.node-controls--primary input[type="checkbox"]')).toBeChecked()
+  await expectUnmoved(boolean, booleanBeforeCheckbox)
+
+  const pinBefore = await position(arithmetic)
+  await arithmetic.locator('.node-pin').click()
+  await expect(arithmetic.locator('.node-pin')).toHaveClass(/node-pin--active/)
+  await expectUnmoved(arithmetic, pinBefore)
 })
