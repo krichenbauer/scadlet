@@ -1,0 +1,44 @@
+# Delivery, quality, and operating constraints
+
+Read this before changing dependencies, build/tooling, deployment, runtime
+resources, error handling, or test setup.
+
+## Static, private distribution
+
+SCADlet is fully client-side and deploys as ordinary static files. It has no
+application backend and must remain hostable on GitHub Pages, ordinary web
+servers, or static/object hosting. GitHub Pages deploys `main` via
+`.github/workflows/deploy-pages.yml`; preserve Vite's `/` `BASE_PATH` default
+for development and non-GitHub hosting.
+
+Runtime resources must ship with the application. Do not add CDN JavaScript,
+external fonts/icons, analytics, trackers, or third-party runtime APIs.
+Normal use needs no network after the application loads.
+
+The intended license is GPL-3.0-or-later. New dependencies must be GPL
+compatible, retain required notices, and have clear licensing.
+
+## Development and tests
+
+Use the repository Nix flake/devShell for system tools and pnpm for JavaScript
+dependencies. Put system tools in `flake.nix` and application dependencies in
+`package.json`; do not require global project packages.
+
+`openscad-wasm-prebuilt` loads only in the render Worker. Keep it in Vite
+`optimizeDeps.include` unless the import arrangement changes: otherwise Vite
+may discover it on first Render, reload the dev page, and lose unsaved work.
+Browser persistence tests use Playwright (`pnpm test:e2e`) and the devShell
+Chromium exposed by `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`; generated browser
+reports stay ignored.
+
+## Implementation quality
+
+Prefer strict TypeScript, small modules, explicit types at architectural
+boundaries, browser-native APIs, and comments explaining non-obvious reasons.
+Avoid `any`, hidden global mutable state, needless dependencies, framework-like
+abstractions, and speculative extensibility.
+
+Errors must be understandable to learners. Invalid graph state must not crash
+the app; surface OpenSCAD/WASM failures; retain the previous valid preview when
+practical; prevent or clearly report malformed connections. Do not silently
+swallow errors. Detailed source-to-node diagnostics remain later work.
