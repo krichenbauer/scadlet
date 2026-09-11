@@ -32,19 +32,23 @@ independent repair first.
    and Module scopes and a loop-local binding. Its UI and exact range/list
    model must be settled before implementation; it does not imply general
    user-defined variables.
-3. **Missing basic value nodes.** Add useful arithmetic, mathematical, and
+3. **Copy and paste.** Support copying and pasting selected nodes and their
+   internal connections within the current semantic scope. Define clipboard,
+   placement, protected-interface-node, and cross-scope behavior explicitly
+   when this work begins.
+4. **Missing basic value nodes.** Add useful arithmetic, mathematical, and
    logical operators selectively, preserving the current typed value model and
    Function-scope rules.
-4. **Missing simple Geometry nodes.** Prioritize ordinary transformations such
+5. **Missing simple Geometry nodes.** Prioritize ordinary transformations such
    as Mirror and Resize, with the same scope, persistence, and effective-output
    rules as the existing Geometry catalog.
-5. **2D Geometry and extrusion.** Treat 2D primitives, 2D Boolean operations,
+6. **2D Geometry and extrusion.** Treat 2D primitives, 2D Boolean operations,
    and linear/rotational extrusion as one coherent extension rather than
    isolated nodes.
-6. **General variables and special variables.** Design local bindings / `let`
+7. **General variables and special variables.** Design local bindings / `let`
    and `$`-variable scoping explicitly after iteration; do not infer their
    semantics from the loop-local binding alone.
-7. **Remaining larger extensions.** A secondary geometry-oriented OpenSCAD
+8. **Remaining larger extensions.** A secondary geometry-oriented OpenSCAD
    code node with explicit parameter and possibly Geometry inputs, import of
    existing `.scad`, dedicated definition canvases, collaboration/sync, and
    broader OpenSCAD compatibility each require their own product design.
