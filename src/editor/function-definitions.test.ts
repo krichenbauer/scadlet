@@ -124,7 +124,7 @@ describe('Function definitions (Milestone 8 Phase 7)', () => {
     definitions.add(factorial)
     const inputs = new FunctionInputsNode(factorial.parameters); inputs.id = factorial.inputsNodeId
     const output = new FunctionOutputNode('number'); output.id = factorial.outputNodeId
-    const compare = new CompareNode({ operator: '<=' }); compare.id = 'factorial-base'
+    const compare = new CompareNode({ operator: '<=', a: 0, b: 0 }); compare.id = 'factorial-base'
     const one = new NumberNode({ value: 1, name: 'One' }); one.id = 'factorial-one'
     const decrement = new ArithmeticNode({ operation: 'subtraction', a: 0, b: 1 }); decrement.id = 'factorial-decrement'
     const recursiveCall = new FunctionCallNode(factorial, { definitionId: factorial.id }); recursiveCall.id = 'factorial-self'
@@ -164,7 +164,7 @@ describe('Function definitions (Milestone 8 Phase 7)', () => {
     const build = async (owner: typeof odd, callee: typeof even, base: boolean) => {
       const inputs = new FunctionInputsNode(owner.parameters); inputs.id = owner.inputsNodeId
       const output = new FunctionOutputNode('boolean'); output.id = owner.outputNodeId
-      const compare = new CompareNode({ operator: '==' }); compare.id = `${owner.id}-base`
+      const compare = new CompareNode({ operator: '==', a: 0, b: 0 }); compare.id = `${owner.id}-base`
       const literal = new BooleanNode({ value: base, name: 'Base' }); literal.id = `${owner.id}-literal`
       const zero = new NumberNode({ value: 0, name: 'Zero' }); zero.id = `${owner.id}-zero`
       const decrement = new ArithmeticNode({ operation: 'subtraction', a: 0, b: 1 }); decrement.id = `${owner.id}-decrement`

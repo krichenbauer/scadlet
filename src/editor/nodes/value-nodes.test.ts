@@ -63,15 +63,47 @@ describe('Milestone 7 value nodes', () => {
     await expect(evaluateInspectNode(editor, dataflow, add.id)).resolves.toEqual({ kind: 'value', expression: '(5 + 10)' })
   })
 
-  it('persists every numeric Compare operator and emits fully parenthesized Boolean expressions', () => {
+  it('exposes two independent Number fallbacks for every Compare operator and emits fully parenthesized Boolean expressions', () => {
     for (const operator of ['<', '<=', '>', '>=', '==', '!='] as const) {
-      const compare = new CompareNode({ operator })
+      const compare = new CompareNode({ operator, a: 3, b: 10 })
+      expect(Object.keys(compare.inputs)).toEqual(['a', 'b'])
+      expect(Object.keys(compare.controls)).toEqual(['operator', 'a', 'b'])
       expect(compare.inputs.a?.socket.name).toBe('number')
       expect(compare.inputs.b?.socket.name).toBe('number')
       expect(compare.outputs.value?.socket.name).toBe('boolean')
-      expect(compare.getPersistedParams()).toEqual({ operator })
+      expect(compare.getPersistedParams()).toEqual({ operator, a: 3, b: 10 })
+      expect(compare.data({}).value.code).toBe(`(3 ${operator} 10)`)
       expect(compare.data({ a: [{ code: 'a' }], b: [{ code: 'b' }] }).value.code).toBe(`(a ${operator} b)`)
     }
+  })
+
+  it('keeps independent Compare fallbacks through edits, operator changes, connections, and disconnection', async () => {
+    const editor = new NodeEditor<Schemes>()
+    const dataflow = engine()
+    editor.use(dataflow)
+    const left = new NumberNode({ value: 42 })
+    const right = new NumberNode({ value: 99 })
+    const compare = new CompareNode()
+    await editor.addNode(left); await editor.addNode(right); await editor.addNode(compare)
+
+    compare.controls.a.setValue(3)
+    compare.controls.b.setValue(10)
+    expect(compare.getPersistedParams()).toEqual({ operator: '<', a: 3, b: 10 })
+    expect(compare.data({}).value.code).toBe('(3 < 10)')
+
+    const aConnection = connect(left, 'value', compare, 'a')
+    const bConnection = connect(right, 'value', compare, 'b')
+    await editor.addConnection(aConnection); await editor.addConnection(bConnection)
+    expect(compare.data({ a: [{ code: '42' }], b: [{ code: '99' }] }).value.code).toBe('(42 < 99)')
+    await compare.controls.operator.requestValue('>')
+    expect(compare.getPersistedParams()).toEqual({ operator: '>', a: 3, b: 10 })
+    expect(editor.getConnections().map((item) => item.id)).toEqual([aConnection.id, bConnection.id])
+    expect(await evaluateInspectNode(editor, dataflow, compare.id)).toEqual({ kind: 'value', expression: '(42 > 99)' })
+
+    await editor.removeConnection(aConnection.id)
+    expect(await evaluateInspectNode(editor, dataflow, compare.id)).toEqual({ kind: 'value', expression: '(3 > 99)' })
+    await editor.removeConnection(bConnection.id)
+    expect(await evaluateInspectNode(editor, dataflow, compare.id)).toEqual({ kind: 'value', expression: '(3 > 10)' })
   })
 
   it('exposes exact Arithmetic signatures and OpenSCAD for every operation', () => {
@@ -214,7 +246,7 @@ describe('Milestone 7 value nodes', () => {
     editor.use(dataflow)
     const left = new NumberNode({ value: 2 })
     const right = new NumberNode({ value: 3 })
-    const compare = new CompareNode({ operator: '<=' })
+    const compare = new CompareNode({ operator: '<=', a: 0, b: 0 })
     const add = new ArithmeticNode({ operation: 'addition', a: 1, b: 2 })
     const conditional = new ConditionalNode({ valueType: 'number' })
     const cube = new CubeNode({ sizeRepresentation: 'scalar', size: 1 })

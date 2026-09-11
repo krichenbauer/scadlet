@@ -556,8 +556,12 @@ Changing to `atan2` retains the stable `a` wire, relabels it Y, and adds one
 confirms first and removes that wire through Rete before the port. Cancellation
 is a complete no-op, and failures roll back the operation, port, and wire.
 
-`compare` stores `{ "operator": "<" | "<=" | ">" | ">=" | "==" | "!=" }`
-and has Number inputs `a`/`b` plus a Boolean `value` output. Its palette and
+`compare` stores `{ "operator": "<" | "<=" | ">" | ">=" | "==" | "!=", "a": number, "b": number }`
+and has Number inputs `a`/`b` plus a Boolean `value` output. `a` and `b` are
+independent inline fallback literals, each defaulting to `0`; a connected
+Number overrides but does not erase its fallback. Historical v6 Compare
+records containing only `operator` normalize both fallbacks to `0` on load.
+Its palette and
 node header use the same direct operation selector as the four Math families,
 while the six established symbolic identifiers and generated semantics remain
 unchanged. `conditional`

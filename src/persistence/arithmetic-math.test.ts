@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { DefinitionRegistry } from '../editor/definitions'
 import { evaluateOpenSCAD } from '../editor/evaluate'
 import { findCatalogEntry } from '../editor/node-catalog'
-import { ArithmeticNode, BasicMathNode, ExponentialLogNode, TrigonometryNode } from '../editor/nodes/value-nodes'
+import { ArithmeticNode, BasicMathNode, CompareNode, ExponentialLogNode, TrigonometryNode } from '../editor/nodes/value-nodes'
 import type { Schemes } from '../editor/schemes'
 import { restoreProject } from './restore'
 import { serializeProject } from './serialize'
@@ -63,12 +63,13 @@ describe('Arithmetic/math persistence v6', () => {
     })
   })
 
-  it('accepts all four Number families in Main, Module, and Function scopes', () => {
+  it('accepts all Number families, including Compare fallbacks, in Main, Module, and Function scopes', () => {
     const familyNodes = (suffix: string) => [
       { id: `arithmetic-${suffix}`, type: 'arithmetic', position: { x: 0, y: 0 }, parameters: { operation: 'power', a: 2, b: 3 } },
       { id: `trig-${suffix}`, type: 'trigonometry', position: { x: 0, y: 0 }, parameters: { operation: 'atan2', a: 2, b: 3, inputPorts: ['a', 'b'] } },
       { id: `basic-${suffix}`, type: 'basic-math', position: { x: 0, y: 0 }, parameters: { operation: 'sqrt', x: 4 } },
       { id: `exp-${suffix}`, type: 'exponential-log', position: { x: 0, y: 0 }, parameters: { operation: 'ln', x: 4 } },
+      { id: `compare-${suffix}`, type: 'compare', position: { x: 0, y: 0 }, parameters: { operator: '>', a: 3, b: 10 } },
     ]
     const raw = {
       format: 'scadlet', version: 6, metadata: { name: 'All scopes' },
@@ -86,8 +87,12 @@ describe('Arithmetic/math persistence v6', () => {
       editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera: { position: [80, 80, 60], target: [0, 0, 0] } },
     }
     const project = parseScadletProject(raw)
-    expect(project.graph.nodes).toHaveLength(4)
-    expect(project.definitions.map((definition) => definition.graph.nodes.length)).toEqual([6, 6])
+    expect(project.graph.nodes).toHaveLength(5)
+    expect(project.definitions.map((definition) => definition.graph.nodes.length)).toEqual([7, 7])
+    expect(project.graph.nodes.find((node) => node.id === 'compare-main')?.parameters).toEqual({ operator: '>', a: 3, b: 10 })
+    expect(project.definitions.flatMap((definition) => definition.graph.nodes).filter((node) => node.type === 'compare').map((node) => node.parameters)).toEqual([
+      { operator: '>', a: 3, b: 10 }, { operator: '>', a: 3, b: 10 },
+    ])
   })
 
   it('rejects wrong-family operations and malformed dynamic Trigonometry port metadata/wires', () => {
@@ -126,6 +131,7 @@ describe('Arithmetic/math persistence v6', () => {
     expect(new TrigonometryNode({ operation: 'atan2', a: 1, b: 2, inputPorts: ['a', 'b'] }).data({}).value.code).toBe('atan2(1, 2)')
     expect(new BasicMathNode({ operation: 'round', x: 1.2 }).data({}).value.code).toBe('round(1.2)')
     expect(new ExponentialLogNode({ operation: 'log', x: 10 }).data({}).value.code).toBe('log(10)')
+    expect(new CompareNode({ operator: '>', a: 3, b: 10 }).data({}).value.code).toBe('(3 > 10)')
   })
 
   it('round-trips every family operation through canonical v6 serialization and restore', async () => {
@@ -134,6 +140,7 @@ describe('Arithmetic/math persistence v6', () => {
       ...['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2'].map((operation) => ['trigonometry', { operation, a: 2, b: 3, inputPorts: operation === 'atan2' ? ['a', 'b'] : ['a'] }] as [string, Record<string, unknown>]),
       ...['abs', 'sign', 'sqrt', 'floor', 'ceil', 'round'].map((operation) => ['basic-math', { operation, x: 2 }] as [string, Record<string, unknown>]),
       ...['exp', 'ln', 'log'].map((operation) => ['exponential-log', { operation, x: 2 }] as [string, Record<string, unknown>]),
+      ...['<', '<=', '>', '>=', '==', '!='].map((operator) => ['compare', { operator, a: 2, b: 3 }] as [string, Record<string, unknown>]),
     ]
     const source = new NodeEditor<Schemes>()
     for (const [index, [type, params]] of cases.entries()) {

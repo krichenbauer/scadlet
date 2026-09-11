@@ -13,7 +13,7 @@ import { SphereNode } from '../editor/nodes/sphere-node'
 import { TranslateNode } from '../editor/nodes/translate-node'
 import { UnionNode } from '../editor/nodes/union-node'
 import { IfNode } from '../editor/nodes/if-node'
-import { ArithmeticNode, BooleanNode, NumberNode, Vector3Node } from '../editor/nodes/value-nodes'
+import { ArithmeticNode, BooleanNode, CompareNode, NumberNode, Vector3Node } from '../editor/nodes/value-nodes'
 import type { Schemes } from '../editor/schemes'
 import { serializeProject } from './serialize'
 import { restoreProject } from './restore'
@@ -99,6 +99,41 @@ describe('per-node semantic round trip (serialize -> restore -> evaluate)', () =
     expect(project.graph.nodes.find((node) => node.id === vector.id)?.parameters).toEqual({ x: 1, y: 2, z: 3, name: 'Vector3' })
     expect(project.graph.nodes.find((node) => node.id === add.id)?.parameters).toEqual({ operation: 'addition', a: 1, b: 10 })
     expect(await evaluateOpenSCAD(dst, engine)).toBe('cube((5 + 10), center=true);')
+  })
+
+  it('round-trips Compare fallbacks and connections repeatedly without duplicating controls or ports', async () => {
+    const { editor: src } = createGraph()
+    const left = new NumberNode({ value: 42 })
+    const compare = new CompareNode({ operator: '>', a: 3, b: 10 })
+    await src.addNode(left); await src.addNode(compare)
+    await src.addConnection(connect(left, 'value', compare, 'a'))
+
+    const { editor: dst } = createGraph()
+    const { project } = await roundTrip({ editor: src, positions: {} }, dst)
+    expect(project.version).toBe(6)
+    expect(project.graph.nodes.find((node) => node.id === compare.id)?.parameters).toEqual({ operator: '>', a: 3, b: 10 })
+
+    await restoreProject(project, { editor: dst, creationContext: noopContext, setNodePosition: () => {} })
+    const restored = dst.getNode(compare.id) as CompareNode
+    expect(Object.keys(restored.inputs)).toEqual(['a', 'b'])
+    expect(Object.keys(restored.controls)).toEqual(['operator', 'a', 'b'])
+    expect(Object.keys(restored.outputs)).toEqual(['value'])
+    expect(dst.getConnections()).toHaveLength(1)
+  })
+
+  it('restores a minimal historical v6 Compare record with standard fallback defaults', async () => {
+    const project = parseScadletProject({
+      format: 'scadlet', version: 6, metadata: { name: 'Legacy Compare' }, definitions: [],
+      graph: { nodes: [{ id: 'compare', type: 'compare', position: { x: 0, y: 0 }, parameters: { operator: '>' } }], connections: [] },
+      editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera: { position: [80, 80, 60], target: [0, 0, 0] } },
+    })
+    expect(project.graph.nodes[0]?.parameters).toEqual({ operator: '>', a: 0, b: 0 })
+    const { editor } = createGraph()
+    await restoreProject(project, { editor, creationContext: noopContext, setNodePosition: () => {} })
+    const compare = editor.getNode('compare') as CompareNode
+    expect(compare.getPersistedParams()).toEqual({ operator: '>', a: 0, b: 0 })
+    expect(Object.keys(compare.inputs)).toEqual(['a', 'b'])
+    expect(Object.keys(compare.controls)).toEqual(['operator', 'a', 'b'])
   })
 
   it('Cube with non-default dimensions and center', async () => {

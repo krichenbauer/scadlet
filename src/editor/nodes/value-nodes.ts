@@ -18,7 +18,8 @@ export interface BasicMathParams { operation: BasicMathOperation; x: number }
 export type ExponentialLogOperation = 'exp' | 'ln' | 'log'
 export interface ExponentialLogParams { operation: ExponentialLogOperation; x: number }
 export type CompareOperator = '<' | '<=' | '>' | '>=' | '==' | '!='
-export interface CompareParams { operator: CompareOperator }
+export interface CompareParams { operator: CompareOperator; a: number; b: number }
+type CompareControls = { operator: TitleSelectControl<CompareOperator>; a: LabeledNumberControl; b: LabeledNumberControl }
 export type ConditionalValueType = 'number' | 'boolean' | 'vector3'
 export interface ConditionalParams { valueType?: ConditionalValueType }
 
@@ -106,7 +107,10 @@ export function validateCompareParams(value: unknown): CompareParams {
   if (params.operator !== '<' && params.operator !== '<=' && params.operator !== '>' && params.operator !== '>=' && params.operator !== '==' && params.operator !== '!=') {
     throw new Error('Invalid parameters: "operator" must be a supported comparison operator')
   }
-  return { operator: params.operator }
+  // Compare gained inline Number fallbacks after v6 had already shipped.
+  // Missing fields therefore mean the established Number fallback defaults,
+  // allowing older v6 Compare records to restore without a format migration.
+  return { operator: params.operator, a: params.a === undefined ? 0 : finiteNumber(params.a, 'a'), b: params.b === undefined ? 0 : finiteNumber(params.b, 'b') }
 }
 
 export function validateConditionalParams(value: unknown): ConditionalParams {
@@ -292,23 +296,32 @@ export class ExponentialLogNode extends UnaryMathNode<ExponentialLogOperation, E
 /** A deliberately numeric-only comparison. Its Boolean result can feed a
  * Conditional or any existing Boolean parameter without adding implicit
  * OpenSCAD coercions. */
-export class CompareNode extends ClassicPreset.Node<{ a: ClassicPreset.Socket; b: ClassicPreset.Socket }, { value: ClassicPreset.Socket }, { operator: TitleSelectControl<CompareOperator> }> implements DataflowNode {
-  constructor(params: CompareParams = { operator: '<' }) {
+export class CompareNode extends ClassicPreset.Node<{ a: ClassicPreset.Socket; b: ClassicPreset.Socket }, { value: ClassicPreset.Socket }, CompareControls> implements DataflowNode {
+  constructor(params: CompareParams = { operator: '<', a: 0, b: 0 }) {
     super(t('node.compare'))
-    this.addInput('a', new ClassicPreset.Input(numberSocket, t('input.a')))
-    this.addInput('b', new ClassicPreset.Input(numberSocket, t('input.b')))
     this.addControl('operator', new TitleSelectControl(t('node.compareOperator'), [
       { value: '<', label: '<' }, { value: '<=', label: '<=' }, { value: '>', label: '>' },
       { value: '>=', label: '>=' }, { value: '==', label: '==' }, { value: '!=', label: '!=' },
     ], params.operator))
+    for (const [key, value, labelText] of [['a', params.a, t('input.a')], ['b', params.b, t('input.b')]] as const) {
+      this.addInput(key, new ClassicPreset.Input(numberSocket, labelText))
+      this.addControl(key, new LabeledNumberControl(labelText, { initial: value }))
+    }
     this.addOutput('value', new ClassicPreset.Output(booleanSocket, t('output.boolean')))
   }
 
-  getPersistedParams(): CompareParams { return { operator: this.controls.operator.value } }
+  getPersistedParams(): CompareParams {
+    return {
+      operator: this.controls.operator.value,
+      a: this.controls.a.value ?? 0,
+      b: this.controls.b.value ?? 0,
+    }
+  }
   data(inputs: Record<string, NumberValue[] | undefined>): { value: BooleanValue } {
-    const a = inputs.a?.[0]?.code
-    const b = inputs.b?.[0]?.code
-    return { value: { code: `(${a ?? 'undef'} ${this.controls.operator.value} ${b ?? 'undef'})` } }
+    const params = this.getPersistedParams()
+    const a = inputs.a?.[0]?.code ?? String(params.a)
+    const b = inputs.b?.[0]?.code ?? String(params.b)
+    return { value: { code: `(${a} ${params.operator} ${b})` } }
   }
 }
 
