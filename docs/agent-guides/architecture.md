@@ -62,7 +62,9 @@ does not attempt to prove termination.
 
 Three.js consumes STL from memory via `STLLoader`. It provides orbit, zoom,
 pan, grid, axes, fit-to-view, and sensible defaults. Preserve the user camera
-where practical when replacing a mesh.
+where practical when replacing a mesh. Explicit 3D view reset is a transient
+world-space mesh-bounds frame from the stable Z-up default perspective; it
+must not change the serializable user camera state.
 
 OpenSCAD is Z-up: keep the grid in XY and adapt Three.js in the viewer layer.
 Never rotate source/STL geometry to accommodate Three.js defaults. The viewer

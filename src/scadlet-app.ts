@@ -726,8 +726,7 @@ export class ScadletApp extends LitElement {
         },
         setPinned: (id, pinned) => instance.setPinned(id, pinned),
         setViewport: async ({ x, y, k }) => {
-          await instance.area.area.translate(x, y)
-          await instance.area.area.zoom(k, 0, 0)
+          await instance.setPersistedViewport({ x, y, k })
         },
         setViewerCamera: (camera) => this.viewer.setCameraState(camera),
         clearDefinitions: () => instance.clearDefinitions(),
@@ -1109,8 +1108,8 @@ export class ScadletApp extends LitElement {
       metadata: this.projectMetadata,
       getNodePosition: (id) => instance.area.nodeViews.get(id)?.position ?? { x: 0, y: 0 },
       isPinned: (id) => instance.isPinned(id),
-      viewport: instance.area.area.transform,
-      viewerCamera: this.viewer.getCameraState(),
+      viewport: instance.getPersistedViewport(),
+      viewerCamera: this.viewer.getPersistedCameraState(),
       definitions: instance.getDefinitions(),
       getNodeScope: (id) => instance.getNodeScope(id),
     })

@@ -4,6 +4,7 @@ import { ClassicFlow, ConnectionPlugin, type SocketData } from 'rete-connection-
 import { DataflowEngine } from 'rete-engine'
 
 import { clientToGraphPosition, type Position } from './coordinates'
+import { canvasContentBounds, fitCanvasBounds, type CanvasContentItem } from './view-fit'
 import { evaluateInspectNode, evaluateOpenSCAD, type InspectEvaluation } from './evaluate'
 import { isEditableTarget, removeNodeWithConnections } from './deletion'
 import { isDirtyAreaSignal, isDirtyEditorSignal } from './dirty'
@@ -110,6 +111,12 @@ export interface SCADletEditor {
   onSemanticChange(callback: () => void): () => void
   /** Subscribes to one-shot Inspect actions initiated by node double-clicks. */
   onInspect(callback: (nodeId: string) => void): () => void
+  /** Fits the visible nodes and definition frames without changing persisted viewport state. */
+  fitVisibleContent(): Promise<boolean>
+  /** The viewport to serialize; transient recovery transforms are deliberately excluded. */
+  getPersistedViewport(): { x: number; y: number; k: number }
+  /** Applies a restored persistent viewport without treating it as a user edit. */
+  setPersistedViewport(viewport: { x: number; y: number; k: number }): Promise<void>
   /**
    * Runs `fn`, suppressing all `onDirty` notifications for its duration -
    * used by `.scadlet` project restore, which necessarily performs
@@ -433,6 +440,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   const semanticListeners = new Set<() => void>()
   const inspectListeners = new Set<(nodeId: string) => void>()
   let dirtySuspended = false
+  let transientViewportChange = false
+  let persistedViewport = { ...area.area.transform }
   let activeScopeDrag: {
     nodeIds: string[]
     startPositions: Map<string, Position>
@@ -494,7 +503,10 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return context
   })
   area.addPipe((context) => {
-    if (isDirtyAreaSignal(context.type) && !(context.type === 'nodetranslated' && activeScopeDrag)) notifyDirty()
+    if ((context.type === 'translated' || context.type === 'zoomed') && !transientViewportChange) {
+      persistedViewport = { ...area.area.transform }
+    }
+    if (isDirtyAreaSignal(context.type) && !(context.type === 'nodetranslated' && activeScopeDrag) && !transientViewportChange) notifyDirty()
     return context
   })
 
@@ -610,6 +622,44 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // re-framed the whole viewport around every node (jarring, and doubly
   // pointless once nodes get real positions instead of all stacking at
   // (0, 0)). The current pan/zoom must survive node creation unchanged.
+  async function fitVisibleContent(): Promise<boolean> {
+    const nodeItems: CanvasContentItem[] = editor.getNodes().flatMap((node) => {
+      const view = area.nodeViews.get(node.id)
+      if (!view) return []
+      return [{ x: view.position.x, y: view.position.y, width: view.element.offsetWidth, height: view.element.offsetHeight }]
+    })
+    const frameItems: CanvasContentItem[] = definitions.list().flatMap((definition) => {
+      const bounds = definitionFrameBounds(definitions, definition.id, (nodeId) => area.nodeViews.get(nodeId)?.position)
+      return bounds ? [{ x: bounds.minX, y: bounds.minY, width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY }] : []
+    })
+    const rect = area.container.getBoundingClientRect()
+    const transform = fitCanvasBounds(canvasContentBounds([...nodeItems, ...frameItems]), { width: rect.width, height: rect.height })
+    if (!transform) return false
+
+    transientViewportChange = true
+    try {
+      await area.area.zoom(transform.k, 0, 0)
+      await area.area.translate(transform.x, transform.y)
+      return true
+    } finally {
+      transientViewportChange = false
+    }
+  }
+
+  async function setPersistedViewport(viewport: { x: number; y: number; k: number }): Promise<void> {
+    transientViewportChange = true
+    try {
+      await area.area.translate(viewport.x, viewport.y)
+      await area.area.zoom(viewport.k, 0, 0)
+      // Area.zoom can adjust its translation around the specified origin;
+      // restore the exact serialized transform after setting the scale.
+      await area.area.translate(viewport.x, viewport.y)
+      persistedViewport = { ...viewport }
+    } finally {
+      transientViewportChange = false
+    }
+  }
+
   async function requestTrigonometryOperationChange(nodeId: string, operation: TrigonometryOperation): Promise<boolean> {
     const node = editor.getNode(nodeId)
     if (!(node instanceof TrigonometryNode)) return false
@@ -1680,6 +1730,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       inspectListeners.add(callback)
       return () => inspectListeners.delete(callback)
     },
+    fitVisibleContent,
+    getPersistedViewport: () => ({ ...persistedViewport }),
+    setPersistedViewport,
     withDirtyTrackingSuspended: async <T>(fn: () => Promise<T>): Promise<T> => {
       dirtySuspended = true
       try {

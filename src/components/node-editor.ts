@@ -4,6 +4,7 @@ import { customElement, query } from 'lit/decorators.js'
 import { createEditor, type SCADletEditor } from '../editor/editor'
 import type { InspectEvaluation } from '../editor/evaluate'
 import { FUNCTION_CALL_DRAG_MIME_TYPE, MODULE_CALL_DRAG_MIME_TYPE, NODE_DRAG_MIME_TYPE, NODE_DRAG_PARAMS_MIME_TYPE } from '../editor/node-catalog'
+import { t } from '../i18n/translate'
 
 /**
  * Hosts the Rete node graph. Owns the lifecycle of the underlying
@@ -29,6 +30,38 @@ export class NodeEditorElement extends LitElement {
       position: absolute;
       inset: 0;
       outline: none;
+    }
+
+    .view-recovery-control {
+      position: absolute;
+      z-index: 30;
+      top: 10px;
+      right: 10px;
+      display: grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
+      padding: 0;
+      border: 1px solid #626262;
+      border-radius: 4px;
+      background: rgb(38 38 38 / 0.92);
+      color: #e8e8e8;
+      cursor: pointer;
+    }
+
+    .view-recovery-control:hover { background: #3a3a3a; border-color: #898989; }
+    .view-recovery-control:focus-visible { outline: 2px solid rgb(122 192 255 / 0.7); outline-offset: 2px; }
+    .view-recovery-control svg { width: 17px; height: 17px; fill: none; stroke: currentcolor; stroke-width: 1.8; }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
 
     input,
@@ -597,7 +630,20 @@ export class NodeEditorElement extends LitElement {
   })
 
   render() {
-    return html`<div id="canvas"></div>`
+    return html`
+      <div id="canvas"></div>
+      <button
+        type="button"
+        class="view-recovery-control"
+        aria-label=${t('editor.fitGraph')}
+        title=${t('editor.fitGraph')}
+        @pointerdown=${this._stopRecoveryControlGesture}
+        @click=${this._fitGraph}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M20 15v5h-5M4 15v5h5M8 8l3 3M16 8l-3 3M8 16l3-3M16 16l-3-3" /></svg>
+        <span class="visually-hidden">${t('editor.fitGraph')}</span>
+      </button>
+    `
   }
 
   async firstUpdated() {
@@ -619,6 +665,14 @@ export class NodeEditorElement extends LitElement {
     if (!event.dataTransfer?.types.some((type) => type === NODE_DRAG_MIME_TYPE || type === MODULE_CALL_DRAG_MIME_TYPE || type === FUNCTION_CALL_DRAG_MIME_TYPE)) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
+  }
+
+  private readonly _stopRecoveryControlGesture = (event: PointerEvent): void => {
+    event.stopPropagation()
+  }
+
+  private readonly _fitGraph = (): void => {
+    void this.instance?.fitVisibleContent()
   }
 
   /** Reads the dropped node type and places it under the pointer, converted to graph coordinates by the editor. */

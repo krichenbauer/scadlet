@@ -67,6 +67,15 @@ nodes remain neutral. Palette geometry cues follow the same principle.
 Resizable panes must resize existing editor/viewer instances without resetting
 the graph, viewport, or camera.
 
+Each canvas/viewer has one compact, keyboard-reachable recovery control in its
+corner: **Fit graph** frames all rendered nodes plus visible definition frames
+with consistent padding; **Reset 3D view** frames the currently displayed
+nonempty mesh from the stable Z-up default perspective. They are transient
+presentation actions, so they preserve graph data, source, dirty/autosave
+state, selection, and Inspect provenance. The mesh action is disabled when
+the preview is empty. Use localized accessible names and a title; the compact
+icon is supplementary rather than its only label.
+
 ## Creation, inspect, and labels
 
 Built-ins come from one stable-ID node catalog and one editor-level creation

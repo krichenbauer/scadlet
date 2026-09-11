@@ -45,6 +45,10 @@ without an explicit product decision.
   analyse termination, which remains OpenSCAD-WASM's responsibility.
 - Keep the app static and private: no backend, analytics, CDN assets, fonts,
   icons, or runtime APIs hosted by third parties.
+- View-recovery controls (Fit graph and Reset 3D view) are transient
+  presentation actions. They must never change semantic graph data, generated
+  source, dirty/autosave state, Inspect provenance, or persisted project view
+  state.
 
 ## Read the relevant reference before changing its area
 

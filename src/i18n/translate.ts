@@ -179,6 +179,8 @@ const dictionaries: Record<LocaleId, Record<string, string>> = {
     'toolbar.reloadStored': 'Reload stored version',
     'toolbar.saveAsNew': 'Save current as a new project',
     'render.emptyGeometry': 'Nothing visible to render.',
+    'editor.fitGraph': 'Fit graph',
+    'viewer.resetView': 'Reset 3D view',
   },
 }
 

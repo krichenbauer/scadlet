@@ -4,6 +4,9 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 
+import { DEFAULT_VIEW_DIRECTION, frameModelBounds } from './view-framing'
+import { t } from '../i18n/translate'
+
 /**
  * The minimal Three.js view state needed to restore the user's camera
  * (see `persistence/project.ts`'s `ScadletViewerCamera`, which mirrors
@@ -40,6 +43,39 @@ export class GeometryViewer extends LitElement {
       display: block;
     }
 
+    .view-recovery-control {
+      position: absolute;
+      z-index: 1;
+      top: 10px;
+      right: 10px;
+      display: grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
+      padding: 0;
+      border: 1px solid #626262;
+      border-radius: 4px;
+      background: rgb(38 38 38 / 0.92);
+      color: #e8e8e8;
+      cursor: pointer;
+    }
+
+    .view-recovery-control:hover:not(:disabled) { background: #3a3a3a; border-color: #898989; }
+    .view-recovery-control:focus-visible { outline: 2px solid rgb(122 192 255 / 0.7); outline-offset: 2px; }
+    .view-recovery-control:disabled { cursor: default; opacity: 0.45; }
+    .view-recovery-control svg { width: 17px; height: 17px; fill: none; stroke: currentcolor; stroke-width: 1.8; }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
     .empty-geometry-status {
       position: absolute;
       right: 12px;
@@ -71,10 +107,23 @@ export class GeometryViewer extends LitElement {
   private frameHandle = 0
   private hasFittedOnce = false
   private readonly cameraChangeListeners = new Set<() => void>()
+  private persistedCamera: CameraState = { position: [80, 80, 60], target: [0, 0, 0] }
 
   render() {
     return html`
       <div id="canvas-host"></div>
+      <button
+        type="button"
+        class="view-recovery-control"
+        aria-label=${t('viewer.resetView')}
+        title=${t('viewer.resetView')}
+        ?disabled=${!this.mesh}
+        @pointerdown=${this.stopRecoveryControlGesture}
+        @click=${this.resetView}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M8 8l3-3 3 3M12 5v9M9 12l3 3 3-3" /></svg>
+        <span class="visually-hidden">${t('viewer.resetView')}</span>
+      </button>
       ${this.status
         ? html`<p class="empty-geometry-status" role="status" aria-live="polite" aria-atomic="true">${this.status}</p>`
         : nothing}
@@ -116,6 +165,7 @@ export class GeometryViewer extends LitElement {
     // which only ever dispatches OrbitControls' separate 'change' event.
     // This is what lets project-restore camera application never be
     // mistaken for a user edit without any extra suspension bookkeeping.
+    this.controls.addEventListener('end', this.onUserCameraChange)
     for (const listener of this.cameraChangeListeners) this.controls.addEventListener('end', listener)
 
     this.resizeObserver = new ResizeObserver(() => this.handleResize())
@@ -143,9 +193,10 @@ export class GeometryViewer extends LitElement {
     const material = new THREE.MeshStandardMaterial({ color: 0x7ac0ff, metalness: 0.1, roughness: 0.6 })
     this.mesh = new THREE.Mesh(geometry, material)
     this.scene.add(this.mesh)
+    this.requestUpdate()
 
     if (!this.hasFittedOnce) {
-      this.fitToView(geometry)
+      this.fitToView()
       this.hasFittedOnce = true
     }
   }
@@ -157,6 +208,7 @@ export class GeometryViewer extends LitElement {
     this.mesh.geometry.dispose()
     ;(this.mesh.material as THREE.Material).dispose()
     this.mesh = undefined
+    this.requestUpdate()
   }
 
   /**
@@ -184,6 +236,11 @@ export class GeometryViewer extends LitElement {
     }
   }
 
+  /** The serializable user/restored camera state, excluding transient reset actions. */
+  getPersistedCameraState(): CameraState {
+    return { position: [...this.persistedCamera.position], target: [...this.persistedCamera.target] }
+  }
+
   /**
    * Restores a previously captured camera position/target (project
    * restore - see `persistence/restore.ts`). Marks the camera as already
@@ -196,25 +253,38 @@ export class GeometryViewer extends LitElement {
       this.controls.target.set(...state.target)
       this.controls.update()
     }
+    this.persistedCamera = { position: [...state.position], target: [...state.target] }
     this.hasFittedOnce = true
   }
 
-  private fitToView(geometry: THREE.BufferGeometry): void {
-    geometry.computeBoundingSphere()
-    const sphere = geometry.boundingSphere
-    if (!sphere || !this.controls) return
-
-    const distance = (sphere.radius / Math.sin((this.camera.fov * Math.PI) / 360)) * 1.4
+  /** Returns false for an empty preview, otherwise resets to a stable model frame. */
+  resetView = (): boolean => {
+    if (!this.mesh || !this.controls) return false
+    const bounds = new THREE.Box3().setFromObject(this.mesh)
+    if (bounds.isEmpty()) return false
+    const frame = frameModelBounds(
+      { min: [bounds.min.x, bounds.min.y, bounds.min.z], max: [bounds.max.x, bounds.max.y, bounds.max.z] },
+      this.camera.fov,
+      this.camera.aspect,
+    )
+    if (!frame) return false
     // Z is up in this viewer, so the elevation component of the view
     // direction belongs on Z rather than Y.
-    const direction = new THREE.Vector3(1, 1, 0.8).normalize()
-    this.camera.position.copy(sphere.center).addScaledVector(direction, distance)
-    this.camera.near = Math.max(distance / 100, 0.1)
-    this.camera.far = distance * 100
+    const direction = new THREE.Vector3(...DEFAULT_VIEW_DIRECTION).normalize()
+    this.camera.position.set(...frame.target).addScaledVector(direction, frame.distance)
+    this.camera.near = frame.near
+    this.camera.far = frame.far
     this.camera.updateProjectionMatrix()
 
-    this.controls.target.copy(sphere.center)
+    this.controls.target.set(...frame.target)
     this.controls.update()
+    return true
+  }
+
+  private fitToView(): void {
+    // The mesh is already in the scene, so this uses the same world-space
+    // bounds and reset policy as the explicit recovery control.
+    this.resetView()
   }
 
   private handleResize(): void {
@@ -230,6 +300,14 @@ export class GeometryViewer extends LitElement {
     this.frameHandle = requestAnimationFrame(this.tick)
     this.controls?.update()
     if (this.renderer) this.renderer.render(this.scene, this.camera)
+  }
+
+  private readonly stopRecoveryControlGesture = (event: PointerEvent): void => {
+    event.stopPropagation()
+  }
+
+  private readonly onUserCameraChange = (): void => {
+    this.persistedCamera = this.getCameraState()
   }
 }
 
