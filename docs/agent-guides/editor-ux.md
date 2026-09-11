@@ -78,9 +78,13 @@ Transformations, and Boolean operations rather than CSG jargon.
 Double-clicking a geometry output performs one-shot upstream Geometry Inspect;
 double-clicking a value output runs OpenSCAD headlessly and displays the value.
 Inspect is presentation state: it never rewires, copies, or changes graph
-semantics. Normal Render always renders the full project. A changed semantic
-graph clears a value result; the last valid Geometry preview remains until a
-successful inspect or render replaces it. Clear inspect when its node is
+semantics. Its marker is provenance: it means the currently displayed result
+was successfully produced by Inspecting that node. Normal Render clears that
+marker immediately and always renders the full project, including if it later
+fails. A changed semantic graph clears Inspect provenance (while the last
+valid Geometry mesh may remain visible); presentation-only interactions do
+not. A failed Inspect preserves the previous successful result and its marker.
+Clear Inspect after a committed project replacement and when its node is
 deleted. Keep it inside the existing Rete/dataflow/codegen route.
 
 All user-facing/accessibility natural-language labels use `t()` keys; internal

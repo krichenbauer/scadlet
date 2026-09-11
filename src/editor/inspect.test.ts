@@ -9,38 +9,27 @@ describe('InspectManager', () => {
     expect(manager.isInspected('a')).toBe(false)
   })
 
-  it('inspecting a node selects it and notifies onChange for it', () => {
+  it('marks exactly the node whose successful Geometry Inspect was committed', () => {
     const onChange = vi.fn()
     const manager = new InspectManager({ onChange })
 
-    manager.inspect('a')
+    manager.commitGeometry('a')
 
     expect(manager.id).toBe('a')
     expect(manager.isInspected('a')).toBe(true)
     expect(onChange).toHaveBeenCalledExactlyOnceWith('a')
   })
 
-  it('inspecting the current node keeps it selected and clears its old result', () => {
+  it('moves the marker only when a second Geometry Inspect succeeds', () => {
     const onChange = vi.fn()
     const manager = new InspectManager({ onChange })
-    manager.inspect('a')
-    manager.setValueResult('a', '12')
+    manager.commitGeometry('a')
     onChange.mockClear()
 
-    manager.inspect('a')
-
+    // A failed attempt has no commit, so the previous preview provenance is
+    // retained rather than being replaced by a pending DOM-only marker.
     expect(manager.id).toBe('a')
-    expect(manager.getValueResult('a')).toBeNull()
-    expect(onChange).toHaveBeenCalledExactlyOnceWith('a')
-  })
-
-  it('inspecting a different node replaces the previous inspect root and notifies both', () => {
-    const onChange = vi.fn()
-    const manager = new InspectManager({ onChange })
-    manager.inspect('a')
-    onChange.mockClear()
-
-    manager.inspect('b')
+    manager.commitGeometry('b')
 
     expect(manager.id).toBe('b')
     expect(manager.isInspected('a')).toBe(false)
@@ -53,7 +42,7 @@ describe('InspectManager', () => {
   it('removing a node that is not inspected does nothing', () => {
     const onChange = vi.fn()
     const manager = new InspectManager({ onChange })
-    manager.inspect('a')
+    manager.commitGeometry('a')
     onChange.mockClear()
 
     manager.remove('b')
@@ -65,7 +54,7 @@ describe('InspectManager', () => {
   it('removing the inspected node clears inspection and notifies onChange', () => {
     const onChange = vi.fn()
     const manager = new InspectManager({ onChange })
-    manager.inspect('a')
+    manager.commitGeometry('a')
     onChange.mockClear()
 
     manager.remove('a')
@@ -74,23 +63,40 @@ describe('InspectManager', () => {
     expect(onChange).toHaveBeenCalledExactlyOnceWith('a')
   })
 
-  it('keeps an inspected value result transient and clears it when inspection changes', () => {
-    const manager = new InspectManager({ onChange: vi.fn() })
-    manager.inspect('value')
-    manager.setValueResult('value', '15')
-    expect(manager.getValueResult('value')).toBe('15')
-    manager.inspect('geometry')
-    expect(manager.getValueResult('value')).toBeNull()
-    expect(manager.getValueResult('geometry')).toBeNull()
+  it('clears the marker and transient value result for normal Render or a committed semantic change', () => {
+    const onChange = vi.fn()
+    const manager = new InspectManager({ onChange })
+    manager.commitGeometry('geometry')
+    onChange.mockClear()
+
+    manager.clear()
+
+    expect(manager.id).toBeNull()
+    expect(manager.isInspected('geometry')).toBe(false)
+    expect(onChange).toHaveBeenCalledExactlyOnceWith('geometry')
   })
 
-  it('clears a displayed result without changing the inspected root', () => {
+  it('clears a committed Value Inspect and its displayed result on a semantic change', () => {
     const manager = new InspectManager({ onChange: vi.fn() })
-    manager.inspect('value')
-    manager.setValueResult('value', '12')
-    manager.clearValueResult()
-    expect(manager.id).toBe('value')
+    manager.commitValue('value', '12')
+
+    manager.clear()
+
+    expect(manager.id).toBeNull()
     expect(manager.getValueResult('value')).toBeNull()
+  })
+
+  it('moves between Value and Geometry Inspect without leaving either stale state behind', () => {
+    const manager = new InspectManager({ onChange: vi.fn() })
+    manager.commitValue('value', '15')
+    expect(manager.getValueResult('value')).toBe('15')
+    manager.commitGeometry('geometry')
+    expect(manager.getValueResult('value')).toBeNull()
+    expect(manager.getValueResult('geometry')).toBeNull()
+    expect(manager.isInspected('geometry')).toBe(true)
+    manager.commitValue('value-2', '42')
+    expect(manager.isInspected('geometry')).toBe(false)
+    expect(manager.getValueResult('value-2')).toBe('42')
   })
 })
 
@@ -106,7 +112,7 @@ describe('InspectManager.registerPointerDown', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('selects inspection on a second pointerdown on the same node within the threshold', () => {
+  it('starts an inspection attempt on a second pointerdown without changing provenance', () => {
     const onChange = vi.fn()
     let time = 0
     const manager = new InspectManager({ onChange, now: () => time, doubleClickThresholdMs: 400 })
@@ -115,8 +121,8 @@ describe('InspectManager.registerPointerDown', () => {
     time = 200
     expect(manager.registerPointerDown('a')).toBe(true)
 
-    expect(manager.id).toBe('a')
-    expect(onChange).toHaveBeenCalledExactlyOnceWith('a')
+    expect(manager.id).toBeNull()
+    expect(onChange).not.toHaveBeenCalled()
   })
 
   it('does not inspect when the second pointerdown exceeds the threshold', () => {
@@ -145,7 +151,7 @@ describe('InspectManager.registerPointerDown', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('resets the pending pointerdown after inspection, requiring two fresh pointerdowns to inspect again', () => {
+  it('resets the pending pointerdown after an attempt, requiring two fresh pointerdowns to inspect again', () => {
     const onChange = vi.fn()
     let time = 0
     const manager = new InspectManager({ onChange, now: () => time, doubleClickThresholdMs: 400 })
@@ -153,6 +159,7 @@ describe('InspectManager.registerPointerDown', () => {
     manager.registerPointerDown('a')
     time = 100
     manager.registerPointerDown('a')
+    manager.commitGeometry('a')
     expect(manager.id).toBe('a')
 
     time = 150
@@ -161,21 +168,32 @@ describe('InspectManager.registerPointerDown', () => {
     expect(manager.id).toBe('a')
   })
 
-  it('a new rapid pair on the same node keeps it selected for reevaluation', () => {
+  it('does not disturb an existing marker during a new pending or failed attempt', () => {
     const onChange = vi.fn()
     let time = 0
     const manager = new InspectManager({ onChange, now: () => time, doubleClickThresholdMs: 400 })
 
-    manager.registerPointerDown('a')
+    manager.commitGeometry('a')
+    manager.registerPointerDown('b')
     time = 100
-    manager.registerPointerDown('a')
+    manager.registerPointerDown('b')
     expect(manager.id).toBe('a')
 
     time = 200
-    manager.registerPointerDown('a')
+    manager.registerPointerDown('b')
     time = 250
+    manager.registerPointerDown('b')
+
+    expect(manager.id).toBe('a')
+  })
+
+  it('keeps a successful marker through presentation-only pointer interaction', () => {
+    const manager = new InspectManager({ onChange: vi.fn(), now: () => 0 })
+    manager.commitGeometry('a')
+
     manager.registerPointerDown('a')
 
     expect(manager.id).toBe('a')
+    expect(manager.isInspected('a')).toBe(true)
   })
 })

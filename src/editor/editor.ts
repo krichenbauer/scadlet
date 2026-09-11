@@ -56,11 +56,13 @@ export interface SCADletEditor {
   evaluate(rootNodeId?: string): Promise<string>
   /** Evaluates an inspect root as either geometry source or a typed OpenSCAD expression. */
   evaluateInspect(nodeId: string): Promise<InspectEvaluation>
-  /** Stores the transient OpenSCAD result displayed for an inspected value node. */
-  setInspectedValueResult(nodeId: string, value: string): void
-  /** Clears the transient value result without affecting graph/project state. */
-  clearInspectedValueResult(): void
-  /** The node id currently selected as the Inspect Node preview root, or `null` if inspection is inactive. */
+  /** Commits the successful Geometry Inspect which just replaced the viewer preview. */
+  commitGeometryInspect(nodeId: string): void
+  /** Commits the successful Value Inspect and its displayed OpenSCAD result. */
+  commitValueInspect(nodeId: string, value: string): void
+  /** Clears Inspect provenance and its visual marker without changing graph/project state. */
+  clearInspect(): void
+  /** The node id that produced the currently displayed Inspect result, or `null`. */
   getInspectedNodeId(): string | null
   /** Safely removes a dynamic port and all of its attached connections. */
   removeInputSafely(nodeId: string, inputKey: string): Promise<boolean>
@@ -406,10 +408,10 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   }
   function notifySemanticChange(): void {
     if (dirtySuspended) return
-    // A displayed inspected value is only valid for the exact graph state
-    // OpenSCAD evaluated. Layout and presentation-only dirty events do not
-    // reach this path, so hovering, pinning, and canvas movement retain it.
-    inspect.clearValueResult()
+    // Inspect provenance is valid only for the exact graph state OpenSCAD
+    // evaluated. Layout and presentation-only dirty events do not reach this
+    // path, so hovering, pinning, and canvas movement retain it.
+    inspect.clear()
     for (const listener of semanticListeners) listener()
   }
   function notifySemanticDirty(): void {
@@ -552,7 +554,11 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     if (context.type === 'noderemoved') {
       connectionGesture.removeNode(context.data.id)
       presentation.remove(context.data.id)
-      inspect.remove(context.data.id)
+      // Restore is transactional: if reconstruction fails it rolls the old
+      // graph back. Do not discard its Inspect provenance during those
+      // provisional node removals; the application clears it only after a
+      // replacement project has committed successfully.
+      if (!dirtySuspended) inspect.remove(context.data.id)
       definitions.forgetNode(context.data.id)
     }
     return context
@@ -1581,8 +1587,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     addModuleCallAt,
     evaluate: (rootNodeId?: string) => evaluateOpenSCAD(editor, engine, rootNodeId, definitions),
     evaluateInspect: (nodeId) => evaluateInspectNode(editor, engine, nodeId, definitions),
-    setInspectedValueResult: (nodeId, value) => inspect.setValueResult(nodeId, value),
-    clearInspectedValueResult: () => inspect.clearValueResult(),
+    commitGeometryInspect: (nodeId) => inspect.commitGeometry(nodeId),
+    commitValueInspect: (nodeId, value) => inspect.commitValue(nodeId, value),
+    clearInspect: () => inspect.clear(),
     getInspectedNodeId: () => inspect.id,
     removeInputSafely: (nodeId, inputKey) => removeInputSafely(editor, nodeId, inputKey),
     removeOutputSafely: (nodeId, outputKey) => removeOutputSafely(editor, nodeId, outputKey),

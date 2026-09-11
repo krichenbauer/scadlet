@@ -9,16 +9,16 @@ export interface InspectManagerOptions {
 
 /**
  * Owns the "Inspect Node" feature's single piece of state - which node
- * (if any) is currently the temporary preview root - entirely outside
+ * (if any) produced the currently displayed Inspect result - entirely outside
  * Rete's own graph model, the same architectural pattern
  * `NodePresentationManager` uses for collapsed/expanded/pinned state.
  *
  * This is presentation/editor state only: it never touches node data,
  * connections, or node identity beyond storing an id, and it holds at
- * most one inspected node at a time. `evaluate.ts`'s `evaluateOpenSCAD`
- * is what actually gives the id meaning (as an alternate evaluation
- * root) - this class only tracks which id that is and notifies callers
- * when it changes so the affected node(s) can be re-rendered.
+ * most one inspected node at a time. `evaluate.ts` gives an attempted node id
+ * meaning; the application commits that attempt here only after its
+ * OpenSCAD-backed result replaces the displayed result. This prevents a
+ * failed or superseded attempt from becoming stale decoration.
  */
 export class InspectManager {
   private inspectedId: string | null = null
@@ -47,35 +47,31 @@ export class InspectManager {
     return this.inspectedId === nodeId ? this.valueResult : null
   }
 
-  setValueResult(nodeId: string, value: string): void {
-    if (this.inspectedId !== nodeId) return
-    this.valueResult = value
-    this.onChange(nodeId)
+  /** Commits a successful Geometry Inspect after its STL replaced the viewer preview. */
+  commitGeometry(nodeId: string): void {
+    this.commit(nodeId, null)
   }
 
-  clearValueResult(): void {
-    if (this.inspectedId === null || this.valueResult === null) return
-    this.valueResult = null
-    this.onChange(this.inspectedId)
+  /** Commits a successful Value Inspect and its displayed OpenSCAD result. */
+  commitValue(nodeId: string, value: string): void {
+    this.commit(nodeId, value)
   }
 
-  /**
-   * Selects a node as the temporary Inspect root. Re-selecting the same
-   * node is intentionally a fresh explicit Inspect request, not a toggle
-   * back to normal rendering. The app owns evaluation; this manager only
-   * updates the transient visual/result state.
-   */
-  inspect(nodeId: string): void {
+  /** Clears the provenance of the current Inspect result. The last valid
+   * Geometry mesh may remain visible, but is no longer claimed as Inspect. */
+  clear(): void {
     const previous = this.inspectedId
-    if (previous === nodeId) {
-      this.valueResult = null
-      this.onChange(nodeId)
-      return
-    }
-
-    this.inspectedId = nodeId
+    if (previous === null) return
+    this.inspectedId = null
     this.valueResult = null
-    if (previous !== null) this.onChange(previous)
+    this.onChange(previous)
+  }
+
+  private commit(nodeId: string, value: string | null): void {
+    const previous = this.inspectedId
+    this.inspectedId = nodeId
+    this.valueResult = value
+    if (previous !== null && previous !== nodeId) this.onChange(previous)
     this.onChange(nodeId)
   }
 
@@ -87,17 +83,14 @@ export class InspectManager {
    */
   remove(nodeId: string): void {
     if (this.inspectedId !== nodeId) return
-    this.inspectedId = null
-    this.valueResult = null
-    this.onChange(nodeId)
+    this.clear()
   }
 
   /**
    * Registers a `pointerdown` on `nodeId` as one half of a possible
-   * double-click, selecting inspection if it's the second pointerdown on
-   * the SAME node within `doubleClickThresholdMs`. Returns whether this
-   * pointerdown completed the gesture, so the caller can immediately run
-   * the one-shot OpenSCAD evaluation.
+   * double-click, returning whether it is the second pointerdown on the SAME
+   * node within `doubleClickThresholdMs`. The caller commits only a successful
+   * one-shot evaluation separately.
    *
    * Native `dblclick` is deliberately not used to detect this gesture on
    * a node. Rete's own built-in `AreaExtensions.simpleNodesOrder` moves a
@@ -121,7 +114,6 @@ export class InspectManager {
 
     if (previous && previous.nodeId === nodeId && time - previous.time <= this.doubleClickThresholdMs) {
       this.lastPointerDown = null
-      this.inspect(nodeId)
       return true
     }
     return false

@@ -1967,10 +1967,20 @@ test('Geometry Inspect renders the selected subtree immediately and Render retur
   await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
   await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(', { timeout: 15_000 })
   await expect(page.locator('scadlet-app .scad-output')).not.toContainText('sphere(')
+  await expect(cube).toHaveClass(/node--inspected/)
+  await expect(page.locator('node-editor .node.node--inspected')).toHaveCount(1)
 
   await page.getByRole('button', { name: 'Render', exact: true }).click()
+  // This assertion runs before waiting for the worker result: full-project
+  // Render clears Inspect provenance immediately, not only on success.
+  await expect(page.locator('node-editor .node.node--inspected')).toHaveCount(0)
   await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(', { timeout: 15_000 })
   await expect(page.locator('scadlet-app .scad-output')).toContainText('sphere(')
+
+  await cube.locator('.node-header').dblclick()
+  await expect(cube).toHaveClass(/node--inspected/, { timeout: 15_000 })
+  await dropPaletteNode(page, 'cylinder')
+  await expect(page.locator('node-editor .node.node--inspected')).toHaveCount(0)
 })
 
 test('Boolean and Vector3 use editable source titles without redundant body labels', async ({ page }) => {

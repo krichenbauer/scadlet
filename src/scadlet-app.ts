@@ -732,6 +732,10 @@ export class ScadletApp extends LitElement {
         rollbackProject,
       }),
     )
+    // Inspect is transient and has no meaning across a committed project
+    // replacement. Wait until restore succeeds so a rejected restore leaves
+    // the previous project and its displayed result untouched.
+    instance.clearInspect()
   }
 
   private _clearRenderedOutput(): void {
@@ -1206,6 +1210,7 @@ export class ScadletApp extends LitElement {
    * successful geometry preview stays in the viewer; only its pending worker
    * request is cancelled, and no automatic re-evaluation is started. */
   private _invalidateStaleInspect(): void {
+    this.editorInstance?.clearInspect()
     if (this.activeExecution !== 'inspect') return
     this.executionGeneration.invalidate()
     this.activeExecution = null
@@ -1214,6 +1219,10 @@ export class ScadletApp extends LitElement {
   }
 
   private async _render() {
+    // A normal render represents the whole project even when evaluation
+    // fails. Clear before evaluation so an old Inspect marker cannot claim
+    // the retained preview as its result.
+    this.editorInstance?.clearInspect()
     const generation = this._beginExecution('render')
     const tStart = performance.now()
     try {
@@ -1257,10 +1266,10 @@ export class ScadletApp extends LitElement {
 
       if (inspected.kind === 'value') {
         const source = inspected.source ?? `echo("__SCADLET_VALUE__:", ${inspected.expression});`
-        this.scadSource = source
         const value = await this.renderController.inspectValue(source)
         if (!this.executionGeneration.isCurrent(generation)) return
-        this.editorInstance?.setInspectedValueResult(nodeId, value)
+        this.scadSource = source
+        this.editorInstance?.commitValueInspect(nodeId, value)
         return
       }
 
@@ -1268,11 +1277,12 @@ export class ScadletApp extends LitElement {
         this.renderError = 'Nothing to render - add at least one node.'
         return
       }
-      this.scadSource = inspected.source
       const stl = await this.renderController.render(inspected.source)
       if (!this.executionGeneration.isCurrent(generation)) return
       this.stl = stl
       this.viewer.showSTL(stl)
+      this.scadSource = inspected.source
+      this.editorInstance?.commitGeometryInspect(nodeId)
     } catch (error) {
       if (!this.executionGeneration.isCurrent(generation)) return
       const message = error instanceof Error ? error.message : String(error)
