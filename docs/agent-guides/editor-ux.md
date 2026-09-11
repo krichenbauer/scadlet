@@ -91,6 +91,5 @@ deleted. Keep it inside the existing Rete/dataflow/codegen route.
 
 All user-facing/accessibility natural-language labels use `t()` keys; internal
 node, category, port, and operation IDs remain stable and language-independent.
-The current UI locale is English. The dictionary also carries a German string
-for the empty-Geometry preview status; do not add a full i18n framework or a
-language switcher merely in anticipation of broader German localization.
+The current dictionary is English-only. Do not add a full i18n framework or a
+language switcher merely in anticipation of German.
