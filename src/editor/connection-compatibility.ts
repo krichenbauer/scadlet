@@ -2,9 +2,10 @@ import type { NodeEditor } from 'rete'
 
 import type { Schemes } from './schemes'
 import { areSocketTypesCompatible, socketType } from './sockets'
-import { shareDefinitionScope } from './definitions'
+import { definitionScopeOf, shareDefinitionScope } from './definitions'
 import { FunctionOutputNode } from './nodes/function-interface-nodes'
 import { ConditionalNode } from './nodes/value-nodes'
+import { wouldCreateDataflowCycle } from './dataflow-cycle'
 
 /** The sole semantic compatibility rule used for Rete creation and snap
  * acquisition: existing opposite-direction ports with identical types.
@@ -39,4 +40,27 @@ export function canConnectSocketData(
   }
   const targetSocket = targetNode?.inputs[targetData.key]?.socket
   return areSocketTypesCompatible(sourceSocket, targetSocket)
+}
+
+/** True when a type- and scope-compatible prospective wire would close a
+ * node-dataflow cycle in its own semantic graph scope. Definition Call
+ * targets are intentionally not followed: Function/Module recursion is a
+ * separate, supported definition-dependency concept. */
+export function wouldCreateNodeDataflowCycle(
+  editor: NodeEditor<Schemes>,
+  first: { nodeId: string; key: string; side: 'input' | 'output' },
+  second: { nodeId: string; key: string; side: 'input' | 'output' },
+): boolean {
+  const source = first.side === 'output' ? first : second.side === 'output' ? second : undefined
+  const target = first.side === 'input' ? first : second.side === 'input' ? second : undefined
+  if (!source || !target || !shareDefinitionScope(editor, source.nodeId, target.nodeId)) return false
+
+  const scope = (nodeId: string) => definitionScopeOf(editor, nodeId)
+  const candidateScope = scope(source.nodeId)
+  return wouldCreateDataflowCycle(
+    editor.getConnections().filter((connection) =>
+      scope(connection.source) === candidateScope && scope(connection.target) === candidateScope,
+    ),
+    { source: source.nodeId, target: target.nodeId },
+  )
 }

@@ -742,6 +742,12 @@ rejected - see "Forward compatibility" under Validation).
   hidden persisted connections. The loader also rejects cross-type edges with
   a user-facing incompatible-socket-types error; no implicit conversions are
   defined.
+- Within each Main, Module, or Function graph scope, every connection is a
+  directed node-dataflow edge and the complete graph must be acyclic,
+  including disconnected/dead subgraphs. A self-wire and an indirect cycle
+  are rejected during validation before restore. This does **not** prohibit
+  direct or mutual Function/Module recursion: Call-node definition
+  dependencies are analyzed separately and remain valid in v6.
 
 Currently valid ports per node type
 (`NodeCatalogEntry.inputs`/`.outputs` in `node-catalog.ts`):
@@ -875,7 +881,10 @@ in roughly this order:
 8. Every connection has a unique, non-empty `id`; `source`/`target`
    referencing existing node ids; `sourceOutput`/`targetInput` that are
    valid ports (per that node's type) for that side.
-9. `editor.viewport` and `viewer.camera` are validated as described
+9. Every individual graph scope has acyclic node dataflow. This structural
+   check includes disconnected nodes and is distinct from allowed recursive
+   Function/Module definition dependencies.
+10. `editor.viewport` and `viewer.camera` are validated as described
    above.
 
 **Strictness is not uniform across the format**, and this is

@@ -50,6 +50,29 @@ describe('restoreProject', () => {
     expect(editor.getNodes()).toEqual([])
   })
 
+  it('never starts restoring a malformed node-dataflow cycle over a valid graph', async () => {
+    const { editor } = createGraph()
+    const existing = new CubeNode(); existing.id = 'existing-cube'
+    await editor.addNode(existing)
+    const malformed = {
+      ...createEmptyProject('Malformed'),
+      graph: {
+        nodes: [
+          { id: 'left', type: 'arithmetic', position: { x: 0, y: 0 }, parameters: { operation: 'addition', a: 0, b: 1 } },
+          { id: 'right', type: 'arithmetic', position: { x: 200, y: 0 }, parameters: { operation: 'addition', a: 0, b: 1 } },
+        ],
+        connections: [
+          { id: 'left-right', source: 'left', sourceOutput: 'value', target: 'right', targetInput: 'a' },
+          { id: 'right-left', source: 'right', sourceOutput: 'value', target: 'left', targetInput: 'a' },
+        ],
+      },
+    }
+
+    expect(() => parseScadletProject(malformed)).toThrow('node dataflow cycle')
+    expect(editor.getNodes().map((node) => node.id)).toEqual(['existing-cube'])
+    expect(editor.getConnections()).toEqual([])
+  })
+
   it('restores nodes with their exact persisted ids and parameters', async () => {
     const { editor } = createGraph()
     const project = parseScadletProject({

@@ -15,11 +15,11 @@ import { attachRenderer } from './render'
 import type { AreaExtra, Schemes } from './schemes'
 import { attachNodeSelection } from './selection'
 import { BooleanOpNode } from './nodes/boolean-op-node'
-import { ConnectionGestureManager } from './connection-gesture'
+import { ConnectionGestureManager, type ConnectionGestureOrigin } from './connection-gesture'
 import { socketType, type SocketType } from './sockets'
 import { guardPortRemoval, hasConnectedInputs, removeInputSafely, removeOutputSafely } from './port-lifecycle'
 import { ConnectionSelectionManager } from './connection-selection'
-import { canConnectSocketData } from './connection-compatibility'
+import { canConnectSocketData, wouldCreateNodeDataflowCycle } from './connection-compatibility'
 import { DefinitionRegistry, bindDefinitionRegistry, defaultModuleGeometryInput, moduleGeometryInputPortId, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterNameProblem, moduleParameterPortId, type FunctionResultType, type ModuleDefinition, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterDefault, type ModuleParameterType } from './definitions'
 import { attachDefinitionFrames, definitionFrameBounds, type DefinitionFrameBounds } from './definition-frames'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
@@ -124,14 +124,24 @@ export interface SCADletEditor {
 /** Installs the same semantic connection gate used by the browser editor.
  * Exported for DOM-free regression tests and for any future editor host that
  * intentionally reuses SCADlet's graph semantics. */
-export function attachSocketCompatibilityGuard(editor: NodeEditor<Schemes>): void {
+export function attachSocketCompatibilityGuard(
+  editor: NodeEditor<Schemes>,
+  onDataflowCycleRejected: () => void = () => {},
+): void {
   editor.addPipe((context) => {
     if (context.type !== 'connectioncreate') return context
-    return canConnectSocketData(editor, {
+    const source = {
       nodeId: context.data.source, key: context.data.sourceOutput, side: 'output',
-    }, {
+    } as const
+    const target = {
       nodeId: context.data.target, key: context.data.targetInput, side: 'input',
-    }) ? context : undefined
+    } as const
+    if (!canConnectSocketData(editor, source, target)) return undefined
+    if (wouldCreateNodeDataflowCycle(editor, source, target)) {
+      onDataflowCycleRejected()
+      return undefined
+    }
+    return context
   })
 }
 
@@ -191,6 +201,16 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     inputs: () => Object.keys(node.inputs),
     outputs: () => Object.keys(node.outputs),
   }))
+  let showDataflowCycleFeedback: () => void = () => {}
+  const canCreateConnection = (
+    from: Pick<SocketData, 'nodeId' | 'key' | 'side'>,
+    to: Pick<SocketData, 'nodeId' | 'key' | 'side'>,
+  ): boolean => {
+    if (!canConnectSocketData(editor, from, to)) return false
+    if (!wouldCreateNodeDataflowCycle(editor, from, to)) return true
+    showDataflowCycleFeedback()
+    return false
+  }
 
   // Rete's own node-selection extension is the single source of truth
   // for which nodes are selected (`node.selected`, read by both the
@@ -207,7 +227,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // its diagonal-only compatibility here for drag/click creation as well as
   // the editor `connectioncreate` guard below for programmatic creation.
   connection.addPreset(() => new ClassicFlow({
-    canMakeConnection: (from, to) => canConnectSocketData(editor, from, to),
+    canMakeConnection: (from, to) => canCreateConnection(from, to),
   }))
 
   // Rete emits these signals for both drag and click connection flows. They
@@ -224,6 +244,16 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       if (type) connectionGesture.begin({ nodeId: socket.nodeId, socketKey: socket.key, side: socket.side, socketType: type })
     } else if (context.type === 'connectiondrop') {
       const { created, socket } = context.data as { created?: boolean; socket?: SocketData | null }
+      // ClassicFlow can reject an attempted direct socket drop before it
+      // emits `connectioncreate`. Preserve its no-mutation behavior while
+      // still explaining this otherwise silent dataflow-cycle rejection.
+      if (socket && connectionGesture.active && wouldCreateNodeDataflowCycle(editor, {
+        nodeId: connectionGesture.active.origin.nodeId,
+        key: connectionGesture.active.origin.socketKey,
+        side: connectionGesture.active.origin.side,
+      }, socket)) {
+        showDataflowCycleFeedback()
+      }
       // Rete drops a drag that ended beside (rather than directly on) a
       // socket before our bridge can commit its snap target. Keep that
       // transient target for the same pointerup; exact Rete completions and
@@ -255,7 +285,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     if (editor.getConnections().some((connection) => connection.target === target.nodeId && connection.targetInput === target.key)) return false
     const from = editor.getNode(source.nodeId)
     const to = editor.getNode(target.nodeId)
-    if (!from || !to || !canConnectSocketData(editor,
+    if (!from || !to || !canCreateConnection(
       { nodeId: source.nodeId, key: source.key, side: 'output' },
       { nodeId: target.nodeId, key: target.key, side: 'input' },
     )) return false
@@ -272,13 +302,24 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     })
     return true
   }
-  const detachConnectionGestureEvents = attachConnectionGestureEvents(container, connectionGesture, commitSnappedConnection)
+  const detachConnectionGestureEvents = attachConnectionGestureEvents(
+    container,
+    connectionGesture,
+    commitSnappedConnection,
+    (origin, target) => {
+      if (!wouldCreateNodeDataflowCycle(editor, {
+        nodeId: origin.nodeId, key: origin.socketKey, side: origin.side,
+      }, target)) return false
+      showDataflowCycleFeedback()
+      return true
+    },
+  )
 
   // This is the authoritative live-graph gate. It runs before Rete mutates
   // its connection list, so even callers that construct a
   // `ClassicPreset.Connection` directly cannot insert Geometry→Number,
   // Geometry→Vector3, Geometry→Boolean, or any other implicit conversion.
-  attachSocketCompatibilityGuard(editor)
+  attachSocketCompatibilityGuard(editor, () => showDataflowCycleFeedback())
   let showScopeTransferFeedback: (problem: ScopeTransferProblem) => void = () => {}
 
   /** Builds the effective dependency graph. Calls participate only when they
@@ -1221,20 +1262,24 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   }
 
   const feedback = document.createElement('div')
-  feedback.className = 'scope-transfer-feedback'
+  feedback.className = 'editor-feedback'
   feedback.hidden = true
   container.appendChild(feedback)
   let feedbackTimer: number | undefined
-  showScopeTransferFeedback = (problem: ScopeTransferProblem): void => {
-    feedback.textContent = t(
-      problem === 'module-call' ? 'definition.moduleCallsMainOnly'
-        : problem === 'function-incompatible' ? 'definition.functionScopeIncompatible'
-          : 'definition.invalidScopeTransfer',
-    )
+  const showFeedback = (key: string): void => {
+    feedback.textContent = t(key)
     feedback.hidden = false
     if (feedbackTimer !== undefined) window.clearTimeout(feedbackTimer)
     feedbackTimer = window.setTimeout(() => { feedback.hidden = true }, 3500)
   }
+  showScopeTransferFeedback = (problem: ScopeTransferProblem): void => {
+    showFeedback(
+      problem === 'module-call' ? 'definition.moduleCallsMainOnly'
+        : problem === 'function-incompatible' ? 'definition.functionScopeIncompatible'
+          : 'definition.invalidScopeTransfer',
+    )
+  }
+  showDataflowCycleFeedback = () => showFeedback('connection.dataflowCycle')
   const updateScopeDestination = (graphPosition: Position): void => {
     if (!activeScopeDrag) return
     const definitionId = definitionAtGraphPosition(graphPosition, activeScopeDrag.sourceFrameBounds)
@@ -1672,6 +1717,7 @@ function attachConnectionGestureEvents(
   container: HTMLElement,
   gesture: ConnectionGestureManager,
   commitSnap: () => boolean,
+  rejectDataflowCycle: (origin: ConnectionGestureOrigin, target: { nodeId: string; key: string; side: 'input' | 'output' }) => boolean,
 ): () => void {
   let initiatingPointerId: number | null = null
   let movedSincePick = false
@@ -1723,7 +1769,26 @@ function attachConnectionGestureEvents(
     // `movedSincePick` belongs to this one active gesture and is the stable
     // drag-mode discriminator, not the retargeted pointer id.
     if (movedSincePick) {
-      if (commitSnap()) {
+      // A direct drop can be rejected by Rete before it publishes a
+      // `connectioncreate` signal. Resolve the actual socket under the
+      // pointer so that this rejected cycle still gets the same actionable
+      // feedback as a programmatic connection attempt.
+      const root = container.getRootNode()
+      const underPointer = root instanceof ShadowRoot
+        ? root.elementsFromPoint(event.clientX, event.clientY)
+        : document.elementsFromPoint(event.clientX, event.clientY)
+      const destinationAtPoint = underPointer
+        .map((element) => findSocket(element))
+        .find((socket): socket is HTMLElement => socket !== null)
+      const destination = findSocket(event.target) ?? destinationAtPoint
+      const node = destination?.closest<HTMLElement>('.node')
+      const nodeId = node?.dataset.nodeId
+      const key = destination?.dataset.socketKey
+      const side = destination?.dataset.socketSide
+      if (gesture.active && nodeId && key && (side === 'input' || side === 'output') &&
+        rejectDataflowCycle(gesture.active.origin, { nodeId, key, side })) {
+        gesture.complete()
+      } else if (commitSnap()) {
         event.preventDefault()
         event.stopPropagation()
       } else gesture.complete()

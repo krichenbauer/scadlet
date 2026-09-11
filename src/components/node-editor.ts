@@ -82,7 +82,7 @@ export class NodeEditorElement extends LitElement {
       box-shadow: 0 0 0 2px rgb(229 138 138 / 0.3);
     }
 
-    .scope-transfer-feedback {
+    .editor-feedback {
       position: absolute;
       z-index: 20;
       left: 12px;

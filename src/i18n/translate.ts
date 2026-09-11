@@ -105,6 +105,7 @@ const dictionaries: Record<LocaleId, Record<string, string>> = {
     'definition.moduleFrame': 'Module definition',
     'definition.functionFrame': 'Function definition',
     'definition.invalidScopeTransfer': 'Move connected nodes together or disconnect them first.',
+    'connection.dataflowCycle': 'This connection would create a dataflow cycle.',
     'definition.moduleCallsMainOnly': 'Module Calls are not allowed inside a Function definition.',
     'definition.functionScopeIncompatible': 'Only value/math and Function Call nodes are allowed inside a Function definition.',
     'definition.addParameter': '+ Parameter',

@@ -8,6 +8,7 @@ const HISTORICAL_MODULE_PARAMETERS = JSON.parse(readFileSync(join(ROOT, 'src/per
 const LEGACY_ARITHMETIC_V5_PATH = join(ROOT, 'src/persistence/fixtures/arithmetic-v5.scadlet')
 const RECURSIVE_FUNCTIONS_V6 = JSON.parse(readFileSync(join(ROOT, 'docs/examples/recursive-functions-v6.scadlet'), 'utf8'))
 const RECURSIVE_MODULES_V6 = JSON.parse(readFileSync(join(ROOT, 'docs/examples/recursive-modules-v6.scadlet'), 'utf8'))
+const DATAFLOW_CYCLE_V6 = JSON.parse(readFileSync(join(ROOT, 'src/persistence/fixtures/dataflow-cycle-v6.scadlet'), 'utf8'))
 const CAMERA = { position: [40, 40, 40], target: [0, 0, 0] }
 
 function nestedFunctionProject() {
@@ -470,9 +471,8 @@ test('starts from the historical pre-Phase-4 v3 Module fixture without losing pa
 
 test('isolates a broken active record from the usable local library and never autosaves over it', async ({ page }) => {
   await waitForLocalLibrary(page)
-  const broken = structuredClone(HISTORICAL_MODULE_PARAMETERS)
+  const broken = structuredClone(DATAFLOW_CYCLE_V6)
   broken.metadata.name = 'Broken recovery project'
-  broken.definitions[0].parameters[0].type = 'unsupported'
   const valid = structuredClone(HISTORICAL_MODULE_PARAMETERS)
   valid.metadata.name = 'Valid recovery project'
   const brokenRecord = {
@@ -488,6 +488,7 @@ test('isolates a broken active record from the usable local library and never au
   await expect(page.locator('scadlet-app .project-picker')).toBeEnabled()
   await expect(page.locator('scadlet-app .project-picker option')).toHaveCount(2)
   await expect(page.locator('scadlet-app .persistence-status')).toContainText('Could not load local project "Broken recovery project"')
+  await expect(page.locator('scadlet-app .persistence-status')).toContainText('node dataflow cycle')
   await expect(page.locator('scadlet-app .persistence-status')).not.toContainText('storage is unavailable')
   await page.waitForTimeout(1_100)
   expect(await readLocalRecord(page, 'broken-project')).toEqual(brokenRecord)
@@ -1918,6 +1919,68 @@ test('typed value nodes remain compact and a Number drives Cube Size', async ({ 
   await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(20);', { timeout: 15_000 })
 })
 
+test('rejects a visible node dataflow cycle without changing the valid graph, then renders through bundled OpenSCAD-WASM', async ({ page }) => {
+  test.setTimeout(60_000)
+  await waitForLocalLibrary(page)
+  const canvas = await page.locator('node-editor').boundingBox()
+  if (!canvas) throw new Error('Expected node-editor canvas')
+  await dropPaletteNode(page, 'arithmetic', { x: canvas.x + 120, y: canvas.y + 180 })
+  await dropPaletteNode(page, 'arithmetic', { x: canvas.x + 410, y: canvas.y + 180 })
+  await dropPaletteNode(page, 'cube', { x: canvas.x + 700, y: canvas.y + 180 })
+
+  const nodeIds = await page.locator('node-editor').evaluate((element) => {
+    const editor = (element as unknown as { getEditorInstance(): { editor: { getNodes(): { id: string; label: string }[] } } }).getEditorInstance().editor
+    return editor.getNodes().reduce((ids, node) => ({ ...ids, [node.label]: [...(ids[node.label] ?? []), node.id] }), {} as Record<string, string[]>)
+  })
+  const [leftId, rightId] = nodeIds.Arithmetic ?? []
+  const cubeId = nodeIds.Cube?.[0]
+  if (!leftId || !rightId || !cubeId) throw new Error('Expected two Arithmetic nodes and one Cube')
+  const left = page.locator(`node-editor .node[data-node-id="${leftId}"]`)
+  const right = page.locator(`node-editor .node[data-node-id="${rightId}"]`)
+  const cube = page.locator(`node-editor .node[data-node-id="${cubeId}"]`)
+  await left.locator('.node-pin').click()
+  await expect(left.locator('.node-pin')).toHaveAttribute('aria-pressed', 'true')
+  await right.locator('.node-pin').click()
+  await expect(right.locator('.node-pin')).toHaveAttribute('aria-pressed', 'true')
+  await cube.locator('.node-pin').click()
+  await expect(cube.locator('.node-pin')).toHaveAttribute('aria-pressed', 'true')
+  await left.locator('[data-param-key="a"] input').fill('5')
+  await left.locator('[data-param-key="b"] input').fill('5')
+  await right.locator('[data-param-key="b"] input').fill('2')
+  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
+
+  await connectSockets(page, left.locator('.node-port--output .node-socket'), right.locator('[data-param-key="a"] .node-socket'))
+  await connectSockets(page, right.locator('.node-port--output .node-socket'), cube.locator('[data-param-key="size"] .node-socket'))
+  const wires = page.locator('node-editor svg.connection[data-real-connection="true"]')
+  await expect(wires).toHaveCount(2)
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+
+  // A successful Inspect gives the rejected attempt a meaningful
+  // presentation-state invariant: it must not clear the active marker or
+  // mutate the displayed source.
+  await cube.locator('.node-header').dblclick()
+  await expect(cube).toHaveClass(/node--inspected/, { timeout: 15_000 })
+  const source = page.locator('scadlet-app .scad-output')
+  const sourceBefore = await source.textContent()
+  const projectId = await page.locator('scadlet-app .project-picker').inputValue()
+  const storedBefore = await readLocalRecord(page, projectId)
+
+  const rejected = await tryConnectNodePorts(page, rightId, 'value', leftId, 'a')
+  expect(rejected.created).toBe(false)
+  await expect(page.locator('node-editor .editor-feedback')).toHaveText('This connection would create a dataflow cycle.')
+  await expect(wires).toHaveCount(2)
+  await expect(cube).toHaveClass(/node--inspected/)
+  await expect(source).toHaveText(sourceBefore ?? '')
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden()
+  await page.waitForTimeout(1_000)
+  expect(await readLocalRecord(page, projectId)).toEqual(storedBefore)
+
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(source).toContainText('cube(', { timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+})
+
 test('creates a Compare with direct fallbacks, feeds Geometry If, and restores it through autosave', async ({ page }) => {
   test.setTimeout(60_000)
   await waitForLocalLibrary(page)
@@ -1933,14 +1996,13 @@ test('creates a Compare with direct fallbacks, feeds Geometry If, and restores i
   const sphere = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Sphere' }) })
   const ifNode = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'If' }) })
   await compare.locator('.node-pin').click()
-  await ifNode.locator('.node-pin').click()
   await expect(compare.locator('[data-param-key="a"] input')).toHaveValue('0')
   await expect(compare.locator('[data-param-key="b"] input')).toHaveValue('0')
   await compare.locator('[data-param-key="a"] input').fill('3')
   await compare.locator('[data-param-key="b"] input').fill('10')
   await compare.locator('select.node-title').selectOption('>')
 
-  await connectSockets(page, compare.locator('.node-port--output .node-socket'), ifNode.locator('[data-param-key="condition"] .node-socket'))
+  await connectSockets(page, compare.locator('.node-port--output .node-socket'), ifNode.locator('.node-socket[data-socket-key="condition"]'))
   await connectSockets(page, cube.locator('.node-port--output .node-socket'), ifNode.locator('.node-socket[data-socket-key="then"]'))
   await connectSockets(page, sphere.locator('.node-port--output .node-socket'), ifNode.locator('.node-socket[data-socket-key="else"]'))
   await expect(compare.locator('[data-param-key="a"] input')).toHaveValue('3')

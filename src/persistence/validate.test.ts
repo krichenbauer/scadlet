@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 import { createEmptyProject } from './project'
 import { parseScadletProject, parseScadletProjectText, ScadletProjectError } from './validate'
@@ -208,6 +210,22 @@ describe('parseScadletProject: connections', () => {
     const raw = validProject()
     raw.graph.connections.push({ ...raw.graph.connections[0] })
     expect(() => parseScadletProject(raw)).toThrow('Duplicate connection id: "c1"')
+  })
+
+  it('rejects a malformed v6 node dataflow cycle while preserving permitted definition recursion as a separate concept', () => {
+    const fixture = JSON.parse(readFileSync(fileURLToPath(new URL('./fixtures/dataflow-cycle-v6.scadlet', import.meta.url)), 'utf8'))
+    expect(() => parseScadletProject(fixture)).toThrow('Main graph contains a node dataflow cycle at connection "right-left"')
+    expect(() => parseScadletProject(fixture)).toThrow('Function and Module definition recursion is allowed')
+  })
+
+  it('continues to accept direct and mutual Function/Module definition recursion', () => {
+    for (const path of [
+      '../../docs/examples/recursive-functions-v6.scadlet',
+      '../../docs/examples/recursive-modules-v6.scadlet',
+    ]) {
+      const fixture = JSON.parse(readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8'))
+      expect(() => parseScadletProject(fixture)).not.toThrow()
+    }
   })
 
   it('validates Compare and Conditional dynamic socket metadata', () => {

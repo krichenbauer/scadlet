@@ -262,3 +262,9 @@ export function shareDefinitionScope(editor: NodeEditor<Schemes>, firstNodeId: s
   if (!registry) return true
   return registry.scopeOf(firstNodeId) === registry.scopeOf(secondNodeId)
 }
+
+/** Resolves a node's semantic graph scope for structural analyses. Hosts
+ * without definition support have only Main, represented by `null`. */
+export function definitionScopeOf(editor: NodeEditor<Schemes>, nodeId: string): string | null {
+  return registries.get(editor)?.scopeOf(nodeId) ?? null
+}

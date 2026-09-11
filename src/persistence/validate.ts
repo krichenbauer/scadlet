@@ -1,4 +1,5 @@
 import { findCatalogEntry, FUNCTION_GRAPH_ALLOWED_NODE_TYPES } from '../editor/node-catalog'
+import { firstDataflowCycle } from '../editor/dataflow-cycle'
 import { defaultModuleGeometryInput, moduleGeometryInputPortId, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterPortId, moduleParameterNameProblem, type FunctionResultType, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterType } from '../editor/definitions'
 import {
   SCADLET_FORMAT,
@@ -381,6 +382,11 @@ function validateGraph(raw: unknown, graphKind: GraphKind, definition?: Definiti
       throw new ScadletProjectError(`Multiple connections target input "${connection.targetInput}" on node "${connection.target}".`)
     }
     occupiedInputs.add(endpoint)
+  }
+  const cycle = firstDataflowCycle(connections)
+  if (cycle) {
+    const scope = graphKind === 'main' ? 'Main graph' : `${graphKind === 'function' ? 'Function' : 'Module'} definition graph`
+    throw new ScadletProjectError(`${scope} contains a node dataflow cycle at connection "${cycle.id}". Function and Module definition recursion is allowed.`)
   }
 
   // Conditional's branch/result sockets are dynamic but their port IDs are

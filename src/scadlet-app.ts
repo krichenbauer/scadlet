@@ -887,7 +887,13 @@ export class ScadletApp extends LitElement {
   }
 
   private _errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error)
+    if (!(error instanceof Error)) return String(error)
+    // Local-record loading wraps the validation detail to preserve recovery
+    // identity. Show the learner the underlying validation failure instead
+    // of an opaque wrapper, while retaining the outer operation context at
+    // each call site.
+    const cause = (error as Error & { cause?: unknown }).cause
+    return cause instanceof Error ? this._errorMessage(cause) : error.message
   }
 
   connectedCallback(): void {

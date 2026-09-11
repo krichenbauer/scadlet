@@ -1,0 +1,18 @@
+{
+  "format": "scadlet",
+  "version": 6,
+  "metadata": { "name": "Malformed dataflow cycle" },
+  "graph": {
+    "nodes": [
+      { "id": "left", "type": "arithmetic", "position": { "x": 0, "y": 0 }, "parameters": { "operation": "addition", "a": 0, "b": 1 } },
+      { "id": "right", "type": "arithmetic", "position": { "x": 220, "y": 0 }, "parameters": { "operation": "addition", "a": 0, "b": 1 } }
+    ],
+    "connections": [
+      { "id": "left-right", "source": "left", "sourceOutput": "value", "target": "right", "targetInput": "a" },
+      { "id": "right-left", "source": "right", "sourceOutput": "value", "target": "left", "targetInput": "a" }
+    ]
+  },
+  "definitions": [],
+  "editor": { "viewport": { "x": 0, "y": 0, "zoom": 1 } },
+  "viewer": { "camera": { "position": [80, 80, 60], "target": [0, 0, 0] } }
+}
