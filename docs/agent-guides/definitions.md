@@ -46,8 +46,9 @@ A Module is ordinary OpenSCAD `module name(parameters) { ... }`.
   defaults, or implicit unions. Positional gaps use an explicit empty
   `union() {}` placeholder.
 - Module calls produce Geometry and are valid in Main and Module scopes.
-- Direct and indirect Module recursion is rejected. A Module Call is forbidden
-  in a Function scope.
+- Module Calls may be directly or mutually recursive inside Module scopes. A
+  Module Call remains forbidden in a Function scope. Recursive Calls use the
+  same ordinary ports, fallbacks, children, and lifecycle as acyclic Calls.
 
 ## Functions
 
@@ -65,10 +66,13 @@ imperative return.
   mutually recursive within Function scopes. OpenSCAD, not JavaScript,
   evaluates them.
 
-Generate resolved Functions first, then Modules in deterministic
-callee-before-caller order, then Main. Dependency analysis includes only calls
-reachable from an owning Output; recursive Function strongly connected
-components are supported, Module cycles are not.
+Generate resolved Functions first, then Modules, then Main. Both declaration
+passes collapse recursive strongly connected components through the same
+dependency analysis: components remain callee-before-caller, and members of
+one component retain stable project/definition order. Only Calls reachable
+from an owning Output participate; disconnected recursive-looking drafts do
+not affect order or SCC membership. SCADlet intentionally does not prove
+termination for either definition kind; OpenSCAD-WASM remains the evaluator.
 
 ## Presentation and creation
 

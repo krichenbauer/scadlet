@@ -45,7 +45,9 @@ performance choices. Never silently lower explicit detail such as `$fn`.
 Generated source must be valid and readable. Preview, `.scad`, and `.stl` use
 the same source; no JSCAD/replicad/other preview semantics. Imported `.scad`
 is out of scope. Definitions are emitted once in deterministic dependency
-order; Function recursive SCCs are valid, Module cycles are rejected.
+order. Function and Module recursive SCCs are valid and use the same
+reachable-Call SCC analysis; OpenSCAD-WASM evaluates recursion and SCADlet
+does not attempt to prove termination.
 
 ## Viewer contract
 

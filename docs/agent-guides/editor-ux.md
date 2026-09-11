@@ -22,6 +22,9 @@ Expose OpenSCAD semantics without forcing a value graph for literals:
 - Connected ports must never disappear through collapse or representation
   changes. When removal/type change affects wires, preflight and confirm, then
   remove only affected Rete connections through its lifecycle.
+- Function and Module Calls may be recursive in their permitted scopes. They
+  keep the same dynamic ports, fallbacks, confirmation, and restoration rules
+  as acyclic Calls; recursion adds no special syntax or UI mode.
 - Union and Intersection use ordered, variadic geometry-child slots. Each slot
   has a stable ID; retain connected slots plus one empty extension slot.
   Difference remains asymmetric (`base`/`subtract`).

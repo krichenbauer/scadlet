@@ -1,6 +1,5 @@
 import { findCatalogEntry, FUNCTION_GRAPH_ALLOWED_NODE_TYPES } from '../editor/node-catalog'
 import { defaultModuleGeometryInput, moduleGeometryInputPortId, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterPortId, moduleParameterNameProblem, type FunctionResultType, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterType } from '../editor/definitions'
-import { analyzeFunctionDependencies } from '../editor/function-dependencies'
 import {
   SCADLET_FORMAT,
   SCADLET_VERSION,
@@ -524,20 +523,6 @@ function validateDefinitions(raw: unknown): ScadletDefinition[] {
     definitions.push(definition)
   }
   for (const definition of definitions) validateDefinitionCalls(definition.graph, definitions)
-  const dependencyAnalysis = analyzeFunctionDependencies(
-    definitions.map((definition) => ({ id: definition.id, kind: definition.kind, outputNodeId: definition.interface.output })),
-    definitions.flatMap((definition) => definition.graph.nodes.map((node) => ({
-      id: node.id,
-      scope: definition.id,
-      ...(node.type === 'function-call' ? { calledFunctionId: String(node.parameters.definitionId) } : {}),
-      ...(node.type === 'module-call' ? { calledModuleId: String(node.parameters.definitionId) } : {}),
-    }))),
-    definitions.flatMap((definition) => definition.graph.connections),
-  )
-  if (dependencyAnalysis.cycle) {
-    const names = new Map(definitions.map((definition) => [definition.id, definition.name]))
-    throw new ScadletProjectError(`Recursive Module dependencies are not supported yet: ${dependencyAnalysis.cycle.map((id) => names.get(id) ?? id).join(' → ')}.`)
-  }
   return definitions
 }
 

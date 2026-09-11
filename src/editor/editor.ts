@@ -204,9 +204,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // metadata. SCADlet has a closed semantic socket vocabulary, so enforce
   // its diagonal-only compatibility here for drag/click creation as well as
   // the editor `connectioncreate` guard below for programmatic creation.
-  let wouldCreateRecursiveConnection = (_from: SocketData, _to: SocketData): boolean => false
   connection.addPreset(() => new ClassicFlow({
-    canMakeConnection: (from, to) => canConnectSocketData(editor, from, to) && !wouldCreateRecursiveConnection(from, to),
+    canMakeConnection: (from, to) => canConnectSocketData(editor, from, to),
   }))
 
   // Rete emits these signals for both drag and click connection flows. They
@@ -280,55 +279,18 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   attachSocketCompatibilityGuard(editor)
   let showScopeTransferFeedback: (problem: ScopeTransferProblem) => void = () => {}
 
-  /** Builds the effective dependency graph under a hypothetical connection
-   * or scope transfer. This is pure preflight: no Rete connection, scope,
-   * fallback, result type, or dirty state is changed while deciding. */
-  const definitionDependencyCycle = (
-    additionalConnection?: { source: string; target: string },
-    scopeOverrides: ReadonlyMap<string, string | null> = new Map(),
-    omittedConnectionIds: ReadonlySet<string> = new Set(),
-  ) => analyzeFunctionDependencies(
+  /** Builds the effective dependency graph. Calls participate only when they
+   * can reach their owning definition Output. */
+  const definitionDependencies = () => analyzeFunctionDependencies(
     definitions.list().map((definition) => ({ id: definition.id, kind: definition.kind, outputNodeId: definition.outputNodeId })),
     editor.getNodes().map((node) => ({
       id: node.id,
-      scope: scopeOverrides.has(node.id) ? scopeOverrides.get(node.id)! : definitions.scopeOf(node.id),
+      scope: definitions.scopeOf(node.id),
       ...(node instanceof FunctionCallNode ? { calledFunctionId: node.definitionId } : {}),
       ...(node instanceof ModuleCallNode ? { calledModuleId: node.definitionId } : {}),
     })),
-    [
-      ...editor.getConnections().filter((item) => !omittedConnectionIds.has(item.id)),
-      ...(additionalConnection ? [additionalConnection] : []),
-    ],
+    editor.getConnections(),
   )
-  wouldCreateRecursiveConnection = (first, second) => {
-    const source = first.side === 'output' ? first : second.side === 'output' ? second : undefined
-    const target = first.side === 'input' ? first : second.side === 'input' ? second : undefined
-    if (!source || !target) return false
-    const targetNode = editor.getNode(target.nodeId)
-    const omitted = targetNode instanceof FunctionOutputNode && target.key === 'result'
-      ? new Set(editor.getConnections().filter((item) => item.target === target.nodeId && item.targetInput === 'result').map((item) => item.id))
-      : new Set<string>()
-    const analysis = definitionDependencyCycle({ source: source.nodeId, target: target.nodeId }, new Map(), omitted)
-    if (analysis.cycle) showScopeTransferFeedback('module-recursion')
-    return Boolean(analysis.cycle)
-  }
-
-  // Reject unsupported Module recursion before Rete commits the wire.
-  // Function-only recursive SCCs are valid. Only calls that can reach a
-  // definition Output participate, so placing or wiring a dead Call remains
-  // harmless. A Function Output replacement excludes the old sole result
-  // wire because the established replacement flow removes it atomically.
-  editor.addPipe((context) => {
-    if (context.type !== 'connectioncreate') return context
-    const target = editor.getNode(context.data.target)
-    const omitted = target instanceof FunctionOutputNode && context.data.targetInput === 'result'
-      ? new Set(editor.getConnections().filter((item) => item.target === context.data.target && item.targetInput === 'result').map((item) => item.id))
-      : new Set<string>()
-    const analysis = definitionDependencyCycle({ source: context.data.source, target: context.data.target }, new Map(), omitted)
-    if (!analysis.cycle) return context
-    showScopeTransferFeedback('module-recursion')
-    return undefined
-  })
 
   // Function Output's single `result` port stays reachable for any of the
   // three supported value types even while already connected to a
@@ -1042,16 +1004,6 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     if (newType !== 'number' && newType !== 'boolean' && newType !== 'vector3') return false
     const previousType = definition.resultType
     const oldResultConnections = editor.getConnections().filter((item) => item.target === data.target && item.targetInput === 'result')
-    // Keep this check inside the replacement transaction as well as in the
-    // general pre-pipe above. This is defense in depth for programmatic
-    // connection creation and guarantees that an unsupported Module cycle
-    // never removes the old sole result wire. Function recursion is valid.
-    const omitted = new Set(oldResultConnections.map((item) => item.id))
-    const analysis = definitionDependencyCycle({ source: data.source, target: data.target }, new Map(), omitted)
-    if (analysis.cycle) {
-      showScopeTransferFeedback('module-recursion')
-      return false
-    }
     const plan = previousType !== newType
       ? planFunctionResultTransitions(new Map([[definition.id, newType]]))
       : { resultTypes: new Map<string, FunctionResultType | undefined>(), doomedConnections: [] }
@@ -1269,8 +1221,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   let feedbackTimer: number | undefined
   showScopeTransferFeedback = (problem: ScopeTransferProblem): void => {
     feedback.textContent = t(
-      problem === 'module-recursion' ? 'definition.moduleRecursionUnsupported'
-        : problem === 'module-call' ? 'definition.moduleCallsMainOnly'
+      problem === 'module-call' ? 'definition.moduleCallsMainOnly'
         : problem === 'function-incompatible' ? 'definition.functionScopeIncompatible'
           : 'definition.invalidScopeTransfer',
     )
@@ -1285,11 +1236,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       scopeDestination = null
       return
     }
-    const structuralProblem = scopeTransferProblem(editor, definitions, activeScopeDrag.nodeIds, definitionId)
-    const overrides = new Map(activeScopeDrag.nodeIds.map((nodeId) => [nodeId, definitionId] as const))
     scopeDestination = {
       definitionId,
-      valid: structuralProblem === null && !definitionDependencyCycle(undefined, overrides).cycle,
+      valid: scopeTransferProblem(editor, definitions, activeScopeDrag.nodeIds, definitionId) === null,
     }
   }
   area.addPipe((context) => {
@@ -1324,11 +1273,6 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       const targetScope = definitionAtGraphPosition(context.data.position, drag.sourceFrameBounds)
       const changingScope = drag.moved && drag.nodeIds.some((nodeId) => definitions.scopeOf(nodeId) !== targetScope)
       let problem = changingScope ? scopeTransferProblem(editor, definitions, drag.nodeIds, targetScope) : null
-      if (changingScope && !problem) {
-        const overrides = new Map(drag.nodeIds.map((nodeId) => [nodeId, targetScope] as const))
-        const analysis = definitionDependencyCycle(undefined, overrides)
-        if (analysis.cycle) problem = 'module-recursion'
-      }
       scopeDestination = null
       if (changingScope && problem) {
         void Promise.all([...drag.startPositions].map(([nodeId, position]) => area.translate(nodeId, position))).then(() => {
@@ -1453,12 +1397,30 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     try { if (!window.confirm(message)) return false } catch { throw new Error(t('definition.deleteModuleFailed')) }
     const previousDirtySuspended = dirtySuspended
     dirtySuspended = true
+    const removedConnections: Schemes['Connection'][] = []
+    const removedNodes: { node: Schemes['Node']; scope: string | null; pinned: boolean; position?: Position }[] = []
     try {
       connection.drop(); connectionGesture.cancel()
-      for (const connection of connections) if (!await editor.removeConnection(connection.id)) throw new Error(`Could not remove connection ${connection.id}.`)
-      for (const nodeId of nodeIds) if (!await editor.removeNode(nodeId)) throw new Error(`Could not remove node ${nodeId}.`)
+      for (const item of connections) {
+        if (!await editor.removeConnection(item.id)) throw new Error(`Could not remove connection ${item.id}.`)
+        removedConnections.push(item)
+      }
+      for (const nodeId of nodeIds) {
+        const node = editor.getNode(nodeId)!
+        const position = area.nodeViews.get(nodeId)?.position
+        removedNodes.push({ node, scope: definitions.scopeOf(nodeId), pinned: presentation.isPinned(nodeId), ...(position ? { position: { ...position } } : {}) })
+        if (!await editor.removeNode(nodeId)) throw new Error(`Could not remove node ${nodeId}.`)
+      }
       definitions.remove(definitionId)
     } catch {
+      for (const item of removedNodes) {
+        if (editor.getNode(item.node.id)) continue
+        if (item.scope && definitions.get(item.scope) && !definitions.isProtectedNode(item.node.id)) definitions.assignNode(item.scope, item.node.id)
+        await editor.addNode(item.node)
+        if (item.position) await area.translate(item.node.id, item.position)
+        if (item.pinned && !presentation.isPinned(item.node.id)) presentation.togglePin(item.node.id)
+      }
+      for (const item of removedConnections) if (!editor.getConnections().some((candidate) => candidate.id === item.id)) await editor.addConnection(item)
       dirtySuspended = previousDirtySuspended
       throw new Error(t('definition.deleteModuleFailed'))
     }
@@ -1542,7 +1504,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     // wiring it directly into Function Output. Walk the reverse dependency
     // closure before mutation so recursive peers and their callers are
     // handled as one atomic lifecycle transaction.
-    const dependencyAnalysis = definitionDependencyCycle()
+    const dependencyAnalysis = definitionDependencies()
     const affectedCallers = new Map<string, FunctionResultType | undefined>()
     const pendingDeletedDependencies = [definitionId]
     while (pendingDeletedDependencies.length > 0) {

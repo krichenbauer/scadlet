@@ -9,7 +9,8 @@ Cube, Cylinder, Sphere; Translate, Rotate, Scale; Difference and ordered
 variadic Union/Intersection; semantic optional parameters and typed values;
 math/comparison/conditionals; node selection, compact presentation, and
 intermediate inspect; client-side `.scadlet` persistence; and scoped reusable
-Modules and Functions.
+Modules and Functions, including direct and mutual recursion evaluated by
+OpenSCAD-WASM without static termination analysis.
 
 Current catalog/value semantics are intentionally limited. Geometry If is a
 statement-level node valid in Main/Module scopes, with required Boolean

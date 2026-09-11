@@ -1,0 +1,340 @@
+{
+  "format": "scadlet",
+  "version": 6,
+  "metadata": {
+    "name": "SimpleStack",
+    "createdAt": "2026-09-11T00:00:00.000Z",
+    "updatedAt": "2026-09-11T07:03:08.839Z"
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "4f1c625c0903b601",
+        "type": "module-call",
+        "position": {
+          "x": 353.34073822372346,
+          "y": 520.9185432280827
+        },
+        "parameters": {
+          "definitionId": "stack",
+          "arguments": {
+            "n": 5
+          }
+        }
+      },
+      {
+        "id": "ad066e90d7e6013b",
+        "type": "sphere",
+        "position": {
+          "x": 25.140538692157108,
+          "y": 517.8552184582426
+        },
+        "parameters": {
+          "fn": 30
+        }
+      }
+    ],
+    "connections": []
+  },
+  "definitions": [
+    {
+      "id": "stack",
+      "kind": "module",
+      "name": "stack",
+      "interface": {
+        "inputs": "stack-in",
+        "output": "stack-out"
+      },
+      "parameters": [
+        {
+          "id": "n",
+          "name": "n",
+          "type": "number",
+          "default": 1
+        }
+      ],
+      "geometryInputs": [
+        {
+          "id": "layer",
+          "name": "Object"
+        }
+      ],
+      "graph": {
+        "nodes": [
+          {
+            "id": "stack-in",
+            "type": "module-inputs",
+            "position": {
+              "x": -66.37544494262812,
+              "y": 145.28983757646148
+            },
+            "parameters": {}
+          },
+          {
+            "id": "stack-one",
+            "type": "number",
+            "position": {
+              "x": 75.59513945719638,
+              "y": -17.753828129777467
+            },
+            "parameters": {
+              "value": 1,
+              "name": "One"
+            }
+          },
+          {
+            "id": "stack-compare",
+            "type": "compare",
+            "position": {
+              "x": 397.9947298128162,
+              "y": -32.281069898495225
+            },
+            "parameters": {
+              "operator": ">"
+            }
+          },
+          {
+            "id": "stack-previous",
+            "type": "function-call",
+            "position": {
+              "x": 138.4063748765198,
+              "y": 293.64679563792726
+            },
+            "parameters": {
+              "definitionId": "previous",
+              "arguments": {
+                "n": 1
+              }
+            }
+          },
+          {
+            "id": "stack-self",
+            "type": "module-call",
+            "position": {
+              "x": 369.64178557546563,
+              "y": 254.23808611834207
+            },
+            "parameters": {
+              "definitionId": "stack",
+              "arguments": {
+                "n": 1
+              }
+            }
+          },
+          {
+            "id": "stack-translate",
+            "type": "translate",
+            "position": {
+              "x": 595.2474638109001,
+              "y": 253.71575673926174
+            },
+            "parameters": {
+              "x": 0,
+              "y": 0,
+              "z": 5,
+              "representation": "xyz"
+            }
+          },
+          {
+            "id": "stack-union",
+            "type": "union",
+            "position": {
+              "x": 836.2186885970484,
+              "y": 170.8167376996533
+            },
+            "parameters": {
+              "children": [
+                {
+                  "id": "base"
+                },
+                {
+                  "id": "provided"
+                },
+                {
+                  "id": "recursive"
+                },
+                {
+                  "id": "extension"
+                }
+              ]
+            }
+          },
+          {
+            "id": "stack-if",
+            "type": "if",
+            "position": {
+              "x": 1067.6258692164292,
+              "y": 16.320359215578094
+            },
+            "parameters": {}
+          },
+          {
+            "id": "stack-out",
+            "type": "module-output",
+            "position": {
+              "x": 1342.2424747700325,
+              "y": 161.4235735848252
+            },
+            "parameters": {}
+          }
+        ],
+        "connections": [
+          {
+            "id": "stack-n-compare",
+            "source": "stack-in",
+            "sourceOutput": "parameter:n",
+            "target": "stack-compare",
+            "targetInput": "a"
+          },
+          {
+            "id": "stack-one-compare",
+            "source": "stack-one",
+            "sourceOutput": "value",
+            "target": "stack-compare",
+            "targetInput": "b"
+          },
+          {
+            "id": "stack-n-previous",
+            "source": "stack-in",
+            "sourceOutput": "parameter:n",
+            "target": "stack-previous",
+            "targetInput": "parameter:n"
+          },
+          {
+            "id": "stack-previous-self",
+            "source": "stack-previous",
+            "sourceOutput": "value",
+            "target": "stack-self",
+            "targetInput": "parameter:n"
+          },
+          {
+            "id": "stack-layer-self",
+            "source": "stack-in",
+            "sourceOutput": "geometry:layer",
+            "target": "stack-self",
+            "targetInput": "geometry:layer"
+          },
+          {
+            "id": "stack-self-translate",
+            "source": "stack-self",
+            "sourceOutput": "geometry",
+            "target": "stack-translate",
+            "targetInput": "geometry"
+          },
+          {
+            "id": "stack-layer-union",
+            "source": "stack-in",
+            "sourceOutput": "geometry:layer",
+            "target": "stack-union",
+            "targetInput": "child:provided"
+          },
+          {
+            "id": "41965e2fab3c5df0",
+            "source": "stack-union",
+            "sourceOutput": "geometry",
+            "target": "stack-if",
+            "targetInput": "then"
+          },
+          {
+            "id": "8f8e437a2e0b20cb",
+            "source": "stack-compare",
+            "sourceOutput": "value",
+            "target": "stack-if",
+            "targetInput": "condition"
+          },
+          {
+            "id": "29ace991526aaf30",
+            "source": "stack-in",
+            "sourceOutput": "geometry:layer",
+            "target": "stack-if",
+            "targetInput": "else"
+          },
+          {
+            "id": "64d46a2b76940628",
+            "source": "stack-translate",
+            "sourceOutput": "geometry",
+            "target": "stack-union",
+            "targetInput": "child:base"
+          },
+          {
+            "id": "351b4d84ddff8640",
+            "source": "stack-if",
+            "sourceOutput": "geometry",
+            "target": "stack-out",
+            "targetInput": "geometry"
+          }
+        ]
+      }
+    },
+    {
+      "id": "previous",
+      "kind": "function",
+      "name": "previous",
+      "interface": {
+        "inputs": "previous-in",
+        "output": "previous-out"
+      },
+      "parameters": [
+        {
+          "id": "n",
+          "name": "n",
+          "type": "number",
+          "default": 1
+        }
+      ],
+      "resultType": "number",
+      "graph": {
+        "nodes": [
+          {
+            "id": "previous-in",
+            "type": "function-inputs",
+            "position": {
+              "x": -73.86772329265273,
+              "y": -394.4039590427101
+            },
+            "parameters": {}
+          },
+          {
+            "id": "previous-out",
+            "type": "function-output",
+            "position": {
+              "x": 507.9484429893572,
+              "y": -303.0115594176225
+            },
+            "parameters": {}
+          }
+        ],
+        "connections": [
+          {
+            "id": "4bbdbaca1721ab5c",
+            "source": "previous-in",
+            "sourceOutput": "parameter:n",
+            "target": "previous-out",
+            "targetInput": "result"
+          }
+        ]
+      }
+    }
+  ],
+  "editor": {
+    "viewport": {
+      "x": 152.8471595764163,
+      "y": 344.96019611358645,
+      "zoom": 0.699059771513673
+    }
+  },
+  "viewer": {
+    "camera": {
+      "position": [
+        9.41251842788341,
+        -20.621289327552986,
+        12.417658133976559
+      ],
+      "target": [
+        0,
+        0,
+        0
+      ]
+    }
+  }
+}

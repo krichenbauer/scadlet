@@ -1,6 +1,9 @@
 import { NodeEditor } from 'rete'
 import { DataflowEngine } from 'rete-engine'
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { DefinitionRegistry, moduleGeometryInputPortId } from '../editor/definitions'
 import { evaluateOpenSCAD } from '../editor/evaluate'
@@ -16,6 +19,7 @@ import { parseScadletProject, ScadletProjectError } from './validate'
 
 const definition = { id: 'definition-wheel', kind: 'module' as const, name: 'wheel', inputsNodeId: 'wheel-inputs', outputNodeId: 'wheel-output', geometryInputs: [{ id: 'wheel-geometry-1', name: 'Geometry 1' }] }
 const camera = { position: [0, 0, 0] as [number, number, number], target: [0, 0, 0] as [number, number, number] }
+const recursiveModulesFixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../docs/examples/recursive-modules-v6.scadlet'), 'utf8'))
 
 describe('v3 Module definition persistence', () => {
   it('round-trips a separately-owned Module graph with stable interface identities and positions', async () => {
@@ -162,7 +166,7 @@ describe('v3 Module definition persistence', () => {
     expect(parseScadletProject(nested).definitions[0]?.graph.nodes.find((node) => node.id === 'nested')).toMatchObject({ type: 'module-call', parameters: { definitionId: definition.id } })
   })
 
-  it('rejects an effective persisted Module recursion while allowing a dead recursive draft', () => {
+  it('accepts effective and dead persisted Module recursion without changing schema v6', () => {
     const module = (id: string, name: string, callee: string, connected: boolean) => ({
       id, kind: 'module', name, interface: { inputs: `${id}-in`, output: `${id}-out` }, parameters: [], geometryInputs: [],
       graph: {
@@ -182,7 +186,50 @@ describe('v3 Module definition persistence', () => {
     expect(parseScadletProject(dead).definitions).toHaveLength(2)
     const recursive = structuredClone(dead)
     recursive.definitions[1].graph.connections.push({ id: 'b-body', source: 'b-call', sourceOutput: 'geometry', target: 'b-out', targetInput: 'geometry' })
-    expect(() => parseScadletProject(recursive)).toThrow('Recursive Module dependencies are not supported yet: a → b → a.')
+    const parsed = parseScadletProject(recursive)
+    expect(parsed.version).toBe(6)
+    expect(parsed.definitions.flatMap((item) => item.graph.connections)).toHaveLength(2)
+  })
+
+  it('round-trips recursive Module SCCs repeatedly without duplicate dynamic ports or wires', async () => {
+    const project = parseScadletProject(recursiveModulesFixture)
+    const target = new NodeEditor<Schemes>()
+    const engine = new DataflowEngine<Schemes>((node) => ({ inputs: () => Object.keys(node.inputs), outputs: () => Object.keys(node.outputs) }))
+    target.use(engine)
+    const restored = new DefinitionRegistry()
+    const options = {
+      editor: target,
+      creationContext: { onControlsChanged: () => {}, getModuleDefinition: (id: string) => restored.get(id) },
+      setNodePosition: () => {}, clearDefinitions: () => restored.clear(), registerDefinition: (item: Parameters<DefinitionRegistry['add']>[0]) => restored.add(item),
+      assignNodeToDefinition: (definitionId: string, nodeId: string) => restored.assignNode(definitionId, nodeId),
+    }
+    await restoreProject(project, options)
+    await restoreProject(project, options)
+
+    expect(target.getConnections()).toHaveLength(34)
+    for (const id of ['main-stack', 'stack-self']) {
+      const call = target.getNode(id) as ModuleCallNode
+      expect(call).toBeInstanceOf(ModuleCallNode)
+      expect(Object.keys(call.inputs)).toEqual(['geometry:profile', 'geometry:layer', 'parameter:n'])
+      expect(call.getArguments()).toEqual({ n: id === 'main-stack' ? 4 : 1 })
+    }
+    const source = await evaluateOpenSCAD(target, engine, undefined, restored)
+    expect(source.indexOf('function previous')).toBeLessThan(source.indexOf('module stack'))
+    expect(source.indexOf('module stack')).toBeLessThan(source.indexOf('module pong'))
+    expect(source.indexOf('module pong')).toBeLessThan(source.indexOf('module ping'))
+    expect(source).toContain('stack(n = previous(n = n))')
+    expect(source).toContain('pong(n = previous(n = n))')
+    expect(source).toContain('ping(n = previous(n = n))')
+    expect(source).toContain('children(1);')
+    expect(source).toContain('union() {}')
+
+    const roundTrip = parseScadletProject(serializeProject({
+      editor: target, metadata: { name: 'Recursive Modules' }, getNodePosition: () => ({ x: 0, y: 0 }),
+      viewport: { x: 0, y: 0, k: 1 }, viewerCamera: camera, definitions: restored.list(), getNodeScope: (id) => restored.scopeOf(id),
+    }))
+    expect(roundTrip.version).toBe(6)
+    expect(roundTrip.graph.connections).toHaveLength(1)
+    expect(roundTrip.definitions.flatMap((item) => item.graph.connections)).toHaveLength(33)
   })
 
   it.each([

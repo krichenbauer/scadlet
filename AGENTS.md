@@ -37,6 +37,9 @@ without an explicit product decision.
   dangling wires or silently discard connected values.
 - Generated `.scad`, rendered previews, and exported STL must derive from the
   same OpenSCAD source. Do not add a second evaluator.
+- Direct and mutual recursion are valid for Functions and Modules. Order both
+  through the shared reachable-Call SCC dependency analysis; do not statically
+  analyse termination, which remains OpenSCAD-WASM's responsibility.
 - Keep the app static and private: no backend, analytics, CDN assets, fonts,
   icons, or runtime APIs hosted by third parties.
 

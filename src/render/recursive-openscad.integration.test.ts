@@ -48,3 +48,39 @@ cube(double_size(5));
     expect(result.stderr.join('\n')).not.toContain('ERROR:')
   }, 20_000)
 })
+
+describe('recursive Modules through the real bundled OpenSCAD-WASM', () => {
+  it('renders a terminating directly recursive Module', async () => {
+    const result = await runOpenSCAD(`
+module stack(n = 1) {
+  if (n <= 1) {
+    cube(5);
+  } else {
+    union() {
+      cube(5);
+      translate([0, 0, 5]) stack(n - 1);
+    }
+  }
+}
+stack(4);
+`, 'stl')
+    expect(result.bytes.byteLength).toBeGreaterThan(84)
+    expect(result.stderr.join('\n')).not.toContain('ERROR:')
+  }, 20_000)
+
+  it('renders mutually recursive Modules when the first declaration calls the later one', async () => {
+    const result = await runOpenSCAD(`
+module pong(n = 0) {
+  if (n <= 0) sphere(3);
+  else translate([0, 0, 6]) ping(n - 1);
+}
+module ping(n = 0) {
+  if (n <= 0) cube(4);
+  else translate([6, 0, 0]) pong(n - 1);
+}
+ping(4);
+`, 'stl')
+    expect(result.bytes.byteLength).toBeGreaterThan(84)
+    expect(result.stderr.join('\n')).not.toContain('ERROR:')
+  }, 20_000)
+})

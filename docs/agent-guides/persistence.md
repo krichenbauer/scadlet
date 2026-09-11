@@ -30,6 +30,10 @@ Definitions persist as project-level objects with stable IDs, kind/name,
 ordered parameter signatures, result type where applicable, graph content, and
 positions. Interface nodes restore as protected roles. Calls reference IDs.
 Old pre-definition projects open as Main plus an empty registry.
+Direct and mutual Function/Module recursion add no durable fields: existing
+definition IDs, scoped Call nodes, stable ports, fallbacks, and connections
+already represent recursive SCCs in v6. Restore must preserve those ports and
+wires exactly across repeated loads.
 
 ## File access and local library
 

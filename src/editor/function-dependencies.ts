@@ -1,6 +1,6 @@
 /** Minimal, implementation-independent view of project definitions used to
- * derive Function dependencies from the expression that can actually reach
- * each Function Output. Persistence validation and the live Rete editor both
+ * derive Call dependencies from the graph that can actually reach each
+ * definition Output. Persistence validation and the live Rete editor both
  * adapt their own graph representation to this shape. */
 export interface FunctionDependencyDefinition {
   id: string
@@ -22,19 +22,16 @@ export interface FunctionDependencyConnection {
 
 export interface FunctionDependencyAnalysis {
   dependencies: ReadonlyMap<string, ReadonlySet<string>>
-  /** Stable callee-before-caller order after collapsing recursive Function
+  /** Stable Function callee-before-caller order after collapsing recursive
    * components. Members of one component retain definition/project order. */
   order: readonly string[]
   /** Function SCCs in the same dependency order used by `order`. */
   functionComponents: readonly FunctionDependencyComponent[]
-  /** A closed unsupported Module path such as `[A, B, A]`. Function-only
-   * cycles are represented by `functionComponents`, not as an error. */
-  cycle?: readonly string[]
   /** Module-only callee-before-caller order. Function declarations always
    * precede this list in generated source. */
   moduleOrder: readonly string[]
-  /** Recursive Functions are supported, so only Module cycles are errors. */
-  cycleKind?: 'module'
+  /** Module SCCs in the same dependency order used by `moduleOrder`. */
+  moduleComponents: readonly FunctionDependencyComponent[]
 }
 
 export interface FunctionDependencyComponent {
@@ -91,37 +88,24 @@ export function analyzeFunctionDependencies(
     else moduleDependencies.set(definition.id, new Set([...found].filter((id) => moduleIds.has(id))))
   }
 
-  const orderDependencies = (items: readonly FunctionDependencyDefinition[], edges: ReadonlyMap<string, ReadonlySet<string>>) => {
-    const visiting = new Set<string>()
-    const visited = new Set<string>()
-    const stack: string[] = []
-    const order: string[] = []
-    let cycle: string[] | undefined
-    const visit = (id: string): void => {
-      if (cycle || visited.has(id)) return
-      if (visiting.has(id)) {
-        const start = stack.indexOf(id)
-        cycle = [...stack.slice(start), id]
-        return
-      }
-      visiting.add(id)
-      stack.push(id)
-      for (const dependency of edges.get(id) ?? []) visit(dependency)
-      stack.pop()
-      visiting.delete(id)
-      visited.add(id)
-      order.push(id)
-    }
-    for (const definition of items) visit(definition.id)
-    return { order, cycle }
-  }
+  const functionComponents = orderDependencyComponents(functions, functionDependencies)
+  const moduleComponents = orderDependencyComponents(modules, moduleDependencies)
+  const functionOrder = functionComponents.flatMap((component) => component.members)
+  const moduleOrder = moduleComponents.flatMap((component) => component.members)
+  return { dependencies, order: functionOrder, functionComponents, moduleOrder, moduleComponents }
+}
 
-  /** Tarjan SCCs replace the former Function-DAG assumption. Traversal and
-   * condensation ordering are both normalized to stable project order so
-   * connection insertion order cannot affect generated source. */
-  const functionIndex = new Map(functions.map((definition, index) => [definition.id, index]))
-  const sortedFunctionDependencies = (id: string): string[] =>
-    [...(functionDependencies.get(id) ?? [])].sort((a, b) => functionIndex.get(a)! - functionIndex.get(b)!)
+/** Tarjan SCC ordering is shared by Functions and Modules. Traversal and
+ * condensation ordering are normalized to stable project order, so neither
+ * connection insertion order nor the shape of a recursive component can
+ * change generated declaration order. */
+function orderDependencyComponents(
+  definitions: readonly FunctionDependencyDefinition[],
+  dependencies: ReadonlyMap<string, ReadonlySet<string>>,
+): FunctionDependencyComponent[] {
+  const definitionIndex = new Map(definitions.map((definition, index) => [definition.id, index]))
+  const sortedDependencies = (id: string): string[] =>
+    [...(dependencies.get(id) ?? [])].sort((a, b) => definitionIndex.get(a)! - definitionIndex.get(b)!)
   let nextIndex = 0
   const indexes = new Map<string, number>()
   const lowlinks = new Map<string, number>()
@@ -134,7 +118,7 @@ export function analyzeFunctionDependencies(
     nextIndex += 1
     stack.push(id)
     onStack.add(id)
-    for (const dependency of sortedFunctionDependencies(id)) {
+    for (const dependency of sortedDependencies(id)) {
       if (!indexes.has(dependency)) {
         connect(dependency)
         lowlinks.set(id, Math.min(lowlinks.get(id)!, lowlinks.get(dependency)!))
@@ -150,49 +134,42 @@ export function analyzeFunctionDependencies(
       component.push(member)
       if (member === id) break
     }
-    component.sort((a, b) => functionIndex.get(a)! - functionIndex.get(b)!)
+    component.sort((a, b) => definitionIndex.get(a)! - definitionIndex.get(b)!)
     rawComponents.push(component)
   }
-  for (const definition of functions) if (!indexes.has(definition.id)) connect(definition.id)
+  for (const definition of definitions) if (!indexes.has(definition.id)) connect(definition.id)
 
-  const componentByFunction = new Map<string, number>()
+  const componentByDefinition = new Map<string, number>()
   rawComponents.forEach((component, index) => {
-    for (const member of component) componentByFunction.set(member, index)
+    for (const member of component) componentByDefinition.set(member, index)
   })
   const componentDependencies = new Map<number, Set<number>>()
-  for (const definition of functions) {
-    const owner = componentByFunction.get(definition.id)!
+  for (const definition of definitions) {
+    const owner = componentByDefinition.get(definition.id)!
     const found = componentDependencies.get(owner) ?? new Set<number>()
-    for (const dependency of functionDependencies.get(definition.id) ?? []) {
-      const target = componentByFunction.get(dependency)!
+    for (const dependency of dependencies.get(definition.id) ?? []) {
+      const target = componentByDefinition.get(dependency)!
       if (target !== owner) found.add(target)
     }
     componentDependencies.set(owner, found)
   }
-  const componentProjectIndex = rawComponents.map((component) => Math.min(...component.map((id) => functionIndex.get(id)!)))
+  const componentProjectIndex = rawComponents.map((component) => Math.min(...component.map((id) => definitionIndex.get(id)!)))
   const orderedComponentIndexes: number[] = []
   const visitedComponents = new Set<number>()
   const visitComponent = (index: number): void => {
     if (visitedComponents.has(index)) return
     visitedComponents.add(index)
-    const dependenciesForComponent = [...(componentDependencies.get(index) ?? [])]
+    const componentCallees = [...(componentDependencies.get(index) ?? [])]
       .sort((a, b) => componentProjectIndex[a] - componentProjectIndex[b])
-    for (const dependency of dependenciesForComponent) visitComponent(dependency)
+    for (const callee of componentCallees) visitComponent(callee)
     orderedComponentIndexes.push(index)
   }
-  // Project-ordered roots preserve stable order between independent SCCs;
-  // recursive DFS preserves every transitive callee-before-caller edge.
   for (const index of [...rawComponents.keys()].sort((a, b) => componentProjectIndex[a] - componentProjectIndex[b])) visitComponent(index)
-  const functionComponents = orderedComponentIndexes.map((index): FunctionDependencyComponent => {
+  return orderedComponentIndexes.map((index): FunctionDependencyComponent => {
     const members = rawComponents[index]
     return {
       members,
-      recursive: members.length > 1 || (functionDependencies.get(members[0])?.has(members[0]) ?? false),
+      recursive: members.length > 1 || (dependencies.get(members[0])?.has(members[0]) ?? false),
     }
   })
-  const functionOrder = functionComponents.flatMap((component) => component.members)
-  const moduleAnalysis = orderDependencies(modules, moduleDependencies)
-  if (moduleAnalysis.cycle) return { dependencies, order: functionOrder, functionComponents, moduleOrder: [], cycle: moduleAnalysis.cycle, cycleKind: 'module' }
-
-  return { dependencies, order: functionOrder, functionComponents, moduleOrder: moduleAnalysis.order }
 }

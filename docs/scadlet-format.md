@@ -21,11 +21,14 @@ v6 also adds the canonical `trigonometry`, `basic-math`, and
 these consolidated types; the four v5 types are migration input, not live
 catalog entries.
 
-Recursive Function support does not change the v6 representation. Direct and
-mutual Calls already use the existing stable `definitionId`, scoped graph,
-ports, fallbacks, and connection records, so no version bump or migration is
-needed. See `docs/examples/recursive-functions-v6.scadlet` for a validated
-direct-and-mutual recursion fixture.
+Recursive Function and Module support does not change the v6 representation.
+Direct and mutual Calls already use the existing stable `definitionId`, scoped
+graph, ports, fallbacks, Geometry-child ordering, and connection records, so no
+version bump or migration is needed. See
+`docs/examples/recursive-functions-v6.scadlet` and
+`docs/examples/recursive-modules-v6.scadlet` for validated direct-and-mutual
+recursion fixtures. SCADlet does not statically analyse termination;
+OpenSCAD-WASM remains the evaluator.
 
 ## Version 5: Function definitions
 
@@ -373,9 +376,10 @@ not change the v3 schema.
 
 Definitions are emitted as OpenSCAD declarations in deterministic dependency
 order: resolved Functions first, then Modules in effective callee-before-caller
-order. Function dependencies are collapsed into strongly connected components
-(SCCs): acyclic callees precede callers, recursive SCC members retain stable
-definition/project order, and the SCCs themselves remain dependency ordered.
+order. Function and Module dependencies use the same strongly connected
+component (SCC) architecture: acyclic callees precede callers, recursive SCC
+members retain stable definition/project order, and SCCs remain dependency
+ordered.
 The `module-output` Geometry connection is the one body root;
 an unconnected Output emits an empty body. A declaration itself is never Main
 geometry, so an unused definition does not render until a Main `module-call`
@@ -456,13 +460,13 @@ with two differences: there is no `geometryInputs` field, and an optional
   `module-call` is rejected.
 - Effective dependencies are derived only from Calls whose values/Geometry can
   reach their owning Function/Module Output. Disconnected/dead Calls do not
-  affect declaration order, SCC membership, or cycle validation. Resolved
+  affect declaration order or SCC membership. Resolved
   Functions are emitted before Modules. Acyclic Function dependencies remain
   callee-before-caller; directly and mutually recursive Functions form SCCs
-  whose members are emitted in stable definition/project order. Modules are
-  then emitted in deterministic callee-before-caller order. Direct and indirect
-  effective Module recursion remains rejected, including Module cycles whose
-  bodies also use Function Calls as value inputs.
+  whose members are emitted in stable definition/project order. Modules then
+  use the same rules: acyclic dependencies remain callee-before-caller, while
+  direct and mutually recursive Modules form deterministically ordered SCCs
+  with members in stable definition/project order.
 - Function Calls are allowed in Main, Module definitions, and Function
   definitions (including self- and mutually recursive Calls). Module Calls are
   allowed in Main and Module definitions only. OpenSCAD-WASM is the sole
@@ -492,10 +496,10 @@ New Calls cannot be created for an unresolved Function, but a previously
 existing disconnected Call is valid persisted draft state and restores with
 an unresolved output. Any outgoing wire from such a Call is invalid.
 
-Recursive Function Calls need no new durable fields: the existing stable
-definition ID, scoped graph membership, parameter ports/fallbacks, and
-connections fully represent them. They therefore remain canonical format v6;
-the v4 → v5 → v6 migration chain is unchanged.
+Recursive Function and Module Calls need no new durable fields: the existing
+stable definition ID, scoped graph membership, parameter and Geometry-child
+ports/fallbacks, and connections fully represent them. They therefore remain
+canonical format v6; the v4 → v5 → v6 migration chain is unchanged.
 
 Module Calls remain forbidden inside Function definitions; both Call kinds are
 valid in Module definitions.
@@ -1014,7 +1018,7 @@ No changes are needed to the generic persistence pipeline itself.
 
 ## Example files
 
-Three complete, currently-valid v1 examples live under
+Complete, test-validated examples for historical and current formats live under
 [`docs/examples/`](examples/) and are parsed through the real
 `parseScadletProject()` implementation by
 [`src/persistence/docs-examples.test.ts`](../src/persistence/docs-examples.test.ts)

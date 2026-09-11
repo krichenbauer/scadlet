@@ -30,6 +30,9 @@ may discover it on first Render, reload the dev page, and lose unsaved work.
 Browser persistence tests use Playwright (`pnpm test:e2e`) and the devShell
 Chromium exposed by `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`; generated browser
 reports stay ignored.
+Recursion regressions must exercise direct and mutual Function/Module source
+through the bundled OpenSCAD-WASM. Do not substitute JavaScript evaluation or
+assume OpenSCAD declaration-order behavior without a real runtime check.
 
 ## Implementation quality
 

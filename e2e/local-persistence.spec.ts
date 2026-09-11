@@ -7,6 +7,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const HISTORICAL_MODULE_PARAMETERS = JSON.parse(readFileSync(join(ROOT, 'src/persistence/fixtures/pre-phase4-module-parameters-v3.scadlet'), 'utf8'))
 const LEGACY_ARITHMETIC_V5_PATH = join(ROOT, 'src/persistence/fixtures/arithmetic-v5.scadlet')
 const RECURSIVE_FUNCTIONS_V6 = JSON.parse(readFileSync(join(ROOT, 'docs/examples/recursive-functions-v6.scadlet'), 'utf8'))
+const RECURSIVE_MODULES_V6 = JSON.parse(readFileSync(join(ROOT, 'docs/examples/recursive-modules-v6.scadlet'), 'utf8'))
 const CAMERA = { position: [40, 40, 40], target: [0, 0, 0] }
 
 function nestedFunctionProject() {
@@ -1280,11 +1281,95 @@ test('restores, renders, autosaves, and reloads Module bodies containing both Ca
   await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
 })
 
-test('rejects a recursive Module body connection without changing the canvas or generated source', async ({ page }) => {
-  test.setTimeout(45_000)
+test('restores, renders, edits, autosaves, reloads, and safely deletes recursive Modules', async ({ page }) => {
+  test.setTimeout(90_000)
+  await waitForLocalLibrary(page)
+  await replaceLocalProjects(page, [{
+    id: 'recursive-modules', revision: 1,
+    createdAt: '2026-09-11T00:00:00.000Z', updatedAt: '2026-09-11T00:00:00.000Z', project: RECURSIVE_MODULES_V6,
+  }], 'recursive-modules')
+  await page.reload()
+
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(34)
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  const source = page.locator('scadlet-app .scad-output')
+  await expect(source).toContainText('function previous(n = 1) = (n - 1);', { timeout: 15_000 })
+  await expect(source).toContainText('module stack(n = 1)')
+  await expect(source).toContainText('stack(n = previous(n = n))')
+  await expect(source).toContainText('module pong(n = 0)')
+  await expect(source).toContainText('module ping(n = 0)')
+  await expect(source).toContainText('ping(n = previous(n = n));')
+  await expect(source).toContainText('pong(n = previous(n = n));')
+  await expect(source).toContainText('children(1);')
+  let sourceText = await source.textContent()
+  expect(sourceText!.indexOf('function previous')).toBeLessThan(sourceText!.indexOf('module stack'))
+  expect(sourceText!.indexOf('module stack')).toBeLessThan(sourceText!.indexOf('module pong'))
+  expect(sourceText!.indexOf('module pong')).toBeLessThan(sourceText!.indexOf('module ping'))
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+
+  const stackEntry = page.locator('node-palette .module-entry[data-definition-id="stack"]')
+  await stackEntry.getByRole('button', { name: 'Edit stack', exact: true }).click()
+  const rename = page.getByRole('form', { name: 'Rename module' })
+  await rename.getByLabel('Module name').fill('stack_layers')
+  await rename.getByRole('button', { name: 'Save', exact: true }).click()
+  const stackInputs = page.locator('node-editor .node[data-node-id="stack-in"]')
+  await stackInputs.getByRole('button', { name: 'Edit n', exact: true }).click()
+  await stackInputs.getByLabel('Name').fill('levels')
+  await stackInputs.getByLabel('Default').fill('2')
+  await stackInputs.getByRole('button', { name: 'Save', exact: true }).click()
+  await stackInputs.getByRole('button', { name: 'Edit Layer', exact: true }).click()
+  await stackInputs.getByLabel('Geometry input name').fill('Slice')
+  await stackInputs.getByRole('button', { name: 'Save', exact: true }).click()
+  for (const id of ['stack-self', 'main-stack']) {
+    const call = page.locator(`node-editor .node[data-node-id="${id}"]`)
+    await expect(call.locator('.node-socket[aria-label="levels"]')).toHaveCount(1)
+    await expect(call.locator('.node-socket[aria-label="Slice"]')).toHaveCount(1)
+    await expect(call.locator('.node-socket[aria-label="Profile"]')).toHaveCount(1)
+  }
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(source).toContainText('module stack_layers(levels = 2)', { timeout: 15_000 })
+  await expect(source).toContainText('stack_layers(levels = previous(n = levels))')
+  await expect(source).toContainText('stack_layers(levels = 4)')
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+
+  let saved = await readLocalRecord(page, 'recursive-modules') as { project: { version: number; definitions: { id: string; name: string; parameters: { name: string; default: number }[]; geometryInputs?: { name: string }[]; graph: { nodes: { type: string; parameters: { definitionId?: string } }[] } }[] } }
+  expect(saved.project.version).toBe(6)
+  expect(saved.project.definitions.find((item) => item.id === 'stack')).toMatchObject({
+    name: 'stack_layers', parameters: [{ name: 'levels', default: 2 }], geometryInputs: [{ name: 'Profile' }, { name: 'Slice' }],
+  })
+
+  await page.reload()
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(34)
+  await expect(page.locator('node-editor .node[data-node-id="stack-self"] .node-socket[aria-label="Slice"]')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(source).toContainText('stack_layers(levels = previous(n = levels))', { timeout: 15_000 })
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+
+  // Deleting one mutual-SCC member preflights its own graph plus the Call
+  // and wires owned by its peer. Cancellation is a complete no-op.
+  const pongEntry = page.locator('node-palette .module-entry[data-definition-id="pong"]')
+  await page.evaluate(() => { Object.defineProperty(window, 'confirm', { configurable: true, value: () => false }) })
+  await pongEntry.getByRole('button', { name: 'Delete pong', exact: true }).click()
+  await expect(page.locator('node-editor .definition-frame')).toHaveCount(4)
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(34)
+
+  await page.evaluate(() => { Object.defineProperty(window, 'confirm', { configurable: true, value: () => true }) })
+  await pongEntry.getByRole('button', { name: 'Delete pong', exact: true }).click()
+  await expect(page.locator('node-editor .definition-frame')).toHaveCount(3)
+  await expect(page.locator('node-editor .node[data-node-id="ping-pong"]')).toHaveCount(0)
+  await expect(page.locator('node-editor .node[data-node-id="stack-self"]')).toHaveCount(1)
+  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  saved = await readLocalRecord(page, 'recursive-modules') as typeof saved
+  expect(saved.project.definitions.map((item) => item.id)).toEqual(['stack', 'ping', 'previous'])
+  expect(saved.project.definitions.flatMap((item) => item.graph.nodes)
+    .some((node) => node.type === 'module-call' && node.parameters.definitionId === 'pong')).toBe(false)
+})
+
+test('allows a direct recursive Module wire without requiring a static base-case proof', async ({ page }) => {
   await waitForLocalLibrary(page)
   const project = {
-    format: 'scadlet', version: 5, metadata: { name: 'Recursive Module draft' },
+    format: 'scadlet', version: 6, metadata: { name: 'Recursive Module draft' },
     graph: { nodes: [{ id: 'main-loop', type: 'module-call', position: { x: 500, y: 500 }, parameters: { definitionId: 'loop', arguments: {} } }], connections: [] },
     definitions: [{
       id: 'loop', kind: 'module', name: 'loop', interface: { inputs: 'loop-in', output: 'loop-out' }, parameters: [], geometryInputs: [],
@@ -1297,22 +1382,17 @@ test('rejects a recursive Module body connection without changing the canvas or 
   }
   await replaceLocalProjects(page, [{
     id: 'recursive-module-draft', revision: 1,
-    createdAt: '2026-09-09T00:00:00.000Z', updatedAt: '2026-09-09T00:00:00.000Z', project,
+    createdAt: '2026-09-11T00:00:00.000Z', updatedAt: '2026-09-11T00:00:00.000Z', project,
   }], 'recursive-module-draft')
   await page.reload()
-  await page.getByRole('button', { name: 'Render', exact: true }).click()
-  const source = page.locator('scadlet-app .scad-output')
-  await expect(source).toContainText('module loop()', { timeout: 15_000 })
-  const before = await source.textContent()
-  const connections = page.locator('node-editor svg.connection[data-real-connection="true"]')
-  await expect(connections).toHaveCount(0)
   const selfCall = page.locator('node-editor .node[data-node-id="self-call"]')
   const output = page.locator('node-editor .node[data-node-id="loop-out"]')
   await connectSockets(page, selfCall.locator('.node-port--output .node-socket[aria-label="Geometry"]'), output.locator('.node-port--input .node-socket[aria-label="Geometry"]'))
-  await expect(page.locator('node-editor .scope-transfer-feedback')).toContainText('Recursive Module dependencies are not supported yet')
-  await expect(connections).toHaveCount(0)
-  await page.getByRole('button', { name: 'Render', exact: true }).click()
-  await expect(source).toHaveText(before ?? '')
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(1)
+  const generated = await page.locator('node-editor').evaluate((element) =>
+    (element as unknown as { evaluate(): Promise<string> }).evaluate())
+  expect(generated).toContain('module loop() {\n  loop();\n}')
+  expect(generated).toContain('\n\nloop();')
 })
 
 test('propagates nested Function result transitions and safely renames/deletes their callees', async ({ page }) => {

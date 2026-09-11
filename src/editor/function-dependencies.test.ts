@@ -12,7 +12,7 @@ function node(id: string, scope: string, calledFunctionId?: string, calledModule
   return { id, scope, ...(calledFunctionId ? { calledFunctionId } : {}), ...(calledModuleId ? { calledModuleId } : {}) }
 }
 
-describe('effective Function dependencies', () => {
+describe('effective definition dependencies', () => {
   it('orders callees before callers deterministically', () => {
     const analysis = analyzeFunctionDependencies(definitions, [
       node('a-out', 'a'), node('b-out', 'b'), node('c-out', 'c'),
@@ -22,7 +22,6 @@ describe('effective Function dependencies', () => {
       { source: 'b-calls-c', target: 'b-out' },
       { source: 'c-value', target: 'c-out' },
     ])
-    expect(analysis.cycle).toBeUndefined()
     expect(analysis.order).toEqual(['c', 'b', 'a'])
     expect(analysis.functionComponents).toEqual([
       { members: ['c'], recursive: false },
@@ -58,7 +57,6 @@ describe('effective Function dependencies', () => {
     expect(analyzeFunctionDependencies(definitions, nodes, chain).order).toEqual(['c', 'b', 'a'])
     const recursiveConnections = [...chain, { source: 'c-call', target: 'c-out' }]
     const recursive = analyzeFunctionDependencies(definitions, nodes, recursiveConnections)
-    expect(recursive.cycle).toBeUndefined()
     expect(recursive.order).toEqual(['a', 'b', 'c'])
     expect(recursive.functionComponents).toEqual([{ members: ['a', 'b', 'c'], recursive: true }])
     expect(analyzeFunctionDependencies(definitions, nodes, recursiveConnections.toReversed()).order).toEqual(['a', 'b', 'c'])
@@ -101,7 +99,6 @@ describe('effective Function dependencies', () => {
     ])
     expect(analysis.dependencies.get('a')).toEqual(new Set())
     expect(analysis.dependencies.get('b')).toEqual(new Set(['a']))
-    expect(analysis.cycle).toBeUndefined()
   })
 
   it('follows all effective If inputs but ignores Calls in a dead If', () => {
@@ -124,10 +121,14 @@ describe('effective Function dependencies', () => {
       { source: 'dead-call', target: 'dead-if' },
     ])
     expect(analysis.dependencies.get('a')).toEqual(new Set(['b', 'c']))
-    expect(analysis.cycle).toBeUndefined()
+    expect(analysis.moduleComponents).toEqual([
+      { members: ['b'], recursive: false },
+      { members: ['c'], recursive: false },
+      { members: ['a'], recursive: false },
+    ])
   })
 
-  it('orders effective nested Module Calls and rejects only live Module recursion', () => {
+  it('keeps acyclic Modules callee-before-caller and collapses live recursion into a stable SCC', () => {
     const moduleDefinitions = [
       { id: 'outer', kind: 'module' as const, outputNodeId: 'outer-out' },
       { id: 'middle', kind: 'module' as const, outputNodeId: 'middle-out' },
@@ -146,7 +147,24 @@ describe('effective Function dependencies', () => {
     ]
     const acyclic = analyzeFunctionDependencies(moduleDefinitions, nodes, chain)
     expect(acyclic.moduleOrder).toEqual(['inner', 'middle', 'outer'])
-    expect(acyclic.cycle).toBeUndefined()
-    expect(analyzeFunctionDependencies(moduleDefinitions, nodes, [...chain, { source: 'dead-recursion', target: 'inner-out' }])).toMatchObject({ cycle: ['outer', 'middle', 'inner', 'outer'], cycleKind: 'module' })
+    expect(acyclic.moduleComponents).toEqual([
+      { members: ['inner'], recursive: false },
+      { members: ['middle'], recursive: false },
+      { members: ['outer'], recursive: false },
+    ])
+    const recursive = analyzeFunctionDependencies(moduleDefinitions, nodes, [...chain, { source: 'dead-recursion', target: 'inner-out' }])
+    expect(recursive.moduleOrder).toEqual(['outer', 'middle', 'inner'])
+    expect(recursive.moduleComponents).toEqual([{ members: ['outer', 'middle', 'inner'], recursive: true }])
+    expect(analyzeFunctionDependencies(moduleDefinitions, nodes, [...chain.toReversed(), { source: 'dead-recursion', target: 'inner-out' }]).moduleOrder)
+      .toEqual(['outer', 'middle', 'inner'])
+  })
+
+  it('accepts direct Module recursion as one stable component', () => {
+    const moduleDefinitions = [{ id: 'self', kind: 'module' as const, outputNodeId: 'self-out' }]
+    const analysis = analyzeFunctionDependencies(moduleDefinitions, [
+      node('self-out', 'self'), node('self-call', 'self', undefined, 'self'),
+    ], [{ source: 'self-call', target: 'self-out' }])
+    expect(analysis.moduleOrder).toEqual(['self'])
+    expect(analysis.moduleComponents).toEqual([{ members: ['self'], recursive: true }])
   })
 })
