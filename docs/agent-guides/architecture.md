@@ -36,6 +36,15 @@ One normal `Render` action evaluates the graph, updates the development source
 display, executes OpenSCAD, and replaces the preview. There is no separate
 user-facing evaluate action. Keep expensive execution off the main thread.
 
+The worker protocol distinguishes a nonempty STL, a confirmed valid empty
+top-level Geometry result, and an error. Empty Geometry replaces the preview
+by clearing its STL/mesh; it is not an error. The current bundled runtime has
+no structured empty-result field, so this outcome is classified only after a
+successful `callMain()`, a missing STL, and its exact known empty-top-level
+diagnostic (allowing its fixed startup-localization notice). Do not generalize
+this into broad diagnostic matching: all other missing-output and OpenSCAD/WASM
+outcomes remain errors.
+
 The worker may live across successful renders, but each render creates a fresh
 OpenSCAD/WASM instance: reusing one `createOpenSCAD()` instance for multiple
 `callMain()` calls is unreliable. `Stop` terminates the worker; Render then

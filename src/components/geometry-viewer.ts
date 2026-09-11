@@ -1,5 +1,5 @@
-import { LitElement, css, html } from 'lit'
-import { customElement, query } from 'lit/decorators.js'
+import { LitElement, css, html, nothing } from 'lit'
+import { customElement, property, query } from 'lit/decorators.js'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
@@ -39,10 +39,28 @@ export class GeometryViewer extends LitElement {
     #canvas-host canvas {
       display: block;
     }
+
+    .empty-geometry-status {
+      position: absolute;
+      right: 12px;
+      bottom: 12px;
+      max-width: calc(100% - 24px);
+      margin: 0;
+      padding: 6px 9px;
+      border: 1px solid #496979;
+      border-radius: 4px;
+      background: rgb(31 55 65 / 0.94);
+      color: #c5e8f4;
+      font: 12px/1.4 system-ui, sans-serif;
+    }
   `
 
   @query('#canvas-host')
   private host!: HTMLDivElement
+
+  /** A restrained status owned by the preview, rather than an OpenSCAD error. */
+  @property({ type: String })
+  status = ''
 
   private renderer?: THREE.WebGLRenderer
   private readonly scene = new THREE.Scene()
@@ -55,7 +73,12 @@ export class GeometryViewer extends LitElement {
   private readonly cameraChangeListeners = new Set<() => void>()
 
   render() {
-    return html`<div id="canvas-host"></div>`
+    return html`
+      <div id="canvas-host"></div>
+      ${this.status
+        ? html`<p class="empty-geometry-status" role="status" aria-live="polite" aria-atomic="true">${this.status}</p>`
+        : nothing}
+    `
   }
 
   firstUpdated() {

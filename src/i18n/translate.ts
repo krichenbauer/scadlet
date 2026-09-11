@@ -1,4 +1,4 @@
-export type LocaleId = 'en'
+export type LocaleId = 'en' | 'de'
 
 /**
  * Minimal localization layer: a flat `key -> string` dictionary per
@@ -179,6 +179,14 @@ const dictionaries: Record<LocaleId, Record<string, string>> = {
     'toolbar.renderHint': 'Click “Render” to see the generated source',
     'toolbar.reloadStored': 'Reload stored version',
     'toolbar.saveAsNew': 'Save current as a new project',
+    'render.emptyGeometry': 'Nothing visible to render.',
+  },
+  // There is no language switcher yet. Keep this small, established
+  // dictionary route so the preview status is ready for the German UI when
+  // locale selection is introduced instead of being a hard-coded English UI
+  // string.
+  de: {
+    'render.emptyGeometry': 'Keine sichtbare Geometrie zum Rendern.',
   },
 }
 

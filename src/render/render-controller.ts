@@ -1,5 +1,9 @@
 import { isRenderResponse, type RenderRequest, type WorkerRequest } from './protocol'
 
+export type GeometryRenderResult =
+  | { kind: 'stl'; stl: ArrayBuffer }
+  | { kind: 'empty' }
+
 /**
  * The minimal subset of `Worker` that `RenderController` depends on, so
  * tests can inject a fake worker instead of spinning up a real one.
@@ -26,7 +30,7 @@ function createRenderWorker(): WorkerLike {
  */
 export class RenderController {
   private worker: WorkerLike | null = null
-  private pending: { kind: 'render' | 'value'; resolve: (result: ArrayBuffer | string) => void; reject: (error: Error) => void } | null = null
+  private pending: { kind: 'render' | 'value'; resolve: (result: GeometryRenderResult | string) => void; reject: (error: Error) => void } | null = null
   private readonly createWorker: WorkerFactory
   /** `performance.now()` timestamp of the most recent `postMessage`, used only to log round-trip timing. */
   private renderStartedAt = 0
@@ -39,13 +43,13 @@ export class RenderController {
     return this.pending !== null
   }
 
-  render(source: string): Promise<ArrayBuffer> {
+  render(source: string): Promise<GeometryRenderResult> {
     if (this.pending) {
       return Promise.reject(new Error('A render is already in progress'))
     }
 
     return new Promise((resolve, reject) => {
-      this.pending = { kind: 'render', resolve: (result) => resolve(result as ArrayBuffer), reject }
+      this.pending = { kind: 'render', resolve: (result) => resolve(result as GeometryRenderResult), reject }
 
       let worker: WorkerLike
       try {
@@ -107,7 +111,9 @@ export class RenderController {
       if (!pending) return
       if (data.type === 'result' && pending.kind === 'render') {
         console.log(`[render-controller] round-trip=${(performance.now() - this.renderStartedAt).toFixed(1)}ms`)
-        pending.resolve(data.stl)
+        pending.resolve({ kind: 'stl', stl: data.stl })
+      } else if (data.type === 'empty-result' && pending.kind === 'render') {
+        pending.resolve({ kind: 'empty' })
       } else if (data.type === 'value-result' && pending.kind === 'value') {
         pending.resolve(data.value)
       } else if (data.type === 'error') pending.reject(new Error(data.message))

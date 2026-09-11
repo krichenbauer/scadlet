@@ -31,8 +31,18 @@ describe('RenderController', () => {
     const stl = new ArrayBuffer(8)
     worker.onmessage?.(messageEvent({ type: 'result', stl }))
 
-    await expect(promise).resolves.toBe(stl)
+    await expect(promise).resolves.toEqual({ kind: 'stl', stl })
     expect(controller.isRendering).toBe(false)
+  })
+
+  it('resolves a confirmed empty Geometry result without treating it as a worker error', async () => {
+    const worker = new FakeWorker()
+    const controller = new RenderController(() => worker)
+
+    const promise = controller.render('difference() { cube(5); cube(10); }')
+    worker.onmessage?.(messageEvent({ type: 'empty-result' }))
+
+    await expect(promise).resolves.toEqual({ kind: 'empty' })
   })
 
   it('posts a separate OpenSCAD value-inspection request and resolves its transient result', async () => {
@@ -115,7 +125,7 @@ describe('RenderController', () => {
     const promise = controller.render('sphere(5);')
     expect(created).toBe(2)
     workers[1].onmessage?.(messageEvent({ type: 'result', stl: new ArrayBuffer(1) }))
-    await expect(promise).resolves.toBeInstanceOf(ArrayBuffer)
+    await expect(promise).resolves.toEqual({ kind: 'stl', stl: expect.any(ArrayBuffer) })
   })
 
   it('onerror terminates the worker and rejects the pending render', async () => {

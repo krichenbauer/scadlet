@@ -1,5 +1,6 @@
 import { createOpenSCAD } from 'openscad-wasm-prebuilt'
 
+import { isSuccessfulEmptyTopLevelResult } from './empty-top-level'
 import type { RenderResponse, WorkerRequest } from './protocol'
 
 /**
@@ -87,7 +88,16 @@ async function render(source: string): Promise<RenderResponse> {
     try {
       instance.callMain(['/input.scad', '--backend=Manifold', '--export-format=binstl', '-o', '/output.stl'])
       const tGeometry = performance.now()
-      const bytes = instance.FS.readFile('/output.stl') as Uint8Array
+      let bytes: Uint8Array
+      try {
+        bytes = instance.FS.readFile('/output.stl') as Uint8Array
+      } catch (error) {
+        // The bundled runtime's valid-empty result returns successfully but
+        // writes no STL. Do not infer success from a missing file alone:
+        // the exact, tested diagnostic is required as well.
+        if (isSuccessfulEmptyTopLevelResult(stderrLines)) return { type: 'empty-result' }
+        throw error
+      }
       // Copy into a standalone, transferable ArrayBuffer - the FS-backed
       // view may reference a larger underlying heap buffer.
       const stl = bytes.slice().buffer

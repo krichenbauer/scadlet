@@ -389,6 +389,10 @@ export class ScadletApp extends LitElement {
   @state()
   private renderError: string | null = null
 
+  /** Valid empty Geometry is preview state, not a compiler/render error. */
+  @state()
+  private renderInfo: string | null = null
+
   @state()
   private stl: ArrayBuffer | null = null
 
@@ -509,7 +513,7 @@ export class ScadletApp extends LitElement {
             class="side"
             style=${styleMap({ '--viewer-height': this.viewerHeight ? `${this.viewerHeight}px` : undefined })}
           >
-            <geometry-viewer></geometry-viewer>
+            <geometry-viewer .status=${this.renderInfo ?? ''}></geometry-viewer>
             <layout-splitter orientation="horizontal" @splitter-move=${this._onSideSplitterMove}></layout-splitter>
             <div class="bottom-panel">
               <pre class="scad-output">${this.scadSource || `// ${t('toolbar.renderHint')}`}</pre>
@@ -740,6 +744,7 @@ export class ScadletApp extends LitElement {
 
   private _clearRenderedOutput(): void {
     this.renderError = null
+    this.renderInfo = null
     this.scadSource = ''
     this.exportSource = ''
     this.stl = null
@@ -1211,6 +1216,9 @@ export class ScadletApp extends LitElement {
    * request is cancelled, and no automatic re-evaluation is started. */
   private _invalidateStaleInspect(): void {
     this.editorInstance?.clearInspect()
+    // The empty-preview note describes a completed Geometry result. A graph
+    // edit leaves the blank canvas in place but makes that old result stale.
+    this.renderInfo = null
     if (this.activeExecution !== 'inspect') return
     this.executionGeneration.invalidate()
     this.activeExecution = null
@@ -1224,6 +1232,7 @@ export class ScadletApp extends LitElement {
     // the retained preview as its result.
     this.editorInstance?.clearInspect()
     const generation = this._beginExecution('render')
+    this.renderInfo = null
     const tStart = performance.now()
     try {
       // Toolbar Render always evaluates the complete project. A temporary
@@ -1236,15 +1245,24 @@ export class ScadletApp extends LitElement {
         this.renderError = 'Nothing to render - add at least one node.'
         return
       }
-      const stl = await this.renderController.render(source)
+      const result = await this.renderController.render(source)
       if (!this.executionGeneration.isCurrent(generation)) return
-      this.stl = stl
-      this.viewer.showSTL(stl)
+      if (result.kind === 'empty') {
+        this.stl = null
+        this.viewer.clear()
+        this.renderInfo = t('render.emptyGeometry')
+      } else {
+        this.stl = result.stl
+        this.viewer.showSTL(result.stl)
+      }
       console.log(`[scadlet-app] render total=${(performance.now() - tStart).toFixed(1)}ms`)
     } catch (error) {
       if (!this.executionGeneration.isCurrent(generation)) return
       const message = error instanceof Error ? error.message : String(error)
-      if (message !== 'Render stopped') this.renderError = message
+      if (message !== 'Render stopped') {
+        this.renderInfo = null
+        this.renderError = message
+      }
     } finally {
       this._finishExecution(generation)
     }
@@ -1274,19 +1292,34 @@ export class ScadletApp extends LitElement {
       }
 
       if (!inspected.source.trim()) {
+        this.renderInfo = null
         this.renderError = 'Nothing to render - add at least one node.'
         return
       }
-      const stl = await this.renderController.render(inspected.source)
+      const result = await this.renderController.render(inspected.source)
       if (!this.executionGeneration.isCurrent(generation)) return
-      this.stl = stl
-      this.viewer.showSTL(stl)
       this.scadSource = inspected.source
-      this.editorInstance?.commitGeometryInspect(nodeId)
+      if (result.kind === 'empty') {
+        this.stl = null
+        this.viewer.clear()
+        this.renderInfo = t('render.emptyGeometry')
+        // A Geometry Inspect marker certifies a displayed mesh. A valid
+        // empty result replaces any older preview, so it must not inherit or
+        // create that visible-result provenance.
+        this.editorInstance?.clearInspect()
+      } else {
+        this.renderInfo = null
+        this.stl = result.stl
+        this.viewer.showSTL(result.stl)
+        this.editorInstance?.commitGeometryInspect(nodeId)
+      }
     } catch (error) {
       if (!this.executionGeneration.isCurrent(generation)) return
       const message = error instanceof Error ? error.message : String(error)
-      if (message !== 'Render stopped') this.renderError = message
+      if (message !== 'Render stopped') {
+        this.renderInfo = null
+        this.renderError = message
+      }
     } finally {
       this._finishExecution(generation)
     }

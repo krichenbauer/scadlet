@@ -49,6 +49,21 @@ cube(double_size(5));
   }, 20_000)
 })
 
+describe('valid empty Geometry through the real bundled OpenSCAD-WASM', () => {
+  it('returns successfully without an STL and emits the known empty-top-level diagnostic', async () => {
+    const stdout: string[] = []
+    const stderr: string[] = []
+    const openscad = await createOpenSCAD({ print: (text) => stdout.push(text), printErr: (text) => stderr.push(text) })
+    const instance = openscad.getInstance()
+    instance.FS.writeFile('/empty.scad', 'difference() { cube(5, center=true); cube(10, center=true); }')
+
+    expect(() => instance.callMain(['/empty.scad', '--backend=Manifold', '--export-format=binstl', '-o', '/empty.stl'])).not.toThrow()
+    expect(() => instance.FS.readFile('/empty.stl')).toThrow()
+    expect(stdout).toEqual([])
+    expect(stderr).toContain('Current top level object is empty.')
+  }, 20_000)
+})
+
 describe('recursive Modules through the real bundled OpenSCAD-WASM', () => {
   it('renders a terminating directly recursive Module', async () => {
     const result = await runOpenSCAD(`

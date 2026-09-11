@@ -45,3 +45,8 @@ Errors must be understandable to learners. Invalid graph state must not crash
 the app; surface OpenSCAD/WASM failures; retain the previous valid preview when
 practical; prevent or clearly report malformed connections. Do not silently
 swallow errors. Detailed source-to-node diagnostics remain later work.
+
+A confirmed valid empty top-level Geometry result is the narrow exception to
+render-error UI: clear the old preview and use the localized informational
+preview status. This must not suppress arbitrary sparse diagnostics, compiler
+errors, or worker failures.

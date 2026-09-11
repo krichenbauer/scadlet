@@ -7,6 +7,10 @@ describe('isRenderResponse', () => {
     expect(isRenderResponse({ type: 'result', stl: new ArrayBuffer(4) })).toBe(true)
   })
 
+  it('accepts the explicit valid-empty Geometry result message', () => {
+    expect(isRenderResponse({ type: 'empty-result' })).toBe(true)
+  })
+
   it('accepts a well-formed error message', () => {
     expect(isRenderResponse({ type: 'error', message: 'boom' })).toBe(true)
   })

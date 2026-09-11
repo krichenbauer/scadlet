@@ -21,6 +21,11 @@ export interface RenderResultMessage {
   stl: ArrayBuffer
 }
 
+/** A valid OpenSCAD execution whose top-level Geometry is empty. */
+export interface EmptyRenderResultMessage {
+  type: 'empty-result'
+}
+
 export interface RenderErrorMessage {
   type: 'error'
   message: string
@@ -31,7 +36,7 @@ export interface InspectValueResultMessage {
   value: string
 }
 
-export type RenderResponse = RenderResultMessage | InspectValueResultMessage | RenderErrorMessage
+export type RenderResponse = RenderResultMessage | EmptyRenderResultMessage | InspectValueResultMessage | RenderErrorMessage
 
 /**
  * Runtime guard for messages received from the worker. Worker `message`
@@ -45,6 +50,7 @@ export function isRenderResponse(value: unknown): value is RenderResponse {
   if (type === 'result') {
     return 'stl' in value && (value as { stl: unknown }).stl instanceof ArrayBuffer
   }
+  if (type === 'empty-result') return true
   if (type === 'error') {
     return typeof (value as { message?: unknown }).message === 'string'
   }
