@@ -26,8 +26,8 @@ export class IfNode extends ClassicPreset.Node<
   constructor() {
     super(t('node.if'))
     this.addInput('condition', new ClassicPreset.Input(booleanSocket, t('input.condition')))
-    this.addInput('then', new ClassicPreset.Input(geometrySocket, t('input.then')))
-    this.addInput('else', new ClassicPreset.Input(geometrySocket, t('input.else')))
+    this.addInput('then', new ClassicPreset.Input(geometrySocket, t('input.caseTrue')))
+    this.addInput('else', new ClassicPreset.Input(geometrySocket, t('input.caseFalse')))
     this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, t('input.geometry')))
   }
 

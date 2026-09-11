@@ -337,8 +337,8 @@ export class ConditionalNode extends ClassicPreset.Node<Record<string, ClassicPr
     this.addInput('condition', new ClassicPreset.Input(booleanSocket, t('input.condition')))
     // Multi-connectable prevents ClassicFlow from eagerly removing the old
     // branch wire before editor.ts can preflight a type transition.
-    this.addInput('true', new ClassicPreset.Input(socketForConditionalType(this.valueType), t('input.whenTrue'), true))
-    this.addInput('false', new ClassicPreset.Input(socketForConditionalType(this.valueType), t('input.whenFalse'), true))
+    this.addInput('true', new ClassicPreset.Input(socketForConditionalType(this.valueType), t('input.caseTrue'), true))
+    this.addInput('false', new ClassicPreset.Input(socketForConditionalType(this.valueType), t('input.caseFalse'), true))
     this.addOutput('result', new ClassicPreset.Output(socketForConditionalType(this.valueType), t('output.result')))
   }
 

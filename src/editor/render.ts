@@ -8,6 +8,8 @@ import { CheckboxControl, LabeledNumberControl, LabeledTextControl, ModuleGeomet
 import { ModuleInputsNode } from './nodes/module-interface-nodes'
 import { ModuleOutputNode } from './nodes/module-interface-nodes'
 import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interface-nodes'
+import { IfNode } from './nodes/if-node'
+import { ConditionalNode } from './nodes/value-nodes'
 import { isEditableTarget } from './deletion'
 import { t } from '../i18n/translate'
 import type { InspectManager } from './inspect'
@@ -367,6 +369,12 @@ function renderNode(
   element.classList.toggle('node--inspected', inspected)
   presentation.syncSelection(node.id, Boolean(node.selected))
 
+  // The two OpenSCAD conditional forms deliberately share a small, fixed
+  // interface. Their differently typed inputs remain visible side-by-side
+  // in their declared semantic order; neither has progressive disclosure or
+  // pinning presentation. Their Rete port ids and dataflow stay untouched.
+  const fixedConditionalInterface = node instanceof ConditionalNode || node instanceof IfNode
+
   // Separate structural geometry inputs from semantic parameter inputs (number/vector3).
   // Geometry inputs go in the stable `.node-inputs` left column (always visible).
   // Parameter inputs get their own inline rows co-located with their associated controls,
@@ -377,8 +385,13 @@ function renderNode(
   // expand whenever their geometry input was connected.
   const geometryInputs: [string, ClassicPreset.Input<ClassicPreset.Socket>][] = []
   const parameterInputs: [string, ClassicPreset.Input<ClassicPreset.Socket>][] = []
+  const fixedInputs: [string, ClassicPreset.Input<ClassicPreset.Socket>][] = []
   for (const [key, input] of Object.entries(node.inputs)) {
     if (!input) continue
+    if (fixedConditionalInterface) {
+      fixedInputs.push([key, input])
+      continue
+    }
     // Function Output's single `result` port is never geometry-typed, but
     // (like Module Output's `geometry` input) is structural interface
     // infrastructure that must stay visible regardless of hover/pin state,
@@ -390,7 +403,13 @@ function renderNode(
     }
   }
   const outputClasses = classifyOutputPorts(node.outputs)
-  const { dynamicGeometry: geometryOutputs, parameter: parameterOutputs } = outputClasses
+  const mainOutputs = fixedConditionalInterface
+    ? Object.entries(node.outputs).filter((entry): entry is [string, ClassicPreset.Output<ClassicPreset.Socket>] => Boolean(entry[1]))
+    : outputClasses.main
+  const geometryOutputs = outputClasses.dynamicGeometry
+  const parameterOutputs = fixedConditionalInterface
+    ? outputClasses.parameter.filter(([key]) => key !== 'result')
+    : outputClasses.parameter
 
   // Keys of parameter inputs that map 1-to-1 to a control of the same key.
   const paramInputKeys = new Set(parameterInputs.map(([key]) => key))
@@ -417,7 +436,7 @@ function renderNode(
 
   // A node has collapsible content if it has parameter inputs (whose rows can be shown/hidden)
   // or standalone controls (shown only when expanded). This drives pin-button visibility.
-  const hasCollapsibleContent = parameterInputs.length > 0 || parameterOutputs.length > 0 || geometryOutputs.length > 0 || expandableStandaloneControls.length > 0 || representationControls.length > 0
+  const hasCollapsibleContent = !fixedConditionalInterface && (parameterInputs.length > 0 || parameterOutputs.length > 0 || geometryOutputs.length > 0 || expandableStandaloneControls.length > 0 || representationControls.length > 0)
   // Rete remains authoritative for the semantic endpoint. Presentation keeps
   // compact expansion state, while this direct read ensures a freshly
   // committed snapped wire immediately disables its fallback literal even if
@@ -433,7 +452,7 @@ function renderNode(
   // Distinguished from connection-forced expansion (which only shows specific connected rows)
   // so that an unconnected Translate with Z connected doesn't show X/Y/Vector rows.
   const expanded = hasCollapsibleContent && presentation.isInteractivelyExpanded(node.id)
-  element.classList.toggle('node--expanded', presentation.isExpanded(node.id))
+  element.classList.toggle('node--expanded', !fixedConditionalInterface && presentation.isExpanded(node.id))
 
   if (!nodeListenersWired.has(element)) {
     nodeListenersWired.add(element)
@@ -472,10 +491,11 @@ function renderNode(
   const main = document.createElement('div')
   main.className = 'node-main'
 
-  if (geometryInputs.length > 0) {
+  const mainInputs = fixedConditionalInterface ? fixedInputs : geometryInputs
+  if (mainInputs.length > 0) {
     const inputs = document.createElement('div')
     inputs.className = 'node-inputs'
-    for (const [key, input] of geometryInputs) {
+    for (const [key, input] of mainInputs) {
       inputs.appendChild(renderPort(area, node.id, 'input', key, input.label, input.socket.name, geometryInputPresentation(node, key)))
     }
     main.appendChild(inputs)
@@ -486,10 +506,10 @@ function renderNode(
   body.appendChild(renderHeader(node, presentation, hasCollapsibleContent, inspected, notifyDirty, sourceNameControl, titleSelectControl))
   main.appendChild(body)
 
-  if (outputClasses.main.length > 0) {
+  if (mainOutputs.length > 0) {
     const outputs = document.createElement('div')
     outputs.className = 'node-outputs'
-    for (const [key, output] of outputClasses.main) {
+    for (const [key, output] of mainOutputs) {
       outputs.appendChild(renderPort(area, node.id, 'output', key, output.label, output.socket.name, key === 'value' ? { visibleLabel: '', accessibleLabel: output.label } : undefined))
     }
     main.appendChild(outputs)

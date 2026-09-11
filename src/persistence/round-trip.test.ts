@@ -13,7 +13,7 @@ import { SphereNode } from '../editor/nodes/sphere-node'
 import { TranslateNode } from '../editor/nodes/translate-node'
 import { UnionNode } from '../editor/nodes/union-node'
 import { IfNode } from '../editor/nodes/if-node'
-import { ArithmeticNode, BooleanNode, CompareNode, NumberNode, Vector3Node } from '../editor/nodes/value-nodes'
+import { ArithmeticNode, BooleanNode, CompareNode, ConditionalNode, NumberNode, Vector3Node } from '../editor/nodes/value-nodes'
 import type { Schemes } from '../editor/schemes'
 import { serializeProject } from './serialize'
 import { restoreProject } from './restore'
@@ -309,6 +309,47 @@ describe('per-node semantic round trip (serialize -> restore -> evaluate)', () =
     expect(restoredPinned.has(node.id)).toBe(true)
     expect(restoredPositions[node.id]).toEqual({ x: 42, y: -17 })
     expect(await evaluateOpenSCAD(dst, engine)).toBe('if (true) {\n  cube(10);\n} else {\n  sphere(r=5);\n}')
+  })
+
+  it('restores v6 Value Conditional and Geometry If connections without changing their ports or source', async () => {
+    const { editor: src } = createGraph()
+    const condition = new BooleanNode({ value: true })
+    const whenTrue = new NumberNode({ value: 4 })
+    const whenFalse = new NumberNode({ value: 8 })
+    const conditional = new ConditionalNode({ valueType: 'number' })
+    const cube = new CubeNode({ sizeRepresentation: 'scalar', size: 1 })
+    const otherwise = new SphereNode()
+    const ifNode = new IfNode()
+    for (const node of [condition, whenTrue, whenFalse, conditional, cube, otherwise, ifNode]) await src.addNode(node)
+    await src.addConnection(connect(condition, 'value', conditional, 'condition'))
+    await src.addConnection(connect(whenTrue, 'value', conditional, 'true'))
+    await src.addConnection(connect(whenFalse, 'value', conditional, 'false'))
+    await src.addConnection(connect(conditional, 'result', cube, 'size'))
+    await src.addConnection(connect(condition, 'value', ifNode, 'condition'))
+    await src.addConnection(connect(cube, 'geometry', ifNode, 'then'))
+    await src.addConnection(connect(otherwise, 'geometry', ifNode, 'else'))
+
+    const { editor: dst, engine } = createGraph()
+    const { project } = await roundTrip({ editor: src, positions: {} }, dst)
+    expect(project.version).toBe(6)
+    expect(project.graph.connections.map(({ source, sourceOutput, target, targetInput }) => ({ source, sourceOutput, target, targetInput })))
+      .toEqual(src.getConnections().map(({ source, sourceOutput, target, targetInput }) => ({ source, sourceOutput, target, targetInput })))
+
+    const restoredConditional = dst.getNode(conditional.id) as ConditionalNode
+    const restoredIf = dst.getNode(ifNode.id) as IfNode
+    expect(Object.keys(restoredConditional.inputs)).toEqual(['condition', 'true', 'false'])
+    expect(Object.values(restoredConditional.inputs).map((input) => input?.label)).toEqual(['Condition', 'Case: True', 'Case: False'])
+    expect(restoredConditional.inputs.condition?.socket.name).toBe('boolean')
+    expect(restoredConditional.inputs.true?.socket.name).toBe('number')
+    expect(restoredConditional.inputs.false?.socket.name).toBe('number')
+    expect(restoredConditional.outputs.result?.socket.name).toBe('number')
+    expect(Object.keys(restoredIf.inputs)).toEqual(['condition', 'then', 'else'])
+    expect(Object.values(restoredIf.inputs).map((input) => input?.label)).toEqual(['Condition', 'Case: True', 'Case: False'])
+    expect(restoredIf.inputs.condition?.socket.name).toBe('boolean')
+    expect(restoredIf.inputs.then?.socket.name).toBe('geometry')
+    expect(restoredIf.inputs.else?.socket.name).toBe('geometry')
+    expect(restoredIf.outputs.geometry?.socket.name).toBe('geometry')
+    expect(await evaluateOpenSCAD(dst, engine)).toBe('if (true) {\n  cube((true ? 4 : 8));\n} else {\n  sphere(r=5);\n}')
   })
 })
 

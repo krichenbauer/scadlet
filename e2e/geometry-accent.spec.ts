@@ -57,6 +57,42 @@ async function expectGeometryCue(node: Locator, expected: boolean): Promise<void
   }
 }
 
+async function connectSockets(page: Page, source: Locator, target: Locator): Promise<void> {
+  const sourceBox = await source.boundingBox()
+  const targetBox = await target.boundingBox()
+  if (!sourceBox || !targetBox) throw new Error('Expected visible sockets')
+  await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, { steps: 8 })
+  await page.mouse.up()
+}
+
+/** The visible socket drags above cover interaction; this uses the live
+ * editor's ordinary connection pipeline for the dense semantic graph, so
+ * this test does not become sensitive to overlapping SVG hit targets. */
+async function connectNodePorts(page: Page, source: string, sourceOutput: string, target: string, targetInput: string): Promise<void> {
+  const created = await page.locator('node-editor').evaluate(async (element, data) => {
+    const editor = (element as unknown as { getEditorInstance(): { editor: {
+      getConnections(): unknown[]
+      addConnection(connection: unknown): Promise<boolean>
+    } } }).getEditorInstance().editor
+    const template = editor.getConnections()[0]
+    if (!template) throw new Error('Expected a visible socket connection template')
+    return editor.addConnection(Object.assign(Object.create(Object.getPrototypeOf(template)), {
+      id: crypto.randomUUID(), source: data.source, sourceOutput: data.sourceOutput, target: data.target, targetInput: data.targetInput,
+    }))
+  }, { source, sourceOutput, target, targetInput })
+  expect(created).toBe(true)
+}
+
+async function visibleInputPorts(node: Locator): Promise<{ key: string | undefined; type: string | undefined; label: string }[]> {
+  return node.locator('.node-main > .node-inputs > .node-port--input').evaluateAll((ports) => ports.map((port) => ({
+    key: port.querySelector('.node-socket')?.getAttribute('data-socket-key') ?? undefined,
+    type: port.querySelector('.node-socket')?.getAttribute('data-socket-type') ?? undefined,
+    label: port.querySelector('.node-port-label')?.textContent ?? '',
+  })))
+}
+
 test.beforeEach(async ({ context }) => {
   await context.addInitScript(() => {
     Object.defineProperty(window, 'showOpenFilePicker', { value: undefined, configurable: true })
@@ -149,6 +185,93 @@ test('creates the Geometry If from the Control flow palette with the canonical G
   await expect(ifNode.locator('.node-socket[data-socket-side="input"][data-socket-key="then"][data-socket-type="geometry"]')).toHaveCount(1)
   await expect(ifNode.locator('.node-socket[data-socket-side="input"][data-socket-key="else"][data-socket-type="geometry"]')).toHaveCount(1)
   await expect(ifNode.locator('.node-socket[data-socket-side="output"][data-socket-key="geometry"][data-socket-type="geometry"]')).toHaveCount(1)
+})
+
+test('keeps Value Conditional and Geometry If as fixed, parallel interfaces through visible creation and rendering', async ({ page }) => {
+  await openEmptyProject(page)
+  const editor = page.locator('node-editor')
+  const canvas = await editor.boundingBox()
+  if (!canvas) throw new Error('Expected node-editor canvas')
+
+  // Palette drop is the same visible creation path learners use.
+  await dropPaletteNode(page, 'boolean', { x: canvas.x + 45, y: canvas.y + 120 })
+  await dropPaletteNode(page, 'number', { x: canvas.x + 45, y: canvas.y + 280 })
+  await dropPaletteNode(page, 'conditional', { x: canvas.x + 230, y: canvas.y + 120 })
+  await dropPaletteNode(page, 'cube', { x: canvas.x + 420, y: canvas.y + 100 })
+  await dropPaletteNode(page, 'sphere', { x: canvas.x + 420, y: canvas.y + 310 })
+  await dropPaletteNode(page, 'if', { x: canvas.x + 600, y: canvas.y + 190 })
+
+  const boolean = await nodeWithModelLabel(page, 'Boolean')
+  const number = await nodeWithModelLabel(page, 'Number')
+  const conditional = await nodeWithModelLabel(page, 'Conditional')
+  const cube = await nodeWithModelLabel(page, 'Cube')
+  const sphere = await nodeWithModelLabel(page, 'Sphere')
+  const ifNode = await nodeWithModelLabel(page, 'If')
+
+  await expect(conditional.locator('.node-pin')).toHaveCount(0)
+  await expect(ifNode.locator('.node-pin')).toHaveCount(0)
+  await expect(conditional.locator('.node-param-rows, .node-controls')).toHaveCount(0)
+  await expect(ifNode.locator('.node-param-rows, .node-controls')).toHaveCount(0)
+  await expect(visibleInputPorts(conditional)).resolves.toEqual([
+    { key: 'condition', type: 'boolean', label: 'Condition' },
+    { key: 'true', type: 'unresolved', label: 'Case: True' },
+    { key: 'false', type: 'unresolved', label: 'Case: False' },
+  ])
+  await expect(visibleInputPorts(ifNode)).resolves.toEqual([
+    { key: 'condition', type: 'boolean', label: 'Condition' },
+    { key: 'then', type: 'geometry', label: 'Case: True' },
+    { key: 'else', type: 'geometry', label: 'Case: False' },
+  ])
+  await expect(conditional.locator('.node-main > .node-outputs .node-socket[data-socket-key="result"][data-socket-type="unresolved"]')).toHaveCount(1)
+  await expect(ifNode.locator('.node-main > .node-outputs .node-socket[data-socket-key="geometry"][data-socket-type="geometry"]')).toHaveCount(1)
+
+  const drag = async (node: Locator) => {
+    const before = await node.boundingBox()
+    const surface = await node.locator('.node-body').boundingBox()
+    if (!before || !surface) throw new Error('Expected fixed-node free surface')
+    await page.mouse.move(surface.x + 3, surface.y + surface.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(surface.x + 28, surface.y + surface.height / 2 + 18, { steps: 4 })
+    await page.mouse.up()
+    const after = await node.boundingBox()
+    if (!after) throw new Error('Expected moved fixed node')
+    expect(after.x - before.x).toBeCloseTo(25, 0)
+    expect(after.y - before.y).toBeCloseTo(18, 0)
+  }
+  await drag(conditional)
+  await drag(ifNode)
+
+  // Socket drags stay direct interactions, including Geometry If's optional
+  // False branch. They also supply a real Rete connection instance for the
+  // dense graph setup below.
+  await connectSockets(page, cube.locator('.node-socket[data-socket-side="output"]'), ifNode.locator('.node-socket[data-socket-key="then"]'))
+  await connectSockets(page, sphere.locator('.node-socket[data-socket-side="output"]'), ifNode.locator('.node-socket[data-socket-key="else"]'))
+  await cube.locator('.node-pin').click()
+  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
+  const ids = {
+    boolean: await boolean.getAttribute('data-node-id'), number: await number.getAttribute('data-node-id'), conditional: await conditional.getAttribute('data-node-id'),
+    cube: await cube.getAttribute('data-node-id'), if: await ifNode.getAttribute('data-node-id'),
+  }
+  if (Object.values(ids).some((id) => !id)) throw new Error('Expected fixed-node ids')
+  await connectNodePorts(page, ids.boolean!, 'value', ids.conditional!, 'condition')
+  await connectNodePorts(page, ids.number!, 'value', ids.conditional!, 'true')
+  await connectNodePorts(page, ids.number!, 'value', ids.conditional!, 'false')
+  await connectNodePorts(page, ids.conditional!, 'result', ids.cube!, 'size')
+  await connectNodePorts(page, ids.boolean!, 'value', ids.if!, 'condition')
+  await expect(visibleInputPorts(conditional)).resolves.toEqual([
+    { key: 'condition', type: 'boolean', label: 'Condition' },
+    { key: 'true', type: 'number', label: 'Case: True' },
+    { key: 'false', type: 'number', label: 'Case: False' },
+  ])
+
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  const source = page.locator('scadlet-app .scad-output')
+  await expect(source).toContainText('cube((false ? 10 : 10));', { timeout: 15_000 })
+  await expect(source).toContainText('if (false) {', { timeout: 15_000 })
+  await expect(source).toContainText('} else {')
+  await expect(source).toContainText('sphere();')
+  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
 })
 
 test('keeps nodes draggable from free surfaces without visible grab handles or control interference', async ({ page }) => {

@@ -230,6 +230,8 @@ describe('Milestone 7 value nodes', () => {
     for (const [type, whenTrue, whenFalse, source] of cases) {
       const conditional = new ConditionalNode()
       expect(conditional.outputs.result?.socket.name).toBe('unresolved')
+      expect(Object.keys(conditional.inputs)).toEqual(['condition', 'true', 'false'])
+      expect(Object.values(conditional.inputs).map((input) => input?.label)).toEqual(['Condition', 'Case: True', 'Case: False'])
       conditional.setValueType(type)
       expect(Object.keys(conditional.inputs)).toEqual(['condition', 'true', 'false'])
       expect(conditional.inputs.true?.socket.name).toBe(type)
