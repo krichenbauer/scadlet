@@ -4,13 +4,23 @@ Read this before implementing a capability that may be future work.
 
 ## Current baseline
 
-Implemented and stable: the Rete-to-OpenSCAD-to-WASM-to-STL-to-Three.js path;
-Cube, Cylinder, Sphere; Translate, Rotate, Scale; Difference and ordered
-variadic Union/Intersection; semantic optional parameters and typed values;
-math/comparison/conditionals; node selection, compact presentation, and
-intermediate inspect; client-side `.scadlet` persistence; and scoped reusable
-Modules and Functions, including direct and mutual recursion evaluated by
-OpenSCAD-WASM without static termination analysis.
+Implemented and stable:
+
+- the Rete-to-OpenSCAD-to-WASM-to-STL-to-Three.js path, including a valid
+  empty-Geometry outcome with an informational preview state rather than a
+  render error;
+- Cube, Cylinder, Sphere; Translate, Rotate, Scale; Difference and ordered
+  variadic Union/Intersection; Geometry If; and typed values with Math,
+  Compare (including direct Number fallbacks), and Value Conditional;
+- scoped reusable Modules and Functions, nested Calls, and direct/mutual
+  definition recursion evaluated by OpenSCAD-WASM without static termination
+  analysis;
+- client-side `.scadlet` v6 persistence, restore validation, and rejection of
+  cyclic node dataflow while retaining permitted definition recursion;
+- dark, compact node presentation with explicit fixed Conditional/If interfaces,
+  Geometry recognition, semantic Inspect provenance, and standard selection;
+- transient view recovery: Fit graph for the canvas and Reset 3D view for a
+  nonempty preview mesh.
 
 Current catalog/value semantics are intentionally limited. Geometry If is a
 statement-level node valid in Main/Module scopes, with required Boolean
@@ -24,10 +34,33 @@ Implement later work in this order unless a concrete defect warrants a small,
 independent repair first.
 
 1. **Focused fixes and UI refinement.** Keep resolving concrete lifecycle,
-   rendering, palette, and canvas usability problems as they arise. A small
-   first-run example project is a possible onboarding improvement. Broader
-   diagnostic interpretation, cached hover previews, collision-avoidance while
-   moving nodes, and automatic layout are deliberately low priority.
+   rendering, palette, canvas, and view usability problems as they arise.
+   The following UX work is intentionally collected here for separate design
+   discussions and small, well-bounded implementation tasks:
+
+   - simplify the top toolbar and move rendering controls next to the 3D view;
+     decide separately which project/file actions belong in an overflow menu;
+   - default-on live rendering with visible in-progress state and a safe
+     complexity cutoff: if a render exceeds 300 ms, disable live rendering and
+     explain why;
+   - make Inspect/preview mode clearer: dim nodes outside the inspected
+     subgraph and provide an unambiguous way to leave the preview;
+   - replace hover-driven node collapsing with explicit, default-expanded
+     `^` / `v` controls while retaining visible connections; make normal node
+     layouts compact enough that collapsing is rarely necessary;
+   - establish a consistent node visual language: Geometry nodes should use a
+     restrained background tint rather than a border that competes with
+     selection, and node layout/naming should be harmonized;
+   - give every node a compact contextual menu suitable for touch, covering at
+     least Delete and Duplicate. Move optional parameter additions there, while
+     direct parameter removal stays adjacent to the parameter. Add useful node
+     icons for recognition and palette scanning;
+   - add a small first-run example project as a possible onboarding
+     improvement.
+
+   Broader diagnostic interpretation, cached hover previews,
+   collision-avoidance while moving nodes, and automatic layout are
+   deliberately low priority.
 2. **Iteration / visual OpenSCAD `for`.** Start with Geometry iteration in Main
    and Module scopes and a loop-local binding. Its UI and exact range/list
    model must be settled before implementation; it does not imply general
