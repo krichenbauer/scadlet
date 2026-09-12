@@ -94,7 +94,7 @@ export class GeometryViewer extends LitElement {
       background: rgb(30 30 30 / 0.92);
     }
 
-    .live-toggle, .render-action {
+    .render-action {
       min-height: 28px;
       border: 1px solid #626262;
       border-radius: 4px;
@@ -103,11 +103,34 @@ export class GeometryViewer extends LitElement {
       font: 12px/1 system-ui, sans-serif;
       cursor: pointer;
     }
-    .live-toggle { padding: 0 8px; }
-    .live-toggle[aria-pressed='true'] { border-color: #5d96b8; background: #254051; }
+    .live-label { color: #d6d6d6; font: 12px/1 system-ui, sans-serif; }
+    .live-switch {
+      position: relative;
+      width: 34px;
+      height: 20px;
+      padding: 0;
+      border: 1px solid #666;
+      border-radius: 999px;
+      background: #303030;
+      cursor: pointer;
+    }
+    .live-switch::after {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #c6c6c6;
+      content: '';
+      transition: transform 120ms ease, background 120ms ease;
+    }
+    .live-switch[aria-checked='true'] { border-color: #5d96b8; background: #254f67; }
+    .live-switch[aria-checked='true']::after { transform: translateX(14px); background: #d8f0ff; }
     .render-action { min-width: 58px; padding: 0 10px; }
-    .live-toggle:hover, .render-action:hover { background: #3a3a3a; }
-    .live-toggle:focus-visible, .render-action:focus-visible { outline: 2px solid rgb(122 192 255 / 0.7); outline-offset: 2px; }
+    .live-switch:hover, .render-action:hover { background: #3a3a3a; }
+    .live-switch[aria-checked='true']:hover { background: #2b5974; }
+    .live-switch:focus-visible, .render-action:focus-visible { outline: 2px solid rgb(122 192 255 / 0.7); outline-offset: 2px; }
 
     .visually-hidden {
       position: absolute;
@@ -181,12 +204,8 @@ export class GeometryViewer extends LitElement {
       </button>
       ${this.rendering ? html`<span class="render-spinner" role="status" aria-label=${t('viewer.rendering')}></span>` : nothing}
       <div class="render-controls" aria-label=${t('viewer.renderControls')}>
-        <button
-          type="button"
-          class="live-toggle"
-          aria-pressed=${String(this.live)}
-          @click=${this.toggleLive}
-        >${t('viewer.live')}</button>
+        <span class="live-label">${t('viewer.live')}</span>
+        <button type="button" class="live-switch" role="switch" aria-label=${t('viewer.liveRender')} aria-checked=${String(this.live)} title=${t('viewer.liveRender')} @click=${this.toggleLive}></button>
         <button type="button" class="render-action" @click=${this.requestManualRender}>
           ${this.showStop ? t('toolbar.stop') : t('toolbar.render')}
         </button>

@@ -116,3 +116,8 @@ The viewer's bottom-edge strip holds the manual Render action and a default-on
 Live toggle. The Live toggle is a real accessible visual control, but must not
 schedule work until its dedicated behavior is implemented. A manual render
 shows a quiet upper-left spinner; Stop replaces Render only after 200 ms.
+
+Compact shell actions use the small local inline-SVG vocabulary rather than an
+external icon library. Icon-only controls retain a localized accessible name,
+native title tooltip, visible focus ring, and a 32px touch target. The Live
+control is labelled text plus an accessible `switch` slider with checked state.

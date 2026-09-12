@@ -6,6 +6,7 @@ import './components/node-editor'
 import './components/geometry-viewer'
 import './components/splitter'
 import './components/node-palette'
+import { compactIcon } from './components/icons'
 import type { NodeEditorElement } from './components/node-editor'
 import type { GeometryViewer } from './components/geometry-viewer'
 import type { SCADletEditor } from './editor/editor'
@@ -111,7 +112,12 @@ export class ScadletApp extends LitElement {
     .file-menu { width: 190px; }
     .project-menu-actions { display: flex; gap: 6px; align-items: center; }
     .project-menu-actions button:first-child { margin-right: auto; }
+    .icon-button {
+      display: grid; width: 32px; min-width: 32px; height: 32px; place-items: center; padding: 0;
+    }
+    .icon-button svg, .sort-icon svg { width: 17px; height: 17px; fill: none; stroke: currentcolor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
     .project-menu-sort { display: flex; align-items: center; gap: 6px; margin: 8px 0; font-size: 12px; }
+    .sort-icon { display: grid; width: 26px; height: 27px; place-items: center; color: #b8d8eb; }
     .project-menu-sort select { min-height: 27px; padding: 3px; border: 1px solid #666; border-radius: 4px; background: #242424; color: #eee; }
     .project-menu-list { display: grid; gap: 2px; max-height: min(50vh, 360px); overflow: auto; border-top: 1px solid #555; padding-top: 7px; }
     .project-row, .file-action {
@@ -455,7 +461,10 @@ export class ScadletApp extends LitElement {
   render() {
     return html`
       <header>
-        <h1>SCADlet</h1>
+        <div class="menu-anchor">
+          <button class="compact-menu-button" type="button" aria-expanded=${String(this.fileMenuOpen)} @click=${this._toggleFileMenu}>${t('toolbar.file')} ⌄</button>
+          ${this.fileMenuOpen ? this._filePopover() : nothing}
+        </div>
         <input
           type="text"
           class="project-name"
@@ -469,11 +478,8 @@ export class ScadletApp extends LitElement {
           <button class="compact-menu-button project-menu-button" type="button" aria-label=${t('toolbar.projects')} aria-expanded=${String(this.projectsMenuOpen)} @click=${this._toggleProjectsMenu}>⌄</button>
           ${this.projectsMenuOpen ? this._projectsPopover() : nothing}
         </div>
-        <div class="menu-anchor">
-          <button class="compact-menu-button" type="button" aria-expanded=${String(this.fileMenuOpen)} @click=${this._toggleFileMenu}>${t('toolbar.file')} ⌄</button>
-          ${this.fileMenuOpen ? this._filePopover() : nothing}
-        </div>
         <span class="header-spacer"></span>
+        <h1>SCADlet</h1>
         <a class="github-link" href="https://github.com/krichenbauer/scadlet" target="_blank" rel="noopener noreferrer" aria-label=${t('toolbar.github')} title=${t('toolbar.github')}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.64 0 8.13c0 3.59 2.29 6.64 5.47 7.71.4.08.55-.18.55-.4 0-.2-.01-.86-.01-1.56-2.01.38-2.53-.5-2.69-.96-.09-.24-.47-.96-.8-1.15-.27-.15-.65-.53-.01-.54.6-.01 1.03.56 1.17.79.69 1.18 1.8.85 2.24.65.07-.51.27-.85.49-1.04-1.78-.2-3.64-.91-3.64-4.04 0-.89.31-1.62.82-2.19-.08-.2-.36-1.04.08-2.17 0 0 .67-.22 2.2.84A7.46 7.46 0 0 1 8 4.83c.68 0 1.36.09 2 .27 1.53-1.06 2.2-.84 2.2-.84.44 1.13.16 1.97.08 2.17.51.57.82 1.29.82 2.19 0 3.14-1.87 3.84-3.65 4.04.29.25.54.72.54 1.46 0 1.05-.01 1.9-.01 2.17 0 .22.15.48.55.4A8.03 8.03 0 0 0 16 8.13C16 3.64 12.42 0 8 0Z" /></svg>
         </a>
@@ -564,11 +570,12 @@ export class ScadletApp extends LitElement {
     const ordered = active ? [active, ...others] : others
     return html`<div class="menu-popover" role="dialog" aria-label=${t('toolbar.projects')} @keydown=${this._onMenuKeydown}>
       <div class="project-menu-actions">
-        <button type="button" @click=${this._newProject} ?disabled=${this.localInitializing || !this.localStore}>${t('toolbar.newProject')}</button>
-        <button type="button" @click=${this._duplicateActiveProject} ?disabled=${this.localInitializing || !this.activeProjectId}>${t('toolbar.duplicate')}</button>
-        <button type="button" @click=${this._deleteCurrentProject} ?disabled=${this.localInitializing || (!this.activeProjectId && !this.failedProject)}>${t('toolbar.delete')}</button>
+        <button class="icon-button" type="button" aria-label=${t('toolbar.newProjectAction')} title=${t('toolbar.newProjectAction')} @click=${this._newProject} ?disabled=${this.localInitializing || !this.localStore}>${compactIcon('plus')}</button>
+        <button class="icon-button" type="button" aria-label=${t('toolbar.duplicateActiveProject')} title=${t('toolbar.duplicateActiveProject')} @click=${this._duplicateActiveProject} ?disabled=${this.localInitializing || !this.activeProjectId}>${compactIcon('copy')}</button>
+        <button class="icon-button" type="button" aria-label=${t('toolbar.deleteActiveProject')} title=${t('toolbar.deleteActiveProject')} @click=${this._deleteCurrentProject} ?disabled=${this.localInitializing || (!this.activeProjectId && !this.failedProject)}>${compactIcon('trash')}</button>
       </div>
       <label class="project-menu-sort">${t('toolbar.sort')}
+        <span class="sort-icon" title=${this.projectSort === 'alphabetical' ? t('toolbar.sortAlphabetical') : t('toolbar.sortRecent')} aria-hidden="true">${compactIcon(this.projectSort === 'alphabetical' ? 'sort-alpha' : 'clock')}</span>
         <select .value=${this.projectSort} @change=${this._changeProjectSort} aria-label=${t('toolbar.sort')}>
           <option value="alphabetical">${t('toolbar.sortAlphabetical')}</option>
           <option value="recent">${t('toolbar.sortRecent')}</option>
