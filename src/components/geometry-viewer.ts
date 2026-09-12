@@ -65,6 +65,50 @@ export class GeometryViewer extends LitElement {
     .view-recovery-control:disabled { cursor: default; opacity: 0.45; }
     .view-recovery-control svg { width: 17px; height: 17px; fill: none; stroke: currentcolor; stroke-width: 1.8; }
 
+    .render-spinner {
+      position: absolute;
+      z-index: 1;
+      top: 12px;
+      left: 12px;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgb(220 235 245 / 0.3);
+      border-top-color: #cfe9fa;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .render-controls {
+      position: absolute;
+      z-index: 1;
+      bottom: 10px;
+      left: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px;
+      border: 1px solid rgb(98 98 98 / 0.85);
+      border-radius: 5px;
+      background: rgb(30 30 30 / 0.92);
+    }
+
+    .live-toggle, .render-action {
+      min-height: 28px;
+      border: 1px solid #626262;
+      border-radius: 4px;
+      background: #292929;
+      color: #eee;
+      font: 12px/1 system-ui, sans-serif;
+      cursor: pointer;
+    }
+    .live-toggle { padding: 0 8px; }
+    .live-toggle[aria-pressed='true'] { border-color: #5d96b8; background: #254051; }
+    .render-action { min-width: 58px; padding: 0 10px; }
+    .live-toggle:hover, .render-action:hover { background: #3a3a3a; }
+    .live-toggle:focus-visible, .render-action:focus-visible { outline: 2px solid rgb(122 192 255 / 0.7); outline-offset: 2px; }
+
     .visually-hidden {
       position: absolute;
       width: 1px;
@@ -98,6 +142,17 @@ export class GeometryViewer extends LitElement {
   @property({ type: String })
   status = ''
 
+  /** Presentation-only default-on control. It deliberately has no render side effect yet. */
+  @property({ type: Boolean })
+  live = true
+
+  @property({ type: Boolean })
+  rendering = false
+
+  /** Stops are exposed only after the render has crossed the UI delay threshold. */
+  @property({ type: Boolean })
+  showStop = false
+
   private renderer?: THREE.WebGLRenderer
   private readonly scene = new THREE.Scene()
   private readonly camera = new THREE.PerspectiveCamera(50, 1, 0.1, 10000)
@@ -124,6 +179,18 @@ export class GeometryViewer extends LitElement {
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M8 8l3-3 3 3M12 5v9M9 12l3 3 3-3" /></svg>
         <span class="visually-hidden">${t('viewer.resetView')}</span>
       </button>
+      ${this.rendering ? html`<span class="render-spinner" role="status" aria-label=${t('viewer.rendering')}></span>` : nothing}
+      <div class="render-controls" aria-label=${t('viewer.renderControls')}>
+        <button
+          type="button"
+          class="live-toggle"
+          aria-pressed=${String(this.live)}
+          @click=${this.toggleLive}
+        >${t('viewer.live')}</button>
+        <button type="button" class="render-action" @click=${this.requestManualRender}>
+          ${this.showStop ? t('toolbar.stop') : t('toolbar.render')}
+        </button>
+      </div>
       ${this.status
         ? html`<p class="empty-geometry-status" role="status" aria-live="polite" aria-atomic="true">${this.status}</p>`
         : nothing}
@@ -304,6 +371,19 @@ export class GeometryViewer extends LitElement {
 
   private readonly stopRecoveryControlGesture = (event: PointerEvent): void => {
     event.stopPropagation()
+  }
+
+  private readonly toggleLive = (): void => {
+    // This intentionally only changes the control's own visual state. Live
+    // scheduling is a separately designed follow-up feature.
+    this.live = !this.live
+  }
+
+  private readonly requestManualRender = (): void => {
+    this.dispatchEvent(new CustomEvent(this.showStop ? 'manual-render-stop' : 'manual-render', {
+      bubbles: true,
+      composed: true,
+    }))
   }
 
   private readonly onUserCameraChange = (): void => {

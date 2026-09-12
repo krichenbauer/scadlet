@@ -102,3 +102,17 @@ All user-facing/accessibility natural-language labels use `t()` keys; internal
 node, category, port, and operation IDs remain stable and language-independent.
 The current dictionary is English-only. Do not add a full i18n framework or a
 language switcher merely in anticipation of German.
+
+## Application shell
+
+The header contains SCADlet, the directly editable active-project name, a
+Projects popover, File menu, and the GitHub icon. Enter and focus loss commit
+the project name through the normal dirty/autosave lifecycle. Projects manages
+only local IndexedDB records: New, Duplicate active, Delete active, active
+first, and ordering of the remaining rows. Portable open/save/export actions
+belong only in File. Do not add row-level rename/delete affordances.
+
+The viewer's bottom-edge strip holds the manual Render action and a default-on
+Live toggle. The Live toggle is a real accessible visual control, but must not
+schedule work until its dedicated behavior is implemented. A manual render
+shows a quiet upper-left spinner; Stop replaces Render only after 200 ms.

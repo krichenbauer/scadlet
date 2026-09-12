@@ -80,6 +80,10 @@ and teaching refinements remain future work.
 OpenSCAD source import is not a current requirement. The development source
 pane is for verification, not a code editor.
 
+The compact shell keeps local IndexedDB project management in Projects and
+portable `.scadlet`/source/STL actions in File. The default-on Live toggle is
+presentation-only until a separately scoped render-scheduling task.
+
 ## Decision order
 
 When alternatives are viable, prefer: educational clarity; browser-only/static

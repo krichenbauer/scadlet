@@ -11,7 +11,7 @@ import type { GeometryViewer } from './components/geometry-viewer'
 import type { SCADletEditor } from './editor/editor'
 import { ActiveProjectSession, createBrowserActiveProjectSession, resolveStartupProject, StartupProjectLoadError } from './persistence/active-project'
 import { AutosaveController, type AutosaveStatus } from './persistence/autosave'
-import { toScadletFilename } from './persistence/filename'
+import { sanitizeFilename, toScadletFilename } from './persistence/filename'
 import { createBrowserFileSystemCapability, pickFileWithInput, ProjectFileService } from './persistence/file-service'
 import {
   IndexedDBLocalProjectStore,
@@ -63,7 +63,7 @@ export class ScadletApp extends LitElement {
     header {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
       padding: 8px 12px;
       border-bottom: 1px solid #444;
       background: #202020;
@@ -76,8 +76,11 @@ export class ScadletApp extends LitElement {
     }
 
     .github-link {
+      display: grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
       color: inherit;
-      font-size: 12px;
       opacity: 0.75;
       text-decoration: none;
     }
@@ -85,8 +88,43 @@ export class ScadletApp extends LitElement {
     .github-link:hover,
     .github-link:focus-visible {
       opacity: 1;
-      text-decoration: underline;
     }
+    .github-link svg { width: 17px; height: 17px; fill: currentcolor; }
+
+    .header-spacer { flex: 1; }
+
+    .menu-anchor { position: relative; }
+    .compact-menu-button { min-height: 30px; padding: 4px 8px; }
+    .project-menu-button { width: 28px; min-width: 28px; padding: 0; }
+    .menu-popover {
+      position: absolute;
+      z-index: 5;
+      top: calc(100% + 6px);
+      left: 0;
+      width: min(340px, calc(100vw - 24px));
+      padding: 8px;
+      border: 1px solid #666;
+      border-radius: 6px;
+      background: #292929;
+      box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+    }
+    .file-menu { width: 190px; }
+    .project-menu-actions { display: flex; gap: 6px; align-items: center; }
+    .project-menu-actions button:first-child { margin-right: auto; }
+    .project-menu-sort { display: flex; align-items: center; gap: 6px; margin: 8px 0; font-size: 12px; }
+    .project-menu-sort select { min-height: 27px; padding: 3px; border: 1px solid #666; border-radius: 4px; background: #242424; color: #eee; }
+    .project-menu-list { display: grid; gap: 2px; max-height: min(50vh, 360px); overflow: auto; border-top: 1px solid #555; padding-top: 7px; }
+    .project-row, .file-action {
+      width: 100%; min-height: 32px; padding: 5px 7px; border: 1px solid transparent; border-radius: 4px;
+      background: transparent; color: #eee; text-align: left; font: inherit;
+    }
+    .project-row:hover, .file-action:hover { background: #393939; border-color: #555; }
+    .project-row--active { background: #253b49; color: #e0f3ff; }
+    .active-check { display: inline-block; width: 18px; }
+    .project-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-action + .file-action { margin-top: 2px; }
+    .file-menu .file-action { display: block; }
+    .menu-popover button:focus-visible, .menu-popover select:focus-visible { outline: 2px solid rgb(122 192 255 / 0.7); outline-offset: 1px; }
 
     button {
       font: inherit;
@@ -127,26 +165,6 @@ export class ScadletApp extends LitElement {
       border-color: #666;
     }
 
-    .dirty-indicator {
-      color: #f2b134;
-      font-size: 10px;
-    }
-
-    .project-picker {
-      max-width: 180px;
-      font: inherit;
-      padding: 4px 6px;
-      border: 1px solid #666;
-      border-radius: 4px;
-      background: #242424;
-      color: #eee;
-      color-scheme: dark;
-      user-select: auto;
-      -webkit-user-select: auto;
-    }
-
-    .project-picker option { background: #242424; color: #eee; }
-
     .persistence-status {
       margin: 0;
       padding: 6px 10px;
@@ -160,10 +178,6 @@ export class ScadletApp extends LitElement {
       display: inline-flex;
       gap: 6px;
       margin-left: 8px;
-    }
-
-    .toolbar-gap {
-      flex: 1;
     }
 
     .workspace {
@@ -356,6 +370,15 @@ export class ScadletApp extends LitElement {
   @state()
   private activeProjectId: string | null = null
 
+  @state()
+  private projectsMenuOpen = false
+
+  @state()
+  private fileMenuOpen = false
+
+  @state()
+  private projectSort: 'alphabetical' | 'recent' = 'recent'
+
   /** A project which could not be opened remains a library record, but is
    * never treated as the currently reconstructed editor state. */
   @state()
@@ -373,18 +396,13 @@ export class ScadletApp extends LitElement {
   @state()
   private scadSource = ''
 
-  /**
-   * Always the full-model OpenSCAD source, independent of Inspect Node -
-   * this is what ".scad" export must contain, even while `scadSource`
-   * (the dev-panel display and what's actually sent to OpenSCAD WASM) is
-   * showing an inspected subtree instead. Equal to `scadSource` whenever
-   * nothing is being inspected.
-   */
-  @state()
-  private exportSource = ''
-
   @state()
   private rendering = false
+
+  @state()
+  private showRenderStop = false
+
+  private renderStopTimer?: ReturnType<typeof setTimeout>
 
   @state()
   private renderError: string | null = null
@@ -438,59 +456,27 @@ export class ScadletApp extends LitElement {
     return html`
       <header>
         <h1>SCADlet</h1>
-        <a
-          class="github-link"
-          href="https://github.com/krichenbauer/scadlet"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label=${t('toolbar.github')}
-        >GitHub</a>
-        <button type="button" @click=${this._newProject} ?disabled=${this.localInitializing || !this.localStore}>
-          ${t('toolbar.new')}
-        </button>
-        <select
-          class="project-picker"
-          aria-label=${t('toolbar.localProject')}
-          .value=${this.activeProjectId ?? ''}
-          @change=${this._onLocalProjectSelected}
-          ?disabled=${this.localInitializing || !this.localStore || this.localProjects.length === 0}
-        >
-          ${this.localProjects.map(
-            (project) => html`<option value=${project.id} ?selected=${project.id === this.activeProjectId}>
-              ${project.name}
-            </option>`,
-          )}
-        </select>
-        <button
-          type="button"
-          @click=${this._deleteCurrentProject}
-          ?disabled=${this.localInitializing || !this.localStore || (!this.activeProjectId && !this.failedProject)}
-        >
-          ${t('toolbar.delete')}
-        </button>
         <input
           type="text"
           class="project-name"
           .value=${this.projectMetadata.name}
-          @change=${this._onProjectNameChange}
+          @blur=${this._commitProjectName}
+          @keydown=${this._onProjectNameKeydown}
           ?disabled=${this.localInitializing}
           aria-label=${t('toolbar.projectName')}
         />
-        ${this.dirty
-          ? html`<span class="dirty-indicator" title=${t('toolbar.autosavePending')}>●</span>`
-          : nothing}
-        <span class="toolbar-gap"></span>
-        <button type="button" @click=${this._open} ?disabled=${this.localInitializing}>${t('toolbar.open')}</button>
-        <button type="button" @click=${this._save} ?disabled=${this.localInitializing}>${t('toolbar.save')}</button>
-        <button type="button" @click=${this._saveAs} ?disabled=${this.localInitializing}>${t('toolbar.saveAs')}</button>
-        <button type="button" @click=${this._render} ?disabled=${this.localInitializing}>
-          ${this.rendering ? t('toolbar.rendering') : t('toolbar.render')}
-        </button>
-        <button type="button" @click=${this._stop} ?disabled=${!this.rendering}>${t('toolbar.stop')}</button>
-        <button type="button" @click=${this._downloadScad} ?disabled=${!this.exportSource}>
-          ${t('toolbar.downloadScad')}
-        </button>
-        <button type="button" @click=${this._downloadStl} ?disabled=${!this.stl}>${t('toolbar.downloadStl')}</button>
+        <div class="menu-anchor">
+          <button class="compact-menu-button project-menu-button" type="button" aria-label=${t('toolbar.projects')} aria-expanded=${String(this.projectsMenuOpen)} @click=${this._toggleProjectsMenu}>⌄</button>
+          ${this.projectsMenuOpen ? this._projectsPopover() : nothing}
+        </div>
+        <div class="menu-anchor">
+          <button class="compact-menu-button" type="button" aria-expanded=${String(this.fileMenuOpen)} @click=${this._toggleFileMenu}>${t('toolbar.file')} ⌄</button>
+          ${this.fileMenuOpen ? this._filePopover() : nothing}
+        </div>
+        <span class="header-spacer"></span>
+        <a class="github-link" href="https://github.com/krichenbauer/scadlet" target="_blank" rel="noopener noreferrer" aria-label=${t('toolbar.github')} title=${t('toolbar.github')}>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.64 0 8.13c0 3.59 2.29 6.64 5.47 7.71.4.08.55-.18.55-.4 0-.2-.01-.86-.01-1.56-2.01.38-2.53-.5-2.69-.96-.09-.24-.47-.96-.8-1.15-.27-.15-.65-.53-.01-.54.6-.01 1.03.56 1.17.79.69 1.18 1.8.85 2.24.65.07-.51.27-.85.49-1.04-1.78-.2-3.64-.91-3.64-4.04 0-.89.31-1.62.82-2.19-.08-.2-.36-1.04.08-2.17 0 0 .67-.22 2.2.84A7.46 7.46 0 0 1 8 4.83c.68 0 1.36.09 2 .27 1.53-1.06 2.2-.84 2.2-.84.44 1.13.16 1.97.08 2.17.51.57.82 1.29.82 2.19 0 3.14-1.87 3.84-3.65 4.04.29.25.54.72.54 1.46 0 1.05-.01 1.9-.01 2.17 0 .22.15.48.55.4A8.03 8.03 0 0 0 16 8.13C16 3.64 12.42 0 8 0Z" /></svg>
+        </a>
       </header>
       <div class="workspace">
         <node-palette
@@ -513,7 +499,7 @@ export class ScadletApp extends LitElement {
             class="side"
             style=${styleMap({ '--viewer-height': this.viewerHeight ? `${this.viewerHeight}px` : undefined })}
           >
-            <geometry-viewer .status=${this.renderInfo ?? ''}></geometry-viewer>
+            <geometry-viewer .status=${this.renderInfo ?? ''} .rendering=${this.rendering} .showStop=${this.showRenderStop} @manual-render=${this._render} @manual-render-stop=${this._stop}></geometry-viewer>
             <layout-splitter orientation="horizontal" @splitter-move=${this._onSideSplitterMove}></layout-splitter>
             <div class="bottom-panel">
               <pre class="scad-output">${this.scadSource || `// ${t('toolbar.renderHint')}`}</pre>
@@ -566,6 +552,69 @@ export class ScadletApp extends LitElement {
         </div>
       ` : nothing}
     `
+  }
+
+  private _projectsPopover() {
+    const active = this.localProjects.find((project) => project.id === this.activeProjectId)
+    const others = this.localProjects
+      .filter((project) => project.id !== this.activeProjectId)
+      .sort((a, b) => this.projectSort === 'alphabetical'
+        ? a.name.localeCompare(b.name) || b.updatedAt.localeCompare(a.updatedAt)
+        : b.updatedAt.localeCompare(a.updatedAt) || a.name.localeCompare(b.name))
+    const ordered = active ? [active, ...others] : others
+    return html`<div class="menu-popover" role="dialog" aria-label=${t('toolbar.projects')} @keydown=${this._onMenuKeydown}>
+      <div class="project-menu-actions">
+        <button type="button" @click=${this._newProject} ?disabled=${this.localInitializing || !this.localStore}>${t('toolbar.newProject')}</button>
+        <button type="button" @click=${this._duplicateActiveProject} ?disabled=${this.localInitializing || !this.activeProjectId}>${t('toolbar.duplicate')}</button>
+        <button type="button" @click=${this._deleteCurrentProject} ?disabled=${this.localInitializing || (!this.activeProjectId && !this.failedProject)}>${t('toolbar.delete')}</button>
+      </div>
+      <label class="project-menu-sort">${t('toolbar.sort')}
+        <select .value=${this.projectSort} @change=${this._changeProjectSort} aria-label=${t('toolbar.sort')}>
+          <option value="alphabetical">${t('toolbar.sortAlphabetical')}</option>
+          <option value="recent">${t('toolbar.sortRecent')}</option>
+        </select>
+      </label>
+      <div class="project-menu-list">
+        ${ordered.map((project) => html`<button type="button" class="project-row ${project.id === this.activeProjectId ? 'project-row--active' : ''}" @click=${() => this._selectProjectRow(project.id)}>
+          <span class="active-check" aria-hidden="true">${project.id === this.activeProjectId ? '✓' : ''}</span><span class="project-row-name">${project.name}</span>
+        </button>`)}
+      </div>
+    </div>`
+  }
+
+  private _filePopover() {
+    return html`<div class="menu-popover file-menu" role="menu" aria-label=${t('toolbar.file')} @keydown=${this._onMenuKeydown}>
+      <button type="button" class="file-action" role="menuitem" @click=${this._open}>${t('toolbar.open')}</button>
+      <button type="button" class="file-action" role="menuitem" @click=${this._saveAs}>${t('toolbar.saveScadlet')}</button>
+      <button type="button" class="file-action" role="menuitem" @click=${this._downloadScad}>${t('toolbar.downloadScad')}</button>
+      <button type="button" class="file-action" role="menuitem" @click=${this._downloadStl}>${t('toolbar.downloadStl')}</button>
+    </div>`
+  }
+
+  private readonly _toggleProjectsMenu = (): void => {
+    this.projectsMenuOpen = !this.projectsMenuOpen
+    if (this.projectsMenuOpen) this.fileMenuOpen = false
+  }
+
+  private readonly _toggleFileMenu = (): void => {
+    this.fileMenuOpen = !this.fileMenuOpen
+    if (this.fileMenuOpen) this.projectsMenuOpen = false
+  }
+
+  private readonly _changeProjectSort = (event: Event): void => {
+    this.projectSort = (event.target as HTMLSelectElement).value === 'alphabetical' ? 'alphabetical' : 'recent'
+  }
+
+  private readonly _onMenuKeydown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape') return
+    event.stopPropagation()
+    this.projectsMenuOpen = false
+    this.fileMenuOpen = false
+  }
+
+  private readonly _selectProjectRow = (id: string): void => {
+    this.projectsMenuOpen = false
+    if (id !== this.activeProjectId) void this._switchLocalProject(id)
   }
 
   firstUpdated() {
@@ -672,7 +721,12 @@ export class ScadletApp extends LitElement {
       onStateChange: (state) => {
         this.dirty = state.dirty
         this.autosaveStatus = state.status
-        this.persistenceMessage = state.message
+        // Successful and in-progress IndexedDB autosaves are deliberately
+        // silent. Only a real write failure (or the pre-existing explicit
+        // cross-tab conflict recovery path) merits persistent feedback.
+        this.persistenceMessage = state.status === 'error'
+          ? 'Local saving failed; recent changes may be lost.'
+          : state.status === 'conflict' ? state.message : null
       },
     })
   }
@@ -745,7 +799,6 @@ export class ScadletApp extends LitElement {
     this.renderError = null
     this.renderInfo = null
     this.scadSource = ''
-    this.exportSource = ''
     this.stl = null
     this.viewer.clear()
   }
@@ -757,12 +810,6 @@ export class ScadletApp extends LitElement {
       this.persistenceMessage ??= 'Could not autosave this project, so SCADlet did not switch projects.'
     }
     return saved
-  }
-
-  private readonly _onLocalProjectSelected = (event: Event): void => {
-    const id = (event.target as HTMLSelectElement).value
-    if (!id || id === this.activeProjectId) return
-    void this._switchLocalProject(id)
   }
 
   private async _switchLocalProject(id: string): Promise<void> {
@@ -794,6 +841,31 @@ export class ScadletApp extends LitElement {
       await this._refreshProjectList()
     } catch (error) {
       this.persistenceMessage = `Could not create a local project: ${this._errorMessage(error)}`
+    }
+  }
+
+  private readonly _duplicateActiveProject = (): void => {
+    void this._duplicateCurrentProject()
+  }
+
+  /** Creates a new local record from the complete canonical project payload;
+   * the local store assigns the distinct browser identity and timestamps. */
+  private async _duplicateCurrentProject(): Promise<void> {
+    if (!this.localStore || !this.editorInstance || !this.activeProjectId || !(await this._canLeaveCurrentProject())) return
+    const source = this._buildProject(this.editorInstance)
+    const existingNames = new Set(this.localProjects.map((project) => project.name))
+    const base = `${source.metadata.name} copy`
+    let name = base
+    let suffix = 2
+    while (existingNames.has(name)) name = `${base} ${suffix++}`
+    try {
+      const stored = await this.localStore.createProject({ ...source, metadata: { ...source.metadata, name } })
+      await this._applyStoredProject(stored)
+      this.localEvents?.publish({ type: 'project-created', projectId: stored.id, revision: stored.revision })
+      await this._refreshProjectList()
+      this.projectsMenuOpen = false
+    } catch (error) {
+      this.persistenceMessage = `Could not duplicate the local project: ${this._errorMessage(error)}`
     }
   }
 
@@ -1072,11 +1144,18 @@ export class ScadletApp extends LitElement {
     }
   }
 
-  private _onProjectNameChange(event: Event): void {
+  private readonly _onProjectNameKeydown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Enter') return
+    event.preventDefault()
+    ;(event.target as HTMLInputElement).blur()
+  }
+
+  private readonly _commitProjectName = (event: Event): void => {
     const input = event.target as HTMLInputElement
     const trimmed = input.value.trim()
     const name = trimmed || UNTITLED_PROJECT_NAME
     input.value = name
+    if (name === this.projectMetadata.name && this.hasExplicitName === (trimmed.length > 0)) return
     this.projectMetadata = { ...this.projectMetadata, name }
     this.hasExplicitName = trimmed.length > 0
     this._markDirty()
@@ -1177,43 +1256,38 @@ export class ScadletApp extends LitElement {
     }
   }
 
-  private async _save(): Promise<void> {
-    const instance = await this.nodeEditor.whenReady()
-    const name = this._ensureProjectName()
-    if (!name) return
-
-    try {
-      const project = this._buildProject(instance)
-      const saved = await this.fileService.save(project, toScadletFilename(name))
-      if (!saved) return // User cancelled the save picker - dirty state and metadata are unchanged.
-      if (!this.autosave) {
-        this.projectMetadata = project.metadata
-        this.dirty = false
-      }
-    } catch (error) {
-      this.renderError = error instanceof Error ? error.message : String(error)
-    }
-  }
-
   private readonly _onKeyDown = (event: KeyboardEvent): void => {
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return
     event.preventDefault()
-    void this._save()
+    void this._saveAs()
   }
 
   private _beginExecution(kind: 'render' | 'inspect'): number {
     const generation = this.executionGeneration.begin()
     if (this.renderController.isRendering) this.renderController.stop()
+    if (this.renderStopTimer) clearTimeout(this.renderStopTimer)
     this.activeExecution = kind
+    if (kind === 'inspect' || kind === 'render') {
+      // A running replacement is never allowed to expose prior bytes as a
+      // fresh export. The visible mesh itself remains until success.
+      this.stl = null
+    }
     this.rendering = true
+    this.showRenderStop = false
+    this.renderStopTimer = setTimeout(() => {
+      if (this.rendering && this.activeExecution === kind) this.showRenderStop = true
+    }, 200)
     this.renderError = null
     return generation
   }
 
   private _finishExecution(generation: number): void {
     if (!this.executionGeneration.isCurrent(generation)) return
+    if (this.renderStopTimer) clearTimeout(this.renderStopTimer)
+    this.renderStopTimer = undefined
     this.activeExecution = null
     this.rendering = false
+    this.showRenderStop = false
   }
 
   /** A semantic edit makes an in-flight Inspect obsolete. The existing last
@@ -1224,6 +1298,9 @@ export class ScadletApp extends LitElement {
     // The empty-preview note describes a completed Geometry result. A graph
     // edit leaves the blank canvas in place but makes that old result stale.
     this.renderInfo = null
+    // Keep the old successful mesh visible as helpful context, but never
+    // treat its bytes as an export for the changed graph.
+    this.stl = null
     if (this.activeExecution !== 'inspect') return
     this.executionGeneration.invalidate()
     this.activeExecution = null
@@ -1244,7 +1321,6 @@ export class ScadletApp extends LitElement {
       // Inspect root never changes normal preview or `.scad` export scope.
       const source = await this.nodeEditor.evaluate()
       if (!this.executionGeneration.isCurrent(generation)) return
-      this.exportSource = source
       this.scadSource = source
       if (!source.trim()) {
         this.renderError = 'Nothing to render - add at least one node.'
@@ -1281,12 +1357,6 @@ export class ScadletApp extends LitElement {
       const inspected = await this.nodeEditor.evaluateInspect(nodeId)
       if (!this.executionGeneration.isCurrent(generation) || inspected.kind === 'missing') return
 
-      // Retain a complete `.scad` export while rendering/evaluating only the
-      // temporary Inspect root. This is evaluation only, never a second render.
-      const fullSource = await this.nodeEditor.evaluate()
-      if (!this.executionGeneration.isCurrent(generation)) return
-      this.exportSource = fullSource
-
       if (inspected.kind === 'value') {
         const source = inspected.source ?? `echo("__SCADLET_VALUE__:", ${inspected.expression});`
         const value = await this.renderController.inspectValue(source)
@@ -1314,7 +1384,9 @@ export class ScadletApp extends LitElement {
         this.editorInstance?.clearInspect()
       } else {
         this.renderInfo = null
-        this.stl = result.stl
+        // Inspect is a transient subtree preview, never a whole-project STL
+        // export. Downloading STL after an Inspect therefore runs Render.
+        this.stl = null
         this.viewer.showSTL(result.stl)
         this.editorInstance?.commitGeometryInspect(nodeId)
       }
@@ -1332,19 +1404,33 @@ export class ScadletApp extends LitElement {
 
   private _stop() {
     this.executionGeneration.invalidate()
+    if (this.renderStopTimer) clearTimeout(this.renderStopTimer)
+    this.renderStopTimer = undefined
     this.activeExecution = null
     this.renderController.stop()
     this.rendering = false
+    this.showRenderStop = false
   }
 
-  private _downloadScad() {
-    if (!this.exportSource) return
-    triggerDownload(scadBlob(this.exportSource), 'scadlet-model.scad')
+  private async _downloadScad() {
+    try {
+      const source = await this.nodeEditor.evaluate()
+      this.scadSource = source
+      triggerDownload(scadBlob(source), this._exportFilename('.scad'))
+    } catch (error) {
+      this.renderError = this._errorMessage(error)
+    }
   }
 
-  private _downloadStl() {
-    if (!this.stl) return
-    triggerDownload(stlBlob(this.stl), 'scadlet-model.stl')
+  private async _downloadStl() {
+    // A changed graph invalidates `stl`; use the normal manual render path
+    // and download only a successful non-empty result from that same source.
+    if (!this.stl) await this._render()
+    if (this.stl) triggerDownload(stlBlob(this.stl), this._exportFilename('.stl'))
+  }
+
+  private _exportFilename(extension: '.scad' | '.stl'): string {
+    return `${sanitizeFilename(this.projectMetadata.name)}${extension}`
   }
 
   disconnectedCallback() {
@@ -1359,6 +1445,7 @@ export class ScadletApp extends LitElement {
     this.localEvents?.close()
     this.autosave?.destroy()
     this.renderController.destroy()
+    if (this.renderStopTimer) clearTimeout(this.renderStopTimer)
     this.mainResizeObserver?.disconnect()
     this.sideResizeObserver?.disconnect()
   }

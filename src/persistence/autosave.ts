@@ -47,8 +47,12 @@ export class AutosaveController {
     this.generation += 1
     this.dirty = true
     if (this.status !== 'conflict') {
-      this.status = 'idle'
-      this.message = null
+      // A real write failure stays visible until a replacement write has
+      // actually succeeded. A new edit does, however, schedule that retry.
+      if (this.status !== 'error') {
+        this.status = 'idle'
+        this.message = null
+      }
       this.schedule()
     }
     this.notify()
@@ -119,8 +123,10 @@ export class AutosaveController {
       return Promise.resolve(false)
     }
 
-    this.status = 'saving'
-    this.message = null
+    if (this.status !== 'error') {
+      this.status = 'saving'
+      this.message = null
+    }
     this.notify()
     this.inFlight = this.options
       .save(project)
@@ -167,6 +173,6 @@ export class AutosaveController {
   }
 
   private isBlocked(): boolean {
-    return this.status === 'conflict' || this.status === 'error'
+    return this.status === 'conflict'
   }
 }

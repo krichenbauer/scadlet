@@ -54,3 +54,8 @@ silent same-project last-writer-wins. `BroadcastChannel` may notify tabs of
 library changes but is never a second source of truth or a merge mechanism.
 On conflict, block overwrite and offer an explicit recovery route. Do not add a
 backend, synchronization framework, or CRDT behavior.
+
+Successful autosaves are intentionally silent in the application shell. An
+actual IndexedDB write failure is persistent, accessible feedback that recent
+changes may be lost; a later successful autosave clears it. Project rename,
+switch, import, and rendering must not manufacture autosave-failure feedback.

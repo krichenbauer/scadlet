@@ -48,6 +48,23 @@ describe('AutosaveController', () => {
     controller.destroy()
   })
 
+  it('keeps a write failure visible until a later retry succeeds', async () => {
+    const project = createEmptyProject('Retry')
+    const save = vi.fn()
+      .mockRejectedValueOnce(new Error('quota exceeded'))
+      .mockResolvedValueOnce(stored(project, 3))
+    const controller = new AutosaveController({ capture: () => project, save, debounceMs: 60_000 })
+
+    controller.markDirty()
+    await expect(controller.flush()).resolves.toBe(false)
+    const failure = controller.state.message
+    controller.markDirty()
+    expect(controller.state).toMatchObject({ dirty: true, status: 'error', message: failure })
+    await expect(controller.flush()).resolves.toBe(true)
+    expect(controller.state).toEqual({ dirty: false, status: 'idle', message: null })
+    controller.destroy()
+  })
+
   it('keeps work dirty and enters conflict state on a stale revision', async () => {
     const project = createEmptyProject('B')
     const controller = new AutosaveController({
@@ -124,4 +141,3 @@ describe('AutosaveController', () => {
     controller.destroy()
   })
 })
-

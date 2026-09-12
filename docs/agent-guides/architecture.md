@@ -51,6 +51,10 @@ OpenSCAD/WASM instance: reusing one `createOpenSCAD()` instance for multiple
 creates a clean one. The Manifold backend and binary STL output are deliberate
 performance choices. Never silently lower explicit detail such as `$fn`.
 
+The default-on Live control in the viewer is currently UI-only. It must not be
+treated as a second render path, scheduler, debounce mechanism, or persistent
+preference until a separately agreed implementation connects it to this flow.
+
 Generated source must be valid and readable. Preview, `.scad`, and `.stl` use
 the same source; no JSCAD/replicad/other preview semantics. Imported `.scad`
 is out of scope. Definitions are emitted once in deterministic dependency
