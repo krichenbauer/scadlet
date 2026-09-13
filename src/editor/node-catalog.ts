@@ -140,6 +140,11 @@ export interface NodeCreationContext {
    * active parameter ports. Returning false protects live connections from
    * becoming hidden even if a caller bypasses the disabled DOM selector. */
   canRemoveInputs?(nodeId: string, inputKeys: readonly string[]): boolean
+  /** Row-level parameter/form removal (node-style.md "Remove parameter"):
+   * confirms and disconnects any wires attached to `inputKeys` (using the
+   * established concise confirmation flow) before the node removes its own
+   * ports/controls. Resolves `false` when the user cancels. */
+  requestRemoveForm?(nodeId: string, inputKeys: readonly string[], label: string): Promise<boolean>
   /** Resolves a project-owned Module by its stable ID while constructing a
    * generic `module-call`; absent in DOM-free tests that never create calls. */
   getModuleDefinition?(definitionId: string): ModuleDefinition | undefined
@@ -526,7 +531,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
       node = new CubeNode(
         params ? validateCubeParams(params) : undefined,
         () => context.onControlsChanged(node.id),
-        (keys) => context.canRemoveInputs?.(node.id, keys) ?? true,
+        (keys, label) => context.requestRemoveForm?.(node.id, keys, label) ?? Promise.resolve(true),
       )
       return node
     },
@@ -556,7 +561,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
       node = new CylinderNode(
         params ? validateCylinderParams(params) : {},
         () => context.onControlsChanged(node.id),
-        (keys) => context.canRemoveInputs?.(node.id, keys) ?? true,
+        (keys, label) => context.requestRemoveForm?.(node.id, keys, label) ?? Promise.resolve(true),
       )
       return node
     },
@@ -583,7 +588,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
       node = new SphereNode(
         params ? validateSphereParams(params) : {},
         () => context.onControlsChanged(node.id),
-        (keys) => context.canRemoveInputs?.(node.id, keys) ?? true,
+        (keys, label) => context.requestRemoveForm?.(node.id, keys, label) ?? Promise.resolve(true),
       )
       return node
     },
@@ -609,7 +614,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
       node = new TranslateNode(
         params ? validateVector3Params(params, 'Translate') : undefined,
         () => context.onControlsChanged(node.id),
-        (keys) => context.canRemoveInputs?.(node.id, keys) ?? true,
+        (keys, label) => context.requestRemoveForm?.(node.id, keys, label) ?? Promise.resolve(true),
       )
       return node
     },
@@ -635,7 +640,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
       node = new RotateNode(
         params ? validateVector3Params(params, 'Rotate') : undefined,
         () => context.onControlsChanged(node.id),
-        (keys) => context.canRemoveInputs?.(node.id, keys) ?? true,
+        (keys, label) => context.requestRemoveForm?.(node.id, keys, label) ?? Promise.resolve(true),
       )
       return node
     },
@@ -661,7 +666,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
       node = new ScaleNode(
         params ? validateVector3Params(params, 'Scale') : undefined,
         () => context.onControlsChanged(node.id),
-        (keys) => context.canRemoveInputs?.(node.id, keys) ?? true,
+        (keys, label) => context.requestRemoveForm?.(node.id, keys, label) ?? Promise.resolve(true),
       )
       return node
     },
@@ -730,6 +735,7 @@ export const NODE_CATALOG: readonly NodeCatalogEntry[] = CATALOG_ENTRIES.map((en
       },
       notifyDirty: context.notifyDirty,
       canRemoveInputs: context.canRemoveInputs,
+      requestRemoveForm: context.requestRemoveForm,
       getModuleDefinition: context.getModuleDefinition,
       requestTrigonometryOperationChange: context.requestTrigonometryOperationChange,
     }

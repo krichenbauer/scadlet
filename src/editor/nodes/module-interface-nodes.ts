@@ -2,14 +2,14 @@ import { ClassicPreset } from 'rete'
 import type { DataflowNode } from 'rete-engine'
 
 import { t } from '../../i18n/translate'
-import { ModuleGeometryInputAddControl, ModuleGeometryInputEditControl, ModuleParameterAddControl, ModuleParameterEditControl } from '../controls'
+import { ModuleGeometryInputAddControl, ModuleGeometryInputEditControl, ModuleParameterAddControl, ModuleParameterEditControl, ParameterActionsControl, type ParameterAction, type RemovableRow } from '../controls'
 import { booleanSocket, geometrySocket, numberSocket, vector3Socket, type BooleanValue, type GeometryValue, type NumberValue, type Vector3Value } from '../sockets'
 import { moduleGeometryInputPortId, moduleParameterPortId, type ModuleGeometryInput, type ModuleParameter } from '../definitions'
 
 /** The fixed parameter interface of a Module definition. Phase 1 has no
  * parameters yet, but the node is a real, stable part of that definition's
  * graph rather than a decorative frame label. */
-export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, Record<string, ClassicPreset.Socket>, { addParameter: ModuleParameterAddControl; editParameter: ModuleParameterEditControl; addGeometryInput: ModuleGeometryInputAddControl; editGeometryInput: ModuleGeometryInputEditControl }> implements DataflowNode {
+export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, Record<string, ClassicPreset.Socket>, { addParameter: ModuleParameterAddControl; editParameter: ModuleParameterEditControl; addGeometryInput: ModuleGeometryInputAddControl; editGeometryInput: ModuleGeometryInputEditControl; addActions: ParameterActionsControl }> implements DataflowNode {
   private parameters: readonly ModuleParameter[]
   private geometryInputs: readonly ModuleGeometryInput[]
   constructor(parameters: readonly ModuleParameter[] = [], geometryInputs: readonly ModuleGeometryInput[] = []) {
@@ -24,6 +24,55 @@ export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, 
       () => {},
     ))
     this.addControl('editParameter', new ModuleParameterEditControl(() => {}, () => {}))
+    // Both interface item categories are always addable (repeatable) - the
+    // header Add menu is never hidden or disabled for Module Inputs.
+    this.addControl('addActions', new ParameterActionsControl(() => this.addActionsList()))
+  }
+
+  private addActionsList(): readonly ParameterAction[] {
+    return [
+      { id: 'add-geometry-input', label: t('definition.addGeometryInput'), run: () => this.controls.addGeometryInput.show() },
+      { id: 'add-parameter', label: t('definition.addParameter'), run: () => this.controls.addParameter.show() },
+    ]
+  }
+
+  /** Row-level Remove buttons, reusing the same confirm-gated delete
+   * lifecycle already wired through `configureGeometryInputEditing`/
+   * `configureParameterEditing`'s `onDelete` - no parallel mutation path.
+   * A thrown failure (e.g. a broken confirmation) is surfaced through the
+   * same edit control's `error`/`onChange`, since neither control renders
+   * its own row-level UI otherwise. */
+  removableRows(): readonly RemovableRow[] {
+    return [
+      ...this.geometryInputs.map((input): RemovableRow => ({
+        key: moduleGeometryInputPortId(input.id), label: input.name,
+        requestRemove: async () => {
+          const control = this.controls.editGeometryInput
+          control.error = null
+          try {
+            return await Promise.resolve(control.onDelete(input.id))
+          } catch (error) {
+            control.error = error instanceof Error ? error.message : String(error)
+            control.onChange()
+            return false
+          }
+        },
+      })),
+      ...this.parameters.map((parameter): RemovableRow => ({
+        key: moduleParameterPortId(parameter.id), label: parameter.name,
+        requestRemove: async () => {
+          const control = this.controls.editParameter
+          control.error = null
+          try {
+            return await Promise.resolve(control.onDelete(parameter.id))
+          } catch (error) {
+            control.error = error instanceof Error ? error.message : String(error)
+            control.onChange()
+            return false
+          }
+        },
+      })),
+    ]
   }
 
   configureGeometryInputEditing(onChange: () => void, onAdd: (name: string) => boolean | void | Promise<boolean | void>, onSubmit: (id: string, name: string) => boolean | void | Promise<boolean | void>, onDelete: (id: string) => boolean | Promise<boolean>, onMove: (id: string, direction: -1 | 1) => boolean | void | Promise<boolean | void>): void {

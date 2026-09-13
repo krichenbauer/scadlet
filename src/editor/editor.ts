@@ -223,6 +223,17 @@ export async function transitionTrigonometryOperation(
 export async function createEditor(container: HTMLElement): Promise<SCADletEditor> {
   const editor = new NodeEditor<Schemes>()
   const area = new AreaPlugin<Schemes, AreaExtra>(container)
+  // AreaPlugin sets an inline `overflow: hidden` on its own container
+  // (undoing any stylesheet rule, since inline styles always win) to block
+  // native touch scrolling. Panning/zooming here is entirely our own CSS
+  // transform on the content holder, so the container must never actually
+  // become a native scroll target either - otherwise a plain focus() call
+  // on any descendant (e.g. restoring focus to a re-rendered Collapse
+  // button) triggers the browser's built-in scroll-into-view behavior,
+  // silently panning the whole graph via scrollLeft/scrollTop outside any
+  // tracked transform state. `clip` (unlike `hidden`) makes scrolling truly
+  // inert, including programmatic/focus-driven scroll.
+  container.style.overflow = 'clip'
   const connection = new ConnectionPlugin<Schemes, AreaExtra>()
   const connectionGesture = new ConnectionGestureManager()
   const connectionSelection = new ConnectionSelectionManager()
@@ -706,10 +717,37 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return changed
   }
 
+  /** Confirm-gated (established concise warning flow) removal of a built-in
+   * dynamic node's parameter/form: disconnects any wires on `inputKeys`
+   * before the node's own `removableRows()` entry mutates its ports and
+   * controls (node-style.md "Remove parameter"). */
+  async function requestRemoveForm(nodeId: string, inputKeys: readonly string[], label: string): Promise<boolean> {
+    const doomed = editor.getConnections().filter((item) => item.target === nodeId && inputKeys.includes(item.targetInput))
+    if (doomed.length > 0) {
+      let confirmed = false
+      try { confirmed = window.confirm(t('control.confirmRemoveForm').replace('{name}', label).replace('{count}', String(doomed.length))) } catch { confirmed = false }
+      if (!confirmed) return false
+    }
+    const previousDirtySuspended = dirtySuspended
+    dirtySuspended = true
+    try {
+      if (doomed.length > 0) {
+        connection.drop()
+        connectionGesture.cancel()
+        for (const item of doomed) await editor.removeConnection(item.id)
+      }
+    } finally {
+      dirtySuspended = previousDirtySuspended
+    }
+    if (!previousDirtySuspended) notifySemanticDirty()
+    return true
+  }
+
   const creationContext: NodeCreationContext = {
     onControlsChanged: (id) => { void area.update('node', id); notifySemanticDirty() },
     notifyDirty: notifySemanticDirty,
     canRemoveInputs: (nodeId, keys) => !hasConnectedInputs(editor, nodeId, keys),
+    requestRemoveForm,
     getModuleDefinition: (definitionId) => definitions.get(definitionId),
     requestTrigonometryOperationChange,
   }

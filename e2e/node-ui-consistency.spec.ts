@@ -93,7 +93,7 @@ test('More menu exposes only the actions applicable to each node kind', async ({
   await expect(number.getByRole('menuitem', { name: 'Delete' })).toHaveCount(1)
 
   // Fixed compact interfaces still expose Delete/Inspect but never Collapse.
-  await dropPaletteNode(page, 'conditional', { x: canvas.x + 600, y: canvas.y + 120 })
+  await dropPaletteNode(page, 'conditional', { x: canvas.x + 120, y: canvas.y + 260 })
   const conditional = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Conditional' }) })
   await expect(conditional.locator('.node-collapse')).toHaveCount(0)
   await conditional.locator('.node-more-summary').click()
@@ -230,8 +230,11 @@ test('regression: palette icons, Geometry-versus-value styling, Value-node renam
   await expect(functionFrame.getByRole('menuitem', { name: 'Delete' })).toHaveCount(1)
   await page.keyboard.press('Escape')
 
-  // Normally collapsible nodes keep Collapse; Value Conditional/Geometry If
-  // remain fixed, compact interfaces with no such control.
+  // Normally collapsible nodes keep Collapse once a parameter category has
+  // been added; Value Conditional/Geometry If remain fixed, compact
+  // interfaces with no such control regardless.
+  await cube.locator('.node-add-summary').click()
+  await cube.getByRole('button', { name: 'Center', exact: true }).click()
   await expect(cube.locator('.node-collapse')).toHaveCount(1)
   await dropPaletteNode(page, 'conditional', { x: canvas.x + 620, y: canvas.y + 120 })
   const conditional = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Conditional' }) })

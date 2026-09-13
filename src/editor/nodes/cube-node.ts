@@ -3,11 +3,10 @@ import type { DataflowNode } from 'rete-engine'
 
 import { cubeToOpenSCAD, type CubeParams, type CubeSizeRepresentation, type Vector3Params } from '../../openscad/cube'
 import { t } from '../../i18n/translate'
-import { CheckboxControl, LabeledNumberControl, ParameterActionsControl, RepresentationSelectControl, type ParameterAction } from '../controls'
+import { CheckboxControl, LabeledNumberControl, ParameterActionsControl, type ParameterAction, type RemovableRow } from '../controls'
 import { booleanSocket, geometrySocket, numberSocket, vector3Socket, type BooleanValue, type GeometryValue, type NumberValue, type Vector3Value } from '../sockets'
 
 type CubeControls = Record<string, ClassicPreset.Control> & {
-  sizeMode?: RepresentationSelectControl<CubeSizeRepresentation>
   size?: LabeledNumberControl
   sizeX?: LabeledNumberControl
   sizeY?: LabeledNumberControl
@@ -23,27 +22,28 @@ const SIZE_REPRESENTATIONS: readonly { value: CubeSizeRepresentation; label: str
 ]
 
 /** Cube has one semantic `size` argument. Scalar, XYZ, and Vector are
- * alternative editor/input representations; inactive representations have
- * neither a Rete input nor a rendered socket, so they cannot hide live graph
- * semantics. */
+ * alternative editor/input representations - concrete forms chosen through
+ * the header Add menu, never a mode dropdown (node-style.md "Add
+ * parameter"). Inactive representations have neither a Rete input nor a
+ * rendered socket, so they cannot hide live graph semantics. */
 export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { geometry: ClassicPreset.Socket }, CubeControls> implements DataflowNode {
   private readonly notify?: () => void
-  private readonly canRemoveInputs?: (keys: readonly string[]) => boolean
+  private readonly requestRemoveForm?: (keys: readonly string[], label: string) => Promise<boolean>
   private representation: CubeSizeRepresentation | undefined
   private scalarLiteral: number
   private xyzLiteral: Vector3Params
 
-  constructor(params: Partial<CubeParams> = {}, notify?: () => void, canRemoveInputs?: (keys: readonly string[]) => boolean) {
+  constructor(params: Partial<CubeParams> = {}, notify?: () => void, requestRemoveForm?: (keys: readonly string[], label: string) => Promise<boolean>) {
     super(t('node.cube'))
     this.notify = notify
-    this.canRemoveInputs = canRemoveInputs
+    this.requestRemoveForm = requestRemoveForm
     const legacyDefault = notify === undefined && Object.keys(params).length === 0
     const legacyVector = params.sizeX === undefined ? undefined : { x: params.sizeX, y: params.sizeY ?? params.sizeX, z: params.sizeZ ?? params.sizeX }
     const initialSize = params.size ?? legacyVector
     this.scalarLiteral = params.sizeScalar ?? (typeof initialSize === 'number' ? initialSize : 10)
     this.xyzLiteral = params.sizeVector ?? (typeof initialSize === 'object' && initialSize !== null ? initialSize : { x: 10, y: 10, z: 10 })
     this.representation = params.sizeRepresentation ?? (initialSize === undefined ? (legacyDefault ? 'scalar' : undefined) : typeof initialSize === 'number' ? 'scalar' : 'xyz')
-    if (this.representation) this.addSize(this.representation)
+    if (this.representation) this.addActiveRepresentation(this.representation)
     if (params.center !== undefined || legacyDefault) this.addCenter(params.center ?? false)
     this.addControl('actions', new ParameterActionsControl(() => this.actions()))
     this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, t('input.geometry')))
@@ -51,43 +51,27 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
 
   private changed(): void { this.notify?.() }
 
+  /** Header Add menu entries - only forms/categories not currently present. */
   private actions(): readonly ParameterAction[] {
     const actions: ParameterAction[] = []
     if (!this.representation) {
       actions.push({
-        id: 'add-size', label: t('action.addSize'), children: SIZE_REPRESENTATIONS.map(({ value, label }) => ({
-          id: `add-size-${value}`, label, run: () => { this.addSize(value); this.changed() },
+        id: 'add-size', label: t('control.size'), children: SIZE_REPRESENTATIONS.map(({ value, label }) => ({
+          id: `add-size-${value}`, label, run: () => { this.addActiveRepresentation(value); this.representation = value; this.changed() },
         })),
       })
     }
-    if (!this.controls.center) actions.push({ id: 'add-center', label: t('action.addCenter'), run: () => { this.addCenter(false); this.changed() } })
-    if (this.representation) actions.push(this.removalAction('remove-size', t('action.removeSize'), this.activeInputKeys(), () => this.removeSize()))
-    if (this.controls.center) actions.push(this.removalAction('remove-center', t('action.removeCenter'), ['center'], () => this.removeCenter()))
+    if (!this.controls.center) actions.push({ id: 'add-center', label: t('control.center'), run: () => { this.addCenter(false); this.changed() } })
     return actions
   }
 
-  private addSize(representation: CubeSizeRepresentation): void {
-    this.representation = representation
-    const mode = new RepresentationSelectControl('size', t('control.size'), SIZE_REPRESENTATIONS, representation)
-    mode.onChange = (next) => this.switchRepresentation(next)
-    mode.canChange = () => this.canRemove(this.activeInputKeys())
-    this.addControl('sizeMode', mode)
-    this.addActiveRepresentation(representation)
-  }
-
-  /** Captures the outgoing literal before replacing only its active controls
-   * and ports. The editor prevents UI switches that would hide connections. */
-  private switchRepresentation(next: CubeSizeRepresentation): void {
-    if (!this.representation || next === this.representation) return
-    if (!this.canRemove(this.activeInputKeys())) {
-      this.controls.sizeMode!.value = this.representation
-      return
-    }
-    this.captureActiveLiteral()
-    this.removeActiveRepresentation()
-    this.representation = next
-    this.addActiveRepresentation(next)
-    this.changed()
+  /** Row-level Remove buttons: one designated row per removable form. */
+  removableRows(): readonly RemovableRow[] {
+    const rows: RemovableRow[] = []
+    const activeKeys = this.activeInputKeys()
+    if (activeKeys.length > 0) rows.push({ key: activeKeys[0]!, label: t('control.size'), requestRemove: () => this.requestRemoveSize() })
+    if (this.controls.center) rows.push({ key: 'center', label: t('control.center'), requestRemove: () => this.requestRemoveCenter() })
+    return rows
   }
 
   private addActiveRepresentation(representation: CubeSizeRepresentation): void {
@@ -115,7 +99,7 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
     }
   }
 
-  private removeActiveRepresentation(): void {
+  private removeActiveRepresentationPorts(): void {
     for (const key of ['size', 'sizeX', 'sizeY', 'sizeZ', 'sizeVector']) {
       if (this.inputs[key]) this.removeInput(key)
       if (this.controls[key]) this.removeControl(key)
@@ -125,19 +109,18 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
   private activeInputKeys(): string[] {
     return ['size', 'sizeX', 'sizeY', 'sizeZ', 'sizeVector'].filter((key) => Boolean(this.inputs[key]))
   }
-  private canRemove(keys: readonly string[]): boolean { return this.canRemoveInputs?.(keys) ?? true }
-  private removalAction(id: string, label: string, keys: readonly string[], run: () => void): ParameterAction {
-    const disabled = !this.canRemove(keys)
-    return { id, label, run, disabled, title: disabled ? t('control.removeConnectionsBeforeSwitch') : undefined }
-  }
 
-  private removeSize(): void {
-    if (!this.canRemove(this.activeInputKeys())) return
+  /** Confirm-gated (established concise warning flow) if any active input is
+   * connected, then removes the whole active Size form. */
+  private async requestRemoveSize(): Promise<boolean> {
+    const keys = this.activeInputKeys()
+    if (keys.length === 0) return false
+    if (!(await (this.requestRemoveForm?.(keys, t('control.size')) ?? Promise.resolve(true)))) return false
     this.captureActiveLiteral()
-    this.removeActiveRepresentation()
-    if (this.controls.sizeMode) this.removeControl('sizeMode')
+    this.removeActiveRepresentationPorts()
     this.representation = undefined
     this.changed()
+    return true
   }
 
   private addCenter(value: boolean): void {
@@ -145,12 +128,14 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
     this.addInput('center', new ClassicPreset.Input(booleanSocket, t('control.center')))
     this.addControl('center', new CheckboxControl(t('control.center'), value))
   }
-  private removeCenter(): void {
-    if (!this.controls.center) return
-    if (!this.canRemove(['center'])) return
+
+  private async requestRemoveCenter(): Promise<boolean> {
+    if (!this.controls.center) return false
+    if (!(await (this.requestRemoveForm?.(['center'], t('control.center')) ?? Promise.resolve(true)))) return false
     this.removeControl('center')
     this.removeInput('center')
     this.changed()
+    return true
   }
 
   getPersistedParams(): CubeParams {

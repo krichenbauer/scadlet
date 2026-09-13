@@ -10,7 +10,7 @@ export interface Vector3Params {
   representation?: Vector3Representation
 }
 
-export type Vector3Representation = 'xyz' | 'vector'
+export type Vector3Representation = 'xyz' | 'vector' | 'none'
 
 export const DEFAULT_TRANSLATE_PARAMS: Vector3Params = { x: 0, y: 0, z: 0 }
 export const DEFAULT_ROTATE_PARAMS: Vector3Params = { x: 0, y: 0, z: 0 }
@@ -72,7 +72,7 @@ export function validateVector3Params(value: unknown, label: string): Vector3Par
     z: requireFiniteNumber(obj.z, `${label} parameter "z"`),
   }
   if (obj.representation !== undefined) {
-    if (obj.representation !== 'xyz' && obj.representation !== 'vector') {
+    if (obj.representation !== 'xyz' && obj.representation !== 'vector' && obj.representation !== 'none') {
       throw new Error(`Invalid ${label} parameter "representation"`)
     }
     result.representation = obj.representation

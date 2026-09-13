@@ -240,21 +240,21 @@ describe('NODE_CATALOG dirty-notification wiring', () => {
   it('Translate: X change notifies dirty', () => {
     const { context, notifyDirty } = contextWithDirtySpy()
     const node = findCatalogEntry('translate')!.create(context) as import('./nodes/vector-transform-node').VectorTransformNode
-    node.controls.x.setValue(10)
+    node.controls.x!.setValue(10)
     expect(notifyDirty).toHaveBeenCalledTimes(1)
   })
 
   it('Rotate: Z change notifies dirty', () => {
     const { context, notifyDirty } = contextWithDirtySpy()
     const node = findCatalogEntry('rotate')!.create(context) as import('./nodes/vector-transform-node').VectorTransformNode
-    node.controls.z.setValue(45)
+    node.controls.z!.setValue(45)
     expect(notifyDirty).toHaveBeenCalledTimes(1)
   })
 
   it('Scale: a component change notifies dirty', () => {
     const { context, notifyDirty } = contextWithDirtySpy()
     const node = findCatalogEntry('scale')!.create(context) as import('./nodes/vector-transform-node').VectorTransformNode
-    node.controls.y.setValue(0.5)
+    node.controls.y!.setValue(0.5)
     expect(notifyDirty).toHaveBeenCalledTimes(1)
   })
 

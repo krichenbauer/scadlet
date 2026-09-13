@@ -2,7 +2,7 @@ import { ClassicPreset } from 'rete'
 import type { DataflowNode } from 'rete-engine'
 
 import { t } from '../../i18n/translate'
-import { ModuleParameterAddControl, ModuleParameterEditControl } from '../controls'
+import { ModuleParameterAddControl, ModuleParameterEditControl, ParameterActionsControl, type ParameterAction, type RemovableRow } from '../controls'
 import { booleanSocket, numberSocket, unresolvedSocket, vector3Socket, type BooleanValue, type NumberValue, type Vector3Value } from '../sockets'
 import { moduleParameterPortId, type FunctionResultType, type ModuleParameter } from '../definitions'
 
@@ -10,7 +10,7 @@ import { moduleParameterPortId, type FunctionResultType, type ModuleParameter } 
  * no Geometry inputs and reuses the exact same stable-id/add/edit
  * infrastructure as `ModuleInputsNode`'s value parameters - Functions and
  * Modules share one signature model, they just expose it differently. */
-export class FunctionInputsNode extends ClassicPreset.Node<Record<string, never>, Record<string, ClassicPreset.Socket>, { addParameter: ModuleParameterAddControl; editParameter: ModuleParameterEditControl }> implements DataflowNode {
+export class FunctionInputsNode extends ClassicPreset.Node<Record<string, never>, Record<string, ClassicPreset.Socket>, { addParameter: ModuleParameterAddControl; editParameter: ModuleParameterEditControl; addActions: ParameterActionsControl }> implements DataflowNode {
   private parameters: readonly ModuleParameter[]
   constructor(parameters: readonly ModuleParameter[] = []) {
     super(t('node.functionInputs'))
@@ -18,6 +18,34 @@ export class FunctionInputsNode extends ClassicPreset.Node<Record<string, never>
     this.materializeOutputs()
     this.addControl('addParameter', new ModuleParameterAddControl(() => {}, () => {}))
     this.addControl('editParameter', new ModuleParameterEditControl(() => {}, () => {}))
+    // A Function only ever offers Parameter (never Geometry input) - still
+    // always addable/repeatable, so Add is never hidden or disabled.
+    this.addControl('addActions', new ParameterActionsControl(() => this.addActionsList()))
+  }
+
+  private addActionsList(): readonly ParameterAction[] {
+    return [{ id: 'add-parameter', label: t('definition.addParameter'), run: () => this.controls.addParameter.show() }]
+  }
+
+  /** Row-level Remove buttons, reusing the confirm-gated delete lifecycle
+   * already wired through `configureParameterEditing`'s `onDelete`. A
+   * thrown failure is surfaced through the same edit control's
+   * `error`/`onChange`, since it renders no other row-level UI. */
+  removableRows(): readonly RemovableRow[] {
+    return this.parameters.map((parameter): RemovableRow => ({
+      key: moduleParameterPortId(parameter.id), label: parameter.name,
+      requestRemove: async () => {
+        const control = this.controls.editParameter
+        control.error = null
+        try {
+          return await Promise.resolve(control.onDelete(parameter.id))
+        } catch (error) {
+          control.error = error instanceof Error ? error.message : String(error)
+          control.onChange()
+          return false
+        }
+      },
+    }))
   }
 
   configureParameterEditing(onChange: () => void, onSubmit: (id: string, value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => boolean | void | Promise<boolean | void>, onDelete: (id: string) => boolean | Promise<boolean>, onMove: (id: string, direction: -1 | 1) => void | Promise<void>): void {

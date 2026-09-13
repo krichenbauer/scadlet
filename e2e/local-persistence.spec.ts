@@ -294,7 +294,8 @@ async function addAndEditCube(page: Page, size: string) {
   const node = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   await expect(node).toHaveCount(1)
   await Promise.resolve()
-  await node.getByText('+ Size', { exact: true }).click()
+  await node.locator('.node-add-summary').click()
+  await node.getByText('Size', { exact: true }).click()
   await node.getByRole('button', { name: 'XYZ', exact: true }).click()
   await node.locator('[data-param-key="sizeX"] input').fill(size)
   await waitForAutosave(page)
@@ -751,7 +752,8 @@ test('builds, autosaves, reloads, and renders acyclic nested Function Calls', as
   const mainOuterCall = page.locator(`node-editor .node[data-node-id="${mainCallIds[0]}"]`)
   const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   await Promise.resolve()
-  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.locator('.node-add-summary').click()
+  await cube.getByText('Size', { exact: true }).click()
   await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
   await connectSockets(page, mainOuterCall.locator('.node-port--output .node-socket'), cube.locator('.node-param-row', { hasText: 'Size' }).locator('.node-socket'))
 
@@ -791,11 +793,12 @@ test('builds a terminating self-recursive Function visibly and renders it after 
   const runtime = await definitionRuntime(page, definitionId)
   const inputs = page.locator(`node-editor .node[data-node-id="${runtime.inputsNodeId}"]`)
   const output = page.locator(`node-editor .node[data-node-id="${runtime.outputNodeId}"]`)
-  await inputs.getByRole('button', { name: '+ Parameter', exact: true }).click()
-  await inputs.getByLabel('Name').fill('n')
+  await inputs.locator('.node-add-summary').click()
+  await inputs.getByRole('button', { name: 'Parameter', exact: true }).click()
+  await inputs.getByLabel('Name', { exact: true }).fill('n')
   await inputs.getByLabel('Type').selectOption('number')
   await inputs.getByLabel('Default').fill('5')
-  await inputs.getByRole('button', { name: 'Add', exact: true }).click()
+  await inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Add', exact: true }).click()
 
   const initialFrameBox = await definitionFrame.boundingBox()
   if (!initialFrameBox) throw new Error('Expected factorial frame')
@@ -863,6 +866,10 @@ test('builds a terminating self-recursive Function visibly and renders it after 
   }, positionedIds as Record<keyof typeof positionedIds, string>)
   expect(recursiveScopes).toEqual(Object.fromEntries(Object.keys(positionedIds).map((key) => [key, definitionId])))
 
+  // These nodes are deliberately spread wide inside the definition frame;
+  // bring them fully into view before interacting so the click's own real
+  // pointer coordinate never lands under an adjacent pane.
+  await page.getByRole('button', { name: 'Fit graph', exact: true }).click()
   for (const node of [inputs, compare, decrement, multiply, conditional, selfCall]) {
     const pin = node.locator('.node-collapse')
     if (await pin.count()) await pin.click()
@@ -902,7 +909,8 @@ test('builds a terminating self-recursive Function visibly and renders it after 
   const mainCall = page.locator(`node-editor .node[data-node-id="${mainIds[0]}"]`)
   const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   await Promise.resolve()
-  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.locator('.node-add-summary').click()
+  await cube.getByText('Size', { exact: true }).click()
   await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
   const cubeId = await cube.getAttribute('data-node-id')
   if (!cubeId) throw new Error('Expected Main Cube id')
@@ -920,9 +928,9 @@ test('builds a terminating self-recursive Function visibly and renders it after 
   await page.reload()
   await expect(page.locator(`node-editor .node[data-node-id="${selfIds[0]}"]`)).toHaveCount(1)
   const restoredInputs = page.locator(`node-editor .node[data-node-id="${runtime.inputsNodeId}"]`)
-  await restoredInputs.getByRole('button', { name: 'Edit n', exact: true }).click()
-  await restoredInputs.getByLabel('Name').fill('value')
-  await restoredInputs.getByRole('button', { name: 'Save', exact: true }).click()
+  await restoredInputs.getByRole('button', { name: 'Rename n', exact: true }).click()
+  await restoredInputs.locator('.node-interface-rename-input').fill('value')
+  await restoredInputs.locator('.node-interface-rename-input').press('Enter')
   await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(11)
 
   const entry = page.locator(`node-palette .module-entry[data-definition-id="${definitionId}"]`)
@@ -999,6 +1007,9 @@ test('restores, evaluates, renders, autosaves, and reloads direct and mutually r
   expect(sourceText!.indexOf('function is_odd')).toBeLessThan(sourceText!.indexOf('function is_even'))
   await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 
+  // This fixture's nodes are spread across a wide area; bring them fully
+  // into view before the next direct node interaction.
+  await page.getByRole('button', { name: 'Fit graph', exact: true }).click()
   await page.locator('node-editor .node[data-node-id="main-even"] .node-title').dblclick()
   await expect(page.locator('node-editor .node[data-node-id="main-even"] .node-inspect-value')).toHaveText('= true', { timeout: 15_000 })
   await expect(source).toContainText('echo("__SCADLET_VALUE__:", is_even(n = 6));')
@@ -1151,13 +1162,15 @@ test('preselects palette/header operations with readable controls and safely cha
   await dropPaletteNode(page, 'cube')
   const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   await Promise.resolve()
-  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.locator('.node-add-summary').click()
+  await cube.getByText('Size', { exact: true }).click()
   await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
   await expect(cube.locator('[data-param-key="size"] input')).toBeVisible()
   await dropPaletteNode(page, 'cube')
   const vectorCube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) }).nth(1)
   await Promise.resolve()
-  await vectorCube.getByText('+ Size', { exact: true }).click()
+  await vectorCube.locator('.node-add-summary').click()
+  await vectorCube.getByText('Size', { exact: true }).click()
   await vectorCube.getByRole('button', { name: 'Vector', exact: true }).click()
   await expect(vectorCube.locator('[data-param-key="sizeVector"]')).toBeVisible()
 
@@ -1352,13 +1365,12 @@ test('restores, renders, edits, autosaves, reloads, and safely deletes recursive
   await rename.getByLabel('Module name').fill('stack_layers')
   await rename.getByRole('button', { name: 'Save', exact: true }).click()
   const stackInputs = page.locator('node-editor .node[data-node-id="stack-in"]')
-  await stackInputs.getByRole('button', { name: 'Edit n', exact: true }).click()
-  await stackInputs.getByLabel('Name').fill('levels')
-  await stackInputs.getByLabel('Default').fill('2')
-  await stackInputs.getByRole('button', { name: 'Save', exact: true }).click()
-  await stackInputs.getByRole('button', { name: 'Edit Layer', exact: true }).click()
-  await stackInputs.getByLabel('Geometry input name').fill('Slice')
-  await stackInputs.getByRole('button', { name: 'Save', exact: true }).click()
+  await stackInputs.getByRole('button', { name: 'Rename n', exact: true }).click()
+  await stackInputs.locator('.node-interface-rename-input').fill('levels')
+  await stackInputs.locator('.node-interface-rename-input').press('Enter')
+  await stackInputs.getByRole('button', { name: 'Rename Layer', exact: true }).click()
+  await stackInputs.locator('.node-interface-rename-input').fill('Slice')
+  await stackInputs.locator('.node-interface-rename-input').press('Enter')
   for (const id of ['stack-self', 'main-stack']) {
     const call = page.locator(`node-editor .node[data-node-id="${id}"]`)
     await expect(call.locator('.node-socket[aria-label="levels"]')).toHaveCount(1)
@@ -1366,7 +1378,7 @@ test('restores, renders, edits, autosaves, reloads, and safely deletes recursive
     await expect(call.locator('.node-socket[aria-label="Profile"]')).toHaveCount(1)
   }
   await page.getByRole('button', { name: 'Render', exact: true }).click()
-  await expect(source).toContainText('module stack_layers(levels = 2)', { timeout: 15_000 })
+  await expect(source).toContainText('module stack_layers(levels = 1)', { timeout: 15_000 })
   await expect(source).toContainText('stack_layers(levels = previous(n = levels))')
   await expect(source).toContainText('stack_layers(levels = 4)')
   await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
@@ -1375,7 +1387,7 @@ test('restores, renders, edits, autosaves, reloads, and safely deletes recursive
   let saved = await readLocalRecord(page, 'recursive-modules') as { project: { version: number; definitions: { id: string; name: string; parameters: { name: string; default: number }[]; geometryInputs?: { name: string }[]; graph: { nodes: { type: string; parameters: { definitionId?: string } }[] } }[] } }
   expect(saved.project.version).toBe(6)
   expect(saved.project.definitions.find((item) => item.id === 'stack')).toMatchObject({
-    name: 'stack_layers', parameters: [{ name: 'levels', default: 2 }], geometryInputs: [{ name: 'Profile' }, { name: 'Slice' }],
+    name: 'stack_layers', parameters: [{ name: 'levels', default: 1 }], geometryInputs: [{ name: 'Profile' }, { name: 'Slice' }],
   })
 
   await page.reload()
@@ -1624,11 +1636,12 @@ test('adds a typed Module parameter and materializes matching border-anchored Ca
   const definitionId = await frame.getAttribute('data-definition-id')
   if (!definitionId) throw new Error('Expected Module definition id')
   const inputs = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Inputs' }) })
-  await inputs.getByRole('button', { name: '+ Parameter', exact: true }).click()
-  await inputs.getByLabel('Name').fill('radius')
+  await inputs.locator('.node-add-summary').click()
+  await inputs.getByRole('button', { name: 'Parameter', exact: true }).click()
+  await inputs.getByLabel('Name', { exact: true }).fill('radius')
   await inputs.getByLabel('Type').selectOption('number')
   await inputs.getByLabel('Default').fill('10')
-  await inputs.getByRole('button', { name: 'Add', exact: true }).click()
+  await inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Add', exact: true }).click()
   const outputSocket = inputs.locator('.node-param-output-row .node-socket[aria-label="radius"]')
   await expect(outputSocket).toHaveCount(1)
   const inputBox = await inputs.boundingBox(); const outputBox = await outputSocket.boundingBox()
@@ -1663,16 +1676,18 @@ test('two Geometry inputs with the second wired to Output render exactly one Geo
   const inputs = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Inputs' }) })
   const output = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Output' }) })
 
-  await inputs.getByRole('button', { name: '+ Geometry input', exact: true }).click()
+  await inputs.locator('.node-add-summary').click()
+  await inputs.getByRole('button', { name: 'Geometry input', exact: true }).click()
   await inputs.getByLabel('Geometry input name').fill('Fnord')
-  await inputs.getByRole('button', { name: 'Add', exact: true }).click()
-  await inputs.getByRole('button', { name: 'Edit Geometry 1', exact: true }).click()
-  await inputs.getByLabel('Geometry input name').fill('Foobar')
-  await inputs.getByRole('button', { name: 'Save', exact: true }).click()
-  await inputs.getByRole('button', { name: '+ Parameter', exact: true }).click()
-  await inputs.getByLabel('Name').fill('foo')
+  await inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Add', exact: true }).click()
+  await inputs.getByRole('button', { name: 'Rename Geometry 1', exact: true }).click()
+  await inputs.locator('.node-interface-rename-input').fill('Foobar')
+  await inputs.locator('.node-interface-rename-input').press('Enter')
+  await inputs.locator('.node-add-summary').click()
+  await inputs.getByRole('button', { name: 'Parameter', exact: true }).click()
+  await inputs.getByLabel('Name', { exact: true }).fill('foo')
   await inputs.getByLabel('Default').fill('-2')
-  await inputs.getByRole('button', { name: 'Add', exact: true }).click()
+  await inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Add', exact: true }).click()
 
   // No duplicate/extra rows: exactly 2 Geometry + 1 typed parameter output, in order.
   await expect(inputs.locator('.node-port--output')).toHaveCount(3)
@@ -1795,26 +1810,25 @@ test('deletes a connected Module parameter only after confirmation and persists 
   await Promise.resolve()
   await Promise.resolve()
   await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(4)
-  await inputs.getByRole('button', { name: 'Edit radius' }).click()
 
-  // Cancelling is a true no-op: the parameter editor stays open so the user
-  // can reconsider, and none of its exact connections have been touched.
+  // Cancelling is a true no-op: the row stays untouched so the user can
+  // reconsider, and none of its exact connections have been touched.
   await page.evaluate(() => {
     Object.defineProperty(window, 'confirm', { configurable: true, value: (message: string) => {
       document.documentElement.dataset.lastConfirmation = message
       return false
     } })
   })
-  await inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Delete', exact: true }).click()
+  await inputs.getByRole('button', { name: 'Remove radius', exact: true }).click()
   expect(await page.locator('html').getAttribute('data-last-confirmation')).toContain('disconnect 3 connection(s)')
-  await expect(inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Delete', exact: true })).toBeVisible()
+  await expect(inputs.getByRole('button', { name: 'Remove radius', exact: true })).toBeVisible()
   await expect(inputs.locator('.node-param-output-row .node-socket[aria-label="radius"]')).toHaveCount(1)
   await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(4)
 
   await page.evaluate(() => {
     Object.defineProperty(window, 'confirm', { configurable: true, value: () => true })
   })
-  await inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Delete', exact: true }).click()
+  await inputs.getByRole('button', { name: 'Remove radius', exact: true }).click()
   await expect(inputs.locator('.node-param-output-row .node-socket[aria-label="radius"]')).toHaveCount(0)
   await expect(firstCall.locator('.node-param-row', { hasText: 'radius' })).toHaveCount(0)
   await expect(secondCall.locator('.node-param-row', { hasText: 'radius' })).toHaveCount(0)
@@ -1832,7 +1846,7 @@ test('deletes a connected Module parameter only after confirmation and persists 
   await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(1)
 })
 
-test('keeps Module parameter editing open and shows a localized error when deletion cannot start', async ({ page }) => {
+test('shows a localized error and preserves state when Module parameter deletion cannot start', async ({ page }) => {
   await waitForLocalLibrary(page)
   const project = structuredClone(HISTORICAL_MODULE_PARAMETERS)
   project.editor.viewport = { x: 0, y: 0, zoom: 1 }
@@ -1847,13 +1861,12 @@ test('keeps Module parameter editing open and shows a localized error when delet
   }], 'delete-parameter-error-project')
   await page.reload()
   const inputs = page.locator('node-editor .node[data-node-id="wheel-inputs"]')
-  await inputs.getByRole('button', { name: 'Edit radius' }).click()
   await page.evaluate(() => {
     Object.defineProperty(window, 'confirm', { configurable: true, value: () => { throw new Error('simulated confirmation failure') } })
   })
-  await inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Delete', exact: true }).click()
+  await inputs.getByRole('button', { name: 'Remove radius', exact: true }).click()
   await expect(inputs.getByText('Could not delete this Module parameter. No changes were made.')).toBeVisible()
-  await expect(inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Delete', exact: true })).toBeVisible()
+  await expect(inputs.getByRole('button', { name: 'Remove radius', exact: true })).toBeVisible()
   await expect(inputs.locator('.node-param-output-row .node-socket[aria-label="radius"]')).toHaveCount(1)
 })
 
@@ -1863,7 +1876,8 @@ test('Cube Size add menu exposes one selected representation at a time', async (
   const node = page.locator('node-editor .node').filter({ hasText: 'Cube' })
   await Promise.resolve()
 
-  await node.getByText('+ Size', { exact: true }).click()
+  await node.locator('.node-add-summary').click()
+  await node.getByText('Size', { exact: true }).click()
   await expect(node.getByRole('button', { name: 'Scalar', exact: true })).toBeVisible()
   await expect(node.getByRole('button', { name: 'XYZ', exact: true })).toBeVisible()
   await expect(node.getByRole('button', { name: 'Vector', exact: true })).toBeVisible()
@@ -1871,11 +1885,17 @@ test('Cube Size add menu exposes one selected representation at a time', async (
   await expect(node.locator('[data-param-key="size"]')).toHaveCount(1)
   await expect(node.locator('[data-param-key="sizeX"], [data-param-key="sizeY"], [data-param-key="sizeZ"], [data-param-key="sizeVector"]')).toHaveCount(0)
 
-  await node.locator('.node-param-header select').selectOption('xyz')
+  await node.getByRole('button', { name: 'Remove Size', exact: true }).click()
+  await node.locator('.node-add-summary').click()
+  await node.getByText('Size', { exact: true }).click()
+  await node.getByRole('button', { name: 'XYZ', exact: true }).click()
   await expect(node.locator('[data-param-key="sizeX"], [data-param-key="sizeY"], [data-param-key="sizeZ"]')).toHaveCount(3)
   await expect(node.locator('[data-param-key="size"], [data-param-key="sizeVector"]')).toHaveCount(0)
 
-  await node.locator('.node-param-header select').selectOption('vector')
+  await node.getByRole('button', { name: 'Remove Size', exact: true }).click()
+  await node.locator('.node-add-summary').click()
+  await node.getByText('Size', { exact: true }).click()
+  await node.getByRole('button', { name: 'Vector', exact: true }).click()
   await expect(node.locator('[data-param-key="sizeVector"]')).toHaveCount(1)
   await expect(node.locator('[data-param-key="size"], [data-param-key="sizeX"], [data-param-key="sizeY"], [data-param-key="sizeZ"]')).toHaveCount(0)
 })
@@ -1888,16 +1908,21 @@ test('vector transforms expose one representation and Center has a Boolean row',
   await expect(translate.locator('[data-param-key="x"], [data-param-key="y"], [data-param-key="z"]')).toHaveCount(3)
   await expect(translate.locator('[data-param-key="vector"]')).toHaveCount(0)
   await translate.locator('[data-param-key="x"] input').fill('12')
-  await translate.locator('.node-param-header select').selectOption('vector')
+  await translate.getByRole('button', { name: 'Remove XYZ', exact: true }).click()
+  await translate.locator('.node-add-summary').click()
+  await translate.getByRole('button', { name: 'Vector', exact: true }).click()
   await expect(translate.locator('[data-param-key="vector"]')).toHaveCount(1)
   await expect(translate.locator('[data-param-key="x"], [data-param-key="y"], [data-param-key="z"]')).toHaveCount(0)
-  await translate.locator('.node-param-header select').selectOption('xyz')
+  await translate.getByRole('button', { name: 'Remove Vector', exact: true }).click()
+  await translate.locator('.node-add-summary').click()
+  await translate.getByRole('button', { name: 'XYZ', exact: true }).click()
   await expect(translate.locator('[data-param-key="x"] input')).toHaveValue('12')
 
   await dropPaletteNode(page, 'cube')
   const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
   await Promise.resolve()
-  await cube.getByRole('button', { name: '+ Center', exact: true }).click()
+  await cube.locator('.node-add-summary').click()
+  await cube.getByRole('button', { name: 'Center', exact: true }).click()
   await expect(cube.locator('[data-param-key="center"] input[type="checkbox"]')).toHaveCount(1)
   await expect(cube.locator('[data-param-key="center"] .node-socket[data-socket-type="boolean"]')).toHaveCount(1)
 })
@@ -1930,7 +1955,8 @@ test('typed value nodes remain compact and a Number drives Cube Size', async ({ 
   await expect(number.locator('.node-port--output .node-socket[aria-label="Number output"]')).toHaveCount(1)
   await number.locator('.node-controls--primary input[type="number"]').fill('20')
   await Promise.resolve()
-  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.locator('.node-add-summary').click()
+  await cube.getByText('Size', { exact: true }).click()
   await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
 
   // Palette clicks deliberately place nodes at the visible center. Move the
@@ -1964,7 +1990,7 @@ test('rejects a visible node dataflow cycle without changing the valid graph, th
   if (!canvas) throw new Error('Expected node-editor canvas')
   await dropPaletteNode(page, 'arithmetic', { x: canvas.x + 120, y: canvas.y + 180 })
   await dropPaletteNode(page, 'arithmetic', { x: canvas.x + 410, y: canvas.y + 180 })
-  await dropPaletteNode(page, 'cube', { x: canvas.x + 700, y: canvas.y + 180 })
+  await dropPaletteNode(page, 'cube', { x: canvas.x + 120, y: canvas.y + 350 })
 
   const nodeIds = await page.locator('node-editor').evaluate((element) => {
     const editor = (element as unknown as { getEditorInstance(): { editor: { getNodes(): { id: string; label: string }[] } } }).getEditorInstance().editor
@@ -1976,7 +2002,7 @@ test('rejects a visible node dataflow cycle without changing the valid graph, th
   const left = page.locator(`node-editor .node[data-node-id="${leftId}"]`)
   const right = page.locator(`node-editor .node[data-node-id="${rightId}"]`)
   const cube = page.locator(`node-editor .node[data-node-id="${cubeId}"]`)
-  for (const node of [left, right, cube]) {
+  for (const node of [left, right]) {
     const collapse = node.getByRole('button', { name: 'Collapse node' })
     await expect(collapse).toHaveAttribute('aria-expanded', 'true')
     await expect(collapse.locator('svg[aria-hidden="true"]')).toHaveCount(1)
@@ -1984,8 +2010,12 @@ test('rejects a visible node dataflow cycle without changing the valid graph, th
   await left.locator('[data-param-key="a"] input').fill('5')
   await left.locator('[data-param-key="b"] input').fill('5')
   await right.locator('[data-param-key="b"] input').fill('2')
-  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.locator('.node-add-summary').click()
+  await cube.getByText('Size', { exact: true }).click()
   await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
+  const cubeCollapse = cube.getByRole('button', { name: 'Collapse node' })
+  await expect(cubeCollapse).toHaveAttribute('aria-expanded', 'true')
+  await expect(cubeCollapse.locator('svg[aria-hidden="true"]')).toHaveCount(1)
 
   await connectSockets(page, left.locator('.node-port--output .node-socket'), right.locator('[data-param-key="a"] .node-socket'))
   await connectSockets(page, right.locator('.node-port--output .node-socket'), cube.locator('[data-param-key="size"] .node-socket'))
@@ -2191,7 +2221,8 @@ test('explicitly collapsed controls stay hidden during ordinary and wire pointer
   await dropPaletteNode(page, 'cube')
   const number = page.locator('node-editor .node[data-renameable="true"]')
   const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
-  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.locator('.node-add-summary').click()
+  await cube.getByText('Size', { exact: true }).click()
   await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
   await cube.getByRole('button', { name: 'Collapse node' }).click()
   await expect(cube.locator('[data-param-key="size"]')).toBeHidden()
@@ -2228,7 +2259,8 @@ test('drag and click wire gestures never reveal collapsed rows and explicit expa
     await page.mouse.up()
   }
   const configureScalarCube = async (cube: Locator) => {
-    await cube.getByText('+ Size', { exact: true }).click()
+    await cube.locator('.node-add-summary').click()
+  await cube.getByText('Size', { exact: true }).click()
     await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
     await cube.getByRole('button', { name: 'Collapse node' }).click()
   }
@@ -2297,10 +2329,16 @@ test('drag and click wire gestures never reveal collapsed rows and explicit expa
   const cubeId = await cubeInitial.getAttribute('data-node-id')
   if (!cubeId) throw new Error('Expected Vector Cube id')
   const cube = page.locator(`node-editor .node[data-node-id="${cubeId}"]`)
-  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.locator('.node-add-summary').click()
+  await cube.getByText('Size', { exact: true }).click()
   await cube.getByRole('button', { name: 'Vector', exact: true }).click()
   await cube.getByRole('button', { name: 'Collapse node' }).click()
   await expect(cube.locator('[data-param-key="sizeVector"]')).toBeHidden()
+  // Separate this collapsed Cube's own header/collapse control from the
+  // Number source's fixed drop point (both otherwise default to the same
+  // canvas center), so the pending-wire hover below cannot coincidentally
+  // land on an unrelated interactive control.
+  await moveNode(cube, 220, 0)
   const cubeHeader = await cube.locator('.node-header').boundingBox()
   if (!cubeHeader) throw new Error('Expected compact Vector Cube header')
   await page.mouse.click(sourceCenter.x, sourceCenter.y)
@@ -2367,7 +2405,7 @@ test('connected compact rows preserve canonical order when expanded', async ({ p
 
   await dropPaletteNode(page, 'translate')
   const translate = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Translate' }) })
-  await moveNode(translate, 190, -120)
+  await moveNode(translate, -220, -220)
   await connectNumber(translate, 'z')
   await translate.getByRole('button', { name: 'Collapse node' }).click()
   await expect.poll(() => visibleRowKeys(translate), { timeout: 2_000 }).toEqual(['z'])
@@ -2395,7 +2433,7 @@ test('connected compact rows preserve canonical order when expanded', async ({ p
 
   await dropPaletteNode(page, 'arithmetic')
   const add = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Arithmetic operation"]') })
-  await moveNode(add, 190, 0)
+  await moveNode(add, -190, 0)
   await connectNumber(add, 'b')
   await add.getByRole('button', { name: 'Collapse node' }).click()
   await expect.poll(() => visibleRowKeys(add), { timeout: 2_000 }).toEqual(['b'])
@@ -2475,9 +2513,10 @@ test('Cube XYZ connected rows retain canonical order', async ({ page }) => {
 
   await dropPaletteNode(page, 'cube')
   const cube = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })
-  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.locator('.node-add-summary').click()
+  await cube.getByText('Size', { exact: true }).click()
   await cube.getByRole('button', { name: 'XYZ', exact: true }).click()
-  await moveNode(cube, 190, 210)
+  await moveNode(cube, -190, 210)
   await dropPaletteNode(page, 'number')
   const number = page.locator('node-editor .node').filter({ has: page.locator('.node-title[aria-label="Number Name"]') })
   const source = await number.locator('.node-port--output .node-socket').boundingBox()
@@ -2494,7 +2533,7 @@ test('Cube XYZ connected rows retain canonical order', async ({ page }) => {
   await expect.poll(() => visibleRowKeys(cube), { timeout: 2_000 }).toEqual(['sizeZ'])
   await cube.getByRole('button', { name: 'Expand node' }).click()
   await expect.poll(() => visibleRowKeys(cube), { timeout: 2_000 }).toEqual(['sizeX', 'sizeY', 'sizeZ'])
-  await expect(cube.locator('.node-param-rows').locator('.node-param-header')).toHaveCount(1)
+  await expect(cube.locator('.node-add-menu')).toHaveCount(1)
 })
 
 test('autosaves canonical graph state and restores it after reload', async ({ page }) => {

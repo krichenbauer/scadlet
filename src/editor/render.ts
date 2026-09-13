@@ -4,7 +4,7 @@ import type { AreaPlugin } from 'rete-area-plugin'
 import type { ConnectionPlugin } from 'rete-connection-plugin'
 import { classicConnectionPath, getDOMSocketPosition } from 'rete-render-utils'
 
-import { CheckboxControl, LabeledNumberControl, LabeledTextControl, ModuleGeometryInputAddControl, ModuleGeometryInputEditControl, ModuleParameterAddControl, ModuleParameterEditControl, ParameterActionsControl, RepresentationSelectControl, SelectControl, TitleSelectControl, Vector3Control, type ParameterAction } from './controls'
+import { CheckboxControl, LabeledNumberControl, LabeledTextControl, ModuleGeometryInputAddControl, ModuleGeometryInputEditControl, ModuleParameterAddControl, ModuleParameterEditControl, ParameterActionsControl, SelectControl, TitleSelectControl, Vector3Control, type ParameterAction, type RemovableRow } from './controls'
 import { ModuleInputsNode } from './nodes/module-interface-nodes'
 import { ModuleOutputNode } from './nodes/module-interface-nodes'
 import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interface-nodes'
@@ -358,25 +358,35 @@ function renderNode(
   const titleSelectControl = Object.values(node.controls).find(
     (control): control is TitleSelectControl => control instanceof TitleSelectControl,
   )
-  // Controls that don't have a co-located parameter input row go in `.node-controls` when expanded.
-  const representationControls = Object.values(node.controls).filter(
-    (control): control is RepresentationSelectControl => control instanceof RepresentationSelectControl,
+  // The header Add menu's source (node-style.md "Add parameter") - never
+  // rendered among the generic node controls below.
+  const addActionsControl = Object.values(node.controls).find(
+    (control): control is ParameterActionsControl => control instanceof ParameterActionsControl,
   )
+  // Row-level Remove buttons (node-style.md "Remove parameter"), keyed by
+  // the port key each removable form's designated row owns.
+  const removableRowsByKey = new Map(
+    (node as Partial<{ removableRows: () => readonly RemovableRow[] }>).removableRows?.().map((row) => [row.key, row]) ?? [],
+  )
+  // Controls that don't have a co-located parameter input row go in `.node-controls` when expanded.
+  // Rename editing for interface rows is rendered inline per-row (below),
+  // never through this generic control area.
   const standaloneControls = Object.entries(node.controls).filter(
-    ([key, ctrl]) => ctrl && !paramInputKeys.has(key) && !(ctrl instanceof RepresentationSelectControl) && !(ctrl instanceof TitleSelectControl) && !(sourceNameControl && key === 'name'),
+    ([key, ctrl]) => ctrl && !paramInputKeys.has(key) && !(ctrl instanceof ParameterActionsControl) && !(ctrl instanceof TitleSelectControl)
+      && !(ctrl instanceof ModuleParameterEditControl) && !(ctrl instanceof ModuleGeometryInputEditControl) && !(sourceNameControl && key === 'name'),
   )
   // Literal value sources have no inputs, so their primary control is part
   // of the compact node rather than hidden behind explicit collapse. Other
   // standalone controls retain the normal progressive-disclosure behavior.
   const alwaysVisibleControls = standaloneControls.filter(
-    ([key, control]) => (Boolean(sourceNameControl) && key === 'value' && parameterInputs.length === 0) || control instanceof ModuleParameterAddControl || control instanceof ModuleGeometryInputAddControl || (control instanceof ModuleParameterEditControl && control.open) || (control instanceof ModuleGeometryInputEditControl && control.open),
+    ([key, control]) => (Boolean(sourceNameControl) && key === 'value' && parameterInputs.length === 0) || (control instanceof ModuleParameterAddControl && control.open) || (control instanceof ModuleGeometryInputAddControl && control.open),
   )
   const expandableStandaloneControls = standaloneControls.filter(([key]) => !alwaysVisibleControls.some(([primary]) => primary === key))
 
   // A node has collapsible content if it has parameter inputs (whose rows can be shown/hidden)
   // or standalone controls (shown only when expanded). This drives the
   // explicit collapse-button visibility.
-  const hasCollapsibleContent = !fixedConditionalInterface && (parameterInputs.length > 0 || parameterOutputs.length > 0 || geometryOutputs.length > 0 || expandableStandaloneControls.length > 0 || representationControls.length > 0)
+  const hasCollapsibleContent = !fixedConditionalInterface && (parameterInputs.length > 0 || parameterOutputs.length > 0 || geometryOutputs.length > 0 || expandableStandaloneControls.length > 0)
   // Rete remains authoritative for the semantic endpoint. Presentation keeps
   // compact expansion state, while this direct read ensures a freshly
   // committed snapped wire immediately disables its fallback literal even if
@@ -437,6 +447,7 @@ function renderNode(
     notifyDirty,
     sourceNameControl,
     titleSelectControl,
+    addActionsControl,
     element,
     iconName,
     renamingNodeIds,
@@ -481,19 +492,12 @@ function renderNode(
 
     const paramRows = document.createElement('div')
     paramRows.className = 'node-param-rows'
-    // A representation select is intentionally rendered with its semantic
-    // parameter, rather than among generic node controls. It remains visible
-    // whenever that parameter has a visible row.
-    for (const control of representationControls) {
-      const visible = expanded || parameterInputs.some(([key]) => connectedInputKeys.has(key))
-      if (visible) paramRows.appendChild(renderRepresentationHeader(control, connectedInputKeys.size > 0))
-    }
     for (const { key, connected, visible } of rows) {
       const input = inputsByKey.get(key)
       if (!input) continue
       const control = node.controls[key] as ClassicPreset.Control | undefined
       paramRows.appendChild(
-        renderParamRow(area, node.id, key, input.label ?? key, input.socket.name, visible, connected, control),
+        renderParamRow(area, node.id, key, input.label ?? key, input.socket.name, visible, connected, control, removableRowsByKey.get(key)),
       )
     }
     element.appendChild(paramRows)
@@ -501,7 +505,9 @@ function renderNode(
 
   // Definition Inputs has typed value outputs rather than parameter inputs.
   // These rows reuse the normal port renderer and border-anchor convention;
-  // only their semantic direction differs.
+  // only their semantic direction differs. Each renameable/removable item
+  // gets an inline pencil (rename) and trash (remove) action, matching the
+  // shared Value-node rename model and row-level Remove control.
   if (geometryOutputs.length > 0) {
     const rows = document.createElement('div')
     rows.className = 'node-param-output-rows node-geometry-output-rows'
@@ -509,14 +515,21 @@ function renderNode(
       const row = renderPort(area, node.id, 'output', key, output.label, output.socket.name)
       row.classList.add('node-param-output-row')
       if (node instanceof ModuleInputsNode && key.startsWith('geometry:')) {
-        const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'node-param-edit'; edit.textContent = '✎'; edit.setAttribute('aria-label', `Edit ${output.label ?? key}`)
-        edit.addEventListener('pointerdown', (event) => event.stopPropagation())
-        edit.addEventListener('click', () => node.beginGeometryInputEdit(key.slice('geometry:'.length)))
-        row.appendChild(edit)
+        const id = key.slice('geometry:'.length)
+        const editControl = node.controls.editGeometryInput
+        attachInterfaceRowActions(row, output.label ?? key, editControl.open && editControl.inputId === id, {
+          openRename: () => node.beginGeometryInputEdit(id),
+          commitRename: (name) => { void Promise.resolve(editControl.onSubmit(name)).then((saved) => { if (saved !== false) editControl.hide() }) },
+          cancelRename: () => editControl.hide(),
+          removeRow: removableRowsByKey.get(key),
+        })
       }
       rows.appendChild(row)
     }
     element.appendChild(rows)
+    if (node instanceof ModuleInputsNode && node.controls.editGeometryInput.error) {
+      element.appendChild(renderInterfaceRowError(node.controls.editGeometryInput.error))
+    }
   }
   if (parameterOutputs.length > 0) {
     const rows = document.createElement('div')
@@ -525,14 +538,24 @@ function renderNode(
       const row = renderPort(area, node.id, 'output', key, output.label, output.socket.name)
       row.classList.add('node-param-output-row')
       if (node instanceof ModuleInputsNode || node instanceof FunctionInputsNode) {
-        const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'node-param-edit'; edit.textContent = '✎'; edit.setAttribute('aria-label', `Edit ${output.label ?? key}`)
-        edit.addEventListener('pointerdown', (event) => event.stopPropagation())
-        edit.addEventListener('click', () => node.beginParameterEdit(key.slice('parameter:'.length)))
-        row.appendChild(edit)
+        const id = key.slice('parameter:'.length)
+        const editControl = node.controls.editParameter
+        attachInterfaceRowActions(row, output.label ?? key, editControl.open && editControl.parameterId === id, {
+          openRename: () => node.beginParameterEdit(id),
+          commitRename: (name) => {
+            const value = { name, type: editControl.type, default: currentParameterDefault(editControl) }
+            void Promise.resolve(editControl.onSubmit(value)).then((saved) => { if (saved !== false) editControl.hide() })
+          },
+          cancelRename: () => editControl.hide(),
+          removeRow: removableRowsByKey.get(key),
+        })
       }
       rows.appendChild(row)
     }
     element.appendChild(rows)
+    if ((node instanceof ModuleInputsNode || node instanceof FunctionInputsNode) && node.controls.editParameter.error) {
+      element.appendChild(renderInterfaceRowError(node.controls.editParameter.error))
+    }
   }
 
   // Standalone controls (mode selects, checkboxes, add/remove actions): only when expanded.
@@ -564,6 +587,7 @@ function renderHeader(
   notifyDirty: () => void,
   sourceNameControl: LabeledTextControl | undefined,
   titleSelectControl: TitleSelectControl | undefined,
+  addActionsControl: ParameterActionsControl | undefined,
   nodeElement: HTMLElement,
   iconName: CompactIconName,
   renamingNodeIds: Set<string>,
@@ -616,7 +640,7 @@ function renderHeader(
     // The renderer replaces this header synchronously; defer focus/select
     // to the next frame so the fresh input is guaranteed to be connected
     // (same technique the collapse button below uses to restore focus).
-    requestAnimationFrame(() => { title.focus(); title.select() })
+    requestAnimationFrame(() => { title.focus({ preventScroll: true }); title.select() })
   } else if (title instanceof HTMLSelectElement) {
     const operationControl = titleSelectControl!
     title.setAttribute('aria-label', operationControl.accessibleLabel)
@@ -665,6 +689,8 @@ function renderHeader(
     header.appendChild(badge)
   }
 
+  if (addActionsControl) header.appendChild(renderAddMenu(addActionsControl))
+
   if (!isDefinitionInterfaceNode) {
     const actions: MoreMenuAction[] = [
       { id: 'inspect', icon: 'eye', label: t('menu.inspect'), run: () => onInspect(node.id) },
@@ -711,7 +737,7 @@ function renderHeader(
       notifyDirty()
       // Rete's progressive renderer replaces this header. Restore focus onto
       // its fresh control so keyboard users retain a visible focus target.
-      requestAnimationFrame(() => nodeElement.querySelector<HTMLButtonElement>('.node-collapse')?.focus())
+      requestAnimationFrame(() => nodeElement.querySelector<HTMLButtonElement>('.node-collapse')?.focus({ preventScroll: true }))
     })
     header.appendChild(collapse)
   }
@@ -769,6 +795,42 @@ function renderMoreMenu(actions: readonly MoreMenuAction[]): HTMLElement {
     options.appendChild(button)
   }
   details.appendChild(options)
+
+  return details
+}
+
+/**
+ * The header Add menu (node-style.md "Add parameter"): lists the concrete
+ * parameter forms this node can currently gain. Hidden entirely when the
+ * node has no `ParameterActionsControl` at all; visible but disabled when
+ * every currently permitted non-repeatable form is already present.
+ */
+function renderAddMenu(control: ParameterActionsControl): HTMLElement {
+  const actions = control.actions()
+  const details = document.createElement('details')
+  details.className = 'node-add-menu'
+  details.addEventListener('pointerdown', (event) => event.stopPropagation())
+
+  const summary = document.createElement('summary')
+  summary.className = 'node-add-summary'
+  summary.setAttribute('role', 'button')
+  const label = actions.length === 0 ? t('menu.addDisabled') : t('menu.add')
+  summary.setAttribute('aria-label', label)
+  summary.title = label
+  if (actions.length === 0) {
+    summary.setAttribute('aria-disabled', 'true')
+    details.classList.add('node-add-menu--disabled')
+  }
+  summary.appendChild(compactIconElement('plus'))
+  details.appendChild(summary)
+
+  if (actions.length > 0) {
+    const options = document.createElement('div')
+    options.className = 'node-add-options'
+    options.setAttribute('role', 'menu')
+    for (const action of actions) options.appendChild(renderParameterAction(action, () => { details.open = false }))
+    details.appendChild(options)
+  }
 
   return details
 }
@@ -846,6 +908,7 @@ function renderParamRow(
   visible: boolean,
   connected: boolean,
   control: ClassicPreset.Control | undefined,
+  removeRow: RemovableRow | undefined,
 ): HTMLElement {
   const row = document.createElement('div')
   row.className = 'node-param-row'
@@ -875,7 +938,97 @@ function renderParamRow(
     if (valueEl) row.appendChild(valueEl)
   }
 
+  if (removeRow) row.appendChild(renderRemoveRowButton(removeRow))
+
   return row
+}
+
+/** The row-level Remove control (node-style.md "Remove parameter"): a
+ * compact icon button on the right of its own row, with an accessible
+ * name identifying the affected parameter/form. Confirmation (when the
+ * form has live connections) happens inside `requestRemove` itself. */
+function renderRemoveRowButton(removeRow: RemovableRow): HTMLElement {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'node-param-remove'
+  const name = t('menu.removeParameter').replace('{name}', removeRow.label)
+  button.setAttribute('aria-label', name)
+  button.title = name
+  button.appendChild(compactIconElement('trash'))
+  button.addEventListener('pointerdown', (event) => event.stopPropagation())
+  button.addEventListener('click', () => { void removeRow.requestRemove() })
+  return button
+}
+
+interface InterfaceRowRenameActions {
+  openRename: () => void
+  commitRename: (name: string) => void
+  cancelRename: () => void
+  removeRow: RemovableRow | undefined
+}
+
+/**
+ * Adds the pencil (rename) and trash (remove) actions to a Module/Function
+ * interface row (node-style.md "Module and Function interface inputs").
+ * When renaming, the row's own label span becomes an inline text input
+ * with its full text selected - the same model as Value-node Rename.
+ */
+function attachInterfaceRowActions(row: HTMLElement, label: string, renaming: boolean, actions: InterfaceRowRenameActions): void {
+  if (renaming) {
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.className = 'node-interface-rename-input'
+    input.value = label
+    input.setAttribute('aria-label', `${t('menu.rename')} ${label}`)
+    input.addEventListener('pointerdown', (event) => event.stopPropagation())
+    input.addEventListener('dblclick', (event) => event.stopPropagation())
+    let settled = false
+    const finish = (): void => { settled = true }
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') { event.preventDefault(); input.blur() }
+      else if (event.key === 'Escape') { event.preventDefault(); finish(); actions.cancelRename() }
+    })
+    input.addEventListener('blur', () => {
+      if (settled) return
+      finish()
+      const next = input.value.trim()
+      if (next) actions.commitRename(next)
+      else actions.cancelRename()
+    })
+    const existingLabel = row.querySelector('.node-port-label')
+    if (existingLabel) existingLabel.replaceWith(input)
+    else row.appendChild(input)
+    requestAnimationFrame(() => { input.focus({ preventScroll: true }); input.select() })
+    return
+  }
+
+  const rename = document.createElement('button')
+  rename.type = 'button'
+  rename.className = 'node-interface-rename'
+  rename.setAttribute('aria-label', `${t('menu.rename')} ${label}`)
+  rename.title = t('menu.rename')
+  rename.appendChild(compactIconElement('pencil'))
+  rename.addEventListener('pointerdown', (event) => event.stopPropagation())
+  rename.addEventListener('click', actions.openRename)
+  row.appendChild(rename)
+
+  if (actions.removeRow) row.appendChild(renderRemoveRowButton(actions.removeRow))
+}
+
+/** The current default value of an in-progress parameter edit, read back
+ * unchanged so a name-only rename commit never alters type/default. */
+function currentParameterDefault(control: ModuleParameterEditControl): number | boolean | [number, number, number] {
+  return control.type === 'number' ? control.defaultNumber : control.type === 'boolean' ? control.defaultBoolean : control.defaultVector
+}
+
+/** A localized message shown when a row-level Remove attempt could not
+ * even start (e.g. a broken confirmation), matching the error text the
+ * old inline edit form used to show. */
+function renderInterfaceRowError(message: string): HTMLElement {
+  const error = document.createElement('div')
+  error.className = 'node-control-error'
+  error.textContent = message
+  return error
 }
 
 /**
@@ -944,16 +1097,8 @@ function renderParamControlValue(control: ClassicPreset.Control, overridden: boo
 }
 
 function renderControl(key: string, control: ClassicPreset.Control, hideLabel = false): HTMLElement | null {
-  if (control instanceof ModuleGeometryInputEditControl) return control.open ? renderModuleGeometryInputEditControl(control) : null
-  if (control instanceof ModuleGeometryInputAddControl) return renderModuleGeometryInputAddControl(control)
-  if (control instanceof ModuleParameterEditControl) return control.open ? renderModuleParameterEditControl(control) : null
-  if (control instanceof ModuleParameterAddControl) return renderModuleParameterAddControl(control)
-  if (control instanceof ParameterActionsControl) {
-    const wrapper = document.createElement('div')
-    wrapper.className = 'node-control node-control--actions'
-    for (const action of control.actions()) wrapper.appendChild(renderParameterAction(action))
-    return wrapper
-  }
+  if (control instanceof ModuleGeometryInputAddControl) return control.open ? renderModuleGeometryInputAddControl(control) : null
+  if (control instanceof ModuleParameterAddControl) return control.open ? renderModuleParameterAddControl(control) : null
   if (control instanceof CheckboxControl) {
     const wrapper = document.createElement('label')
     wrapper.className = 'node-control node-control--checkbox'
@@ -1041,61 +1186,19 @@ function renderControl(key: string, control: ClassicPreset.Control, hideLabel = 
   return null
 }
 
-function renderModuleGeometryInputEditControl(control: ModuleGeometryInputEditControl): HTMLElement {
-  const wrapper = renderModuleGeometryInputAddControl(control)
-  if (!control.open || !control.inputId) return wrapper
-  const id = control.inputId
-  const up = document.createElement('button'); up.type = 'button'; up.textContent = '↑'; up.setAttribute('aria-label', 'Move geometry input up'); up.disabled = control.order === 0
-  const down = document.createElement('button'); down.type = 'button'; down.textContent = '↓'; down.setAttribute('aria-label', 'Move geometry input down')
-  for (const [button, move] of [[up, -1], [down, 1]] as const) { button.addEventListener('pointerdown', (event) => event.stopPropagation()); button.addEventListener('click', () => { void Promise.resolve(control.onMove(id, move)).then(() => control.hide()) }) }
-  const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = t('definition.deleteGeometryInput'); remove.addEventListener('pointerdown', (event) => event.stopPropagation()); remove.addEventListener('click', () => { void Promise.resolve(control.onDelete(id)).then((deleted) => { if (deleted) control.hide() }).catch((error: unknown) => { control.error = error instanceof Error ? error.message : String(error); control.onChange() }) })
-  wrapper.append(up, down, remove)
-  return wrapper
-}
-
 function renderModuleGeometryInputAddControl(control: ModuleGeometryInputAddControl): HTMLElement {
   const wrapper = document.createElement('div'); wrapper.className = 'node-control node-control--module-parameter'
-  if (!control.open) {
-    const add = document.createElement('button'); add.type = 'button'; add.textContent = t('definition.addGeometryInput'); add.addEventListener('pointerdown', (event) => event.stopPropagation()); add.addEventListener('click', () => control.show()); wrapper.appendChild(add); return wrapper
-  }
   const name = document.createElement('input'); name.type = 'text'; name.value = control.name; name.setAttribute('aria-label', t('definition.geometryInputName')); name.addEventListener('pointerdown', (event) => event.stopPropagation()); name.addEventListener('input', () => { control.name = name.value })
-  const submit = document.createElement('button'); submit.type = 'button'; submit.textContent = control instanceof ModuleGeometryInputEditControl ? t('definition.save') : t('definition.add'); submit.addEventListener('pointerdown', (event) => event.stopPropagation()); submit.addEventListener('click', () => { void Promise.resolve(control.onSubmit(control.name)).then((saved) => { if (saved !== false) control.hide() }).catch((error: unknown) => { control.error = error instanceof Error ? error.message : String(error); control.onChange() }) })
+  const submit = document.createElement('button'); submit.type = 'button'; submit.textContent = t('definition.add'); submit.addEventListener('pointerdown', (event) => event.stopPropagation()); submit.addEventListener('click', () => { void Promise.resolve(control.onSubmit(control.name)).then((saved) => { if (saved !== false) control.hide() }).catch((error: unknown) => { control.error = error instanceof Error ? error.message : String(error); control.onChange() }) })
   const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = t('definition.cancel'); cancel.addEventListener('pointerdown', (event) => event.stopPropagation()); cancel.addEventListener('click', () => control.hide())
   wrapper.append(name, submit, cancel)
   if (control.error) { const error = document.createElement('span'); error.className = 'node-control-error'; error.textContent = control.error; wrapper.appendChild(error) }
   return wrapper
 }
 
-function renderModuleParameterEditControl(control: ModuleParameterEditControl): HTMLElement {
-  const wrapper = renderModuleParameterAddControl(control)
-  if (!control.open || !control.parameterId) return wrapper
-  const id = control.parameterId
-  const up = document.createElement('button'); up.type = 'button'; up.textContent = '↑'; up.setAttribute('aria-label', 'Move parameter up'); up.disabled = control.order === 0
-  up.addEventListener('pointerdown', (event) => event.stopPropagation())
-  up.addEventListener('click', () => { void Promise.resolve(control.onMove(id, -1)).then(() => control.hide()) })
-  const down = document.createElement('button'); down.type = 'button'; down.textContent = '↓'; down.setAttribute('aria-label', 'Move parameter down')
-  down.addEventListener('pointerdown', (event) => event.stopPropagation())
-  down.addEventListener('click', () => { void Promise.resolve(control.onMove(id, 1)).then(() => control.hide()) })
-  const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = t('definition.deleteParameter'); remove.addEventListener('pointerdown', (event) => event.stopPropagation()); remove.addEventListener('click', () => {
-    void Promise.resolve(control.onDelete(id))
-      .then((deleted) => { if (deleted) control.hide() })
-      .catch((error: unknown) => { control.error = error instanceof Error ? error.message : String(error); control.onChange() })
-  })
-  wrapper.append(up, down, remove)
-  return wrapper
-}
-
 function renderModuleParameterAddControl(control: ModuleParameterAddControl): HTMLElement {
   const wrapper = document.createElement('div')
   wrapper.className = 'node-control node-control--module-parameter'
-  if (!control.open) {
-    const add = document.createElement('button')
-    add.type = 'button'; add.textContent = t('definition.addParameter')
-    add.addEventListener('pointerdown', (event) => event.stopPropagation())
-    add.addEventListener('click', () => control.show())
-    wrapper.appendChild(add)
-    return wrapper
-  }
   const name = document.createElement('input'); name.type = 'text'; name.placeholder = t('definition.parameterName'); name.value = control.name
   name.setAttribute('aria-label', t('definition.parameterName'))
   name.addEventListener('pointerdown', (event) => event.stopPropagation())
@@ -1144,7 +1247,7 @@ function renderVectorDefault(control: ModuleParameterAddControl): HTMLElement {
   return wrapper
 }
 
-function renderParameterAction(action: ParameterAction): HTMLElement {
+function renderParameterAction(action: ParameterAction, onActivate?: () => void): HTMLElement {
   if (action.children) {
     const details = document.createElement('details')
     details.className = 'node-action-menu'
@@ -1154,7 +1257,7 @@ function renderParameterAction(action: ParameterAction): HTMLElement {
     details.appendChild(summary)
     const options = document.createElement('div')
     options.className = 'node-action-menu-options'
-    for (const child of action.children) options.appendChild(renderParameterAction(child))
+    for (const child of action.children) options.appendChild(renderParameterAction(child, onActivate))
     details.appendChild(options)
     return details
   }
@@ -1164,37 +1267,13 @@ function renderParameterAction(action: ParameterAction): HTMLElement {
   button.disabled = Boolean(action.disabled)
   if (action.title) button.title = action.title
   button.addEventListener('pointerdown', (event) => event.stopPropagation())
-  if (action.run && !action.disabled) button.addEventListener('click', action.run)
-  return button
-}
-
-function renderRepresentationHeader(
-  control: RepresentationSelectControl,
-  hasActiveConnections: boolean,
-): HTMLElement {
-  const header = document.createElement('label')
-  header.className = 'node-param-header'
-  const label = document.createElement('span')
-  label.textContent = control.label
-  header.appendChild(label)
-  const select = document.createElement('select')
-  select.setAttribute('aria-label', t('control.representation'))
-  const changeBlocked = control.options.some((option) => option.value !== control.value && control.canChange && !control.canChange(option.value))
-  if (hasActiveConnections || changeBlocked) select.title = t('control.removeConnectionsBeforeSwitch')
-  for (const option of control.options) {
-    const item = document.createElement('option')
-    item.value = option.value
-    item.textContent = option.label
-    item.selected = option.value === control.value
-    item.disabled = option.value !== control.value && Boolean(
-      hasActiveConnections || (control.canChange && !control.canChange(option.value)),
-    )
-    select.appendChild(item)
+  if (action.run && !action.disabled) {
+    button.addEventListener('click', () => {
+      action.run!()
+      onActivate?.()
+    })
   }
-  select.addEventListener('pointerdown', (event) => event.stopPropagation())
-  select.addEventListener('change', () => control.setValue(select.value))
-  header.appendChild(select)
-  return header
+  return button
 }
 
 function updateConnection(

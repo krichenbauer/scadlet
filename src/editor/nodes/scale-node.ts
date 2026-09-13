@@ -4,7 +4,7 @@ import { VectorTransformNode } from './vector-transform-node'
 
 /** The `scale([x, y, z]) { ... }` transform. See `VectorTransformNode` for the shared node shape. */
 export class ScaleNode extends VectorTransformNode {
-  constructor(params: Partial<Vector3Params> = {}, notify?: () => void, canRemoveInputs?: (keys: readonly string[]) => boolean) {
-    super(t('node.scale'), { ...DEFAULT_SCALE_PARAMS, ...params }, scaleToOpenSCAD, notify, canRemoveInputs)
+  constructor(params: Partial<Vector3Params> = {}, notify?: () => void, requestRemoveForm?: (keys: readonly string[], label: string) => Promise<boolean>) {
+    super(t('node.scale'), { ...DEFAULT_SCALE_PARAMS, ...params }, scaleToOpenSCAD, notify, requestRemoveForm)
   }
 }

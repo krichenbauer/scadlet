@@ -3,23 +3,24 @@ import type { DataflowNode } from 'rete-engine'
 
 import { t } from '../../i18n/translate'
 import type { TransformResult, Vector3Params, Vector3Representation } from '../../openscad/transform'
-import { LabeledNumberControl, RepresentationSelectControl } from '../controls'
+import { LabeledNumberControl, ParameterActionsControl, type ParameterAction, type RemovableRow } from '../controls'
 import { geometrySocket, numberSocket, vector3Socket, type GeometryValue, type NumberValue, type Vector3Value } from '../sockets'
 
 type VectorTransformControls = {
-  vectorMode: RepresentationSelectControl<Vector3Representation>
-  x: LabeledNumberControl
-  y: LabeledNumberControl
-  z: LabeledNumberControl
+  x?: LabeledNumberControl
+  y?: LabeledNumberControl
+  z?: LabeledNumberControl
+  actions: ParameterActionsControl
 }
 
 /**
  * Shared shape for OpenSCAD's single-child vector transforms
- * (translate/rotate/scale): one geometry input, an X/Y/Z control triplet,
- * and one geometry output. Extracted alongside
- * `openscad/transform.ts`'s `vectorTransformToOpenSCAD` because
- * `TranslateNode`/`RotateNode`/`ScaleNode` would otherwise be near-
- * identical duplicates of both the node wiring and the codegen call.
+ * (translate/rotate/scale): one geometry input, an X/Y/Z (or Vector)
+ * control set chosen through the header Add menu, and one geometry
+ * output. Extracted alongside `openscad/transform.ts`'s
+ * `vectorTransformToOpenSCAD` because `TranslateNode`/`RotateNode`/
+ * `ScaleNode` would otherwise be near-identical duplicates of both the
+ * node wiring and the codegen call.
  */
 export class VectorTransformNode
   extends ClassicPreset.Node<
@@ -31,8 +32,10 @@ export class VectorTransformNode
 {
   private readonly toOpenSCAD: (params: Vector3Params, input: string | undefined) => TransformResult
   private readonly notify?: () => void
-  private readonly canRemoveInputs?: (keys: readonly string[]) => boolean
-  private representation: Vector3Representation
+  private readonly requestRemoveForm?: (keys: readonly string[], label: string) => Promise<boolean>
+  /** `undefined` means the last remaining form was removed - a valid,
+   * syntactically empty `translate()`/`rotate()`/`scale()` call. */
+  private representation: Exclude<Vector3Representation, 'none'> | undefined
   private xyzLiteral: Pick<Vector3Params, 'x' | 'y' | 'z'>
 
   constructor(
@@ -40,24 +43,21 @@ export class VectorTransformNode
     defaults: Vector3Params,
     toOpenSCAD: (params: Vector3Params, input: string | undefined) => TransformResult,
     notify?: () => void,
-    canRemoveInputs?: (keys: readonly string[]) => boolean,
+    requestRemoveForm?: (keys: readonly string[], label: string) => Promise<boolean>,
   ) {
     super(label)
     this.toOpenSCAD = toOpenSCAD
     this.notify = notify
-    this.canRemoveInputs = canRemoveInputs
-    this.representation = defaults.representation ?? 'xyz'
+    this.requestRemoveForm = requestRemoveForm
+    // New nodes still start with their useful default XYZ form
+    // (node-style.md "Add parameter"); only an explicitly persisted
+    // `'none'` (a form the user removed and then saved) restores empty.
+    this.representation = defaults.representation === 'none' ? undefined : (defaults.representation ?? 'xyz')
     this.xyzLiteral = { x: defaults.x, y: defaults.y, z: defaults.z }
 
     this.addInput('geometry', new ClassicPreset.Input(geometrySocket, t('input.geometry')))
-    const mode = new RepresentationSelectControl('vector', label, [
-      { value: 'xyz', label: t('mode.xyz') },
-      { value: 'vector', label: t('mode.vector') },
-    ], this.representation)
-    mode.onChange = (next) => this.switchRepresentation(next)
-    mode.canChange = () => this.canRemove(this.activeRepresentationKeys())
-    this.addControl('vectorMode', mode)
-    this.addActiveRepresentation(this.representation)
+    if (this.representation) this.addActiveRepresentation(this.representation)
+    this.addControl('actions', new ParameterActionsControl(() => this.actions()))
     this.addOutput('geometry', new ClassicPreset.Output(geometrySocket, t('input.geometry')))
   }
 
@@ -67,12 +67,16 @@ export class VectorTransformNode
       x: this.xyzLiteral.x,
       y: this.xyzLiteral.y,
       z: this.xyzLiteral.z,
-      representation: this.representation,
+      representation: this.representation ?? 'none',
     }
   }
 
   data(inputs: Record<string, (GeometryValue | NumberValue | Vector3Value)[] | undefined>): { geometry: GeometryValue } {
     const input = inputs.geometry?.[0]?.code
+    if (this.representation === undefined) {
+      if (!input) return { geometry: this.toOpenSCAD({ x: 0, y: 0, z: 0 }, input) }
+      return { geometry: this.toOpenSCADExpressionNoArgs(input) }
+    }
     if (this.representation === 'vector') {
       const vector = inputs.vector?.[0]?.code
       if (!vector) {
@@ -87,7 +91,7 @@ export class VectorTransformNode
     return { geometry: this.toOpenSCADExpression(`[${x}, ${y}, ${z}]`, input) }
   }
 
-  private addActiveRepresentation(representation: Vector3Representation): void {
+  private addActiveRepresentation(representation: Exclude<Vector3Representation, 'none'>): void {
     if (representation === 'vector') {
       this.addInput('vector', new ClassicPreset.Input(vector3Socket, t('mode.vector')))
       return
@@ -105,22 +109,6 @@ export class VectorTransformNode
     }
   }
 
-  private switchRepresentation(next: Vector3Representation): void {
-    if (next === this.representation) return
-    if (!this.canRemove(this.activeRepresentationKeys())) {
-      this.controls.vectorMode.value = this.representation
-      return
-    }
-    this.captureXYZLiteral()
-    for (const key of ['vector', 'x', 'y', 'z'] as const) {
-      if (this.inputs[key]) this.removeInput(key)
-    }
-    for (const key of ['x', 'y', 'z'] as const) if (this.controls[key]) this.removeControl(key)
-    this.representation = next
-    this.addActiveRepresentation(next)
-    this.notify?.()
-  }
-
   private captureXYZLiteral(): void {
     if (this.representation !== 'xyz') return
     this.xyzLiteral = {
@@ -133,7 +121,37 @@ export class VectorTransformNode
   private activeRepresentationKeys(): string[] {
     return ['vector', 'x', 'y', 'z'].filter((key) => Boolean(this.inputs[key]))
   }
-  private canRemove(keys: readonly string[]): boolean { return this.canRemoveInputs?.(keys) ?? true }
+
+  /** Header Add menu entries - only shown once the single vector form has
+   * been removed (this node has exactly one addable category). */
+  private actions(): readonly ParameterAction[] {
+    if (this.representation) return []
+    return [
+      { id: 'add-xyz', label: t('mode.xyz'), run: () => { this.addActiveRepresentation('xyz'); this.representation = 'xyz'; this.notify?.() } },
+      { id: 'add-vector', label: t('mode.vector'), run: () => { this.addActiveRepresentation('vector'); this.representation = 'vector'; this.notify?.() } },
+    ]
+  }
+
+  /** Row-level Remove button: the node's one removable vector form. */
+  removableRows(): readonly RemovableRow[] {
+    const keys = this.activeRepresentationKeys()
+    if (keys.length === 0 || !this.representation) return []
+    const label = this.representation === 'vector' ? t('mode.vector') : t('mode.xyz')
+    return [{ key: keys[0]!, label, requestRemove: () => this.requestRemoveRepresentation() }]
+  }
+
+  private async requestRemoveRepresentation(): Promise<boolean> {
+    const keys = this.activeRepresentationKeys()
+    if (keys.length === 0 || !this.representation) return false
+    const label = this.representation === 'vector' ? t('mode.vector') : t('mode.xyz')
+    if (!(await (this.requestRemoveForm?.(keys, label) ?? Promise.resolve(true)))) return false
+    this.captureXYZLiteral()
+    for (const key of ['vector', 'x', 'y', 'z'] as const) if (this.inputs[key]) this.removeInput(key)
+    for (const key of ['x', 'y', 'z'] as const) if (this.controls[key]) this.removeControl(key)
+    this.representation = undefined
+    this.notify?.()
+    return true
+  }
 
   private toOpenSCADExpression(vector: string, input: string | undefined): TransformResult {
     // The current generator accepts literal Vector3Params. Passing an
@@ -142,5 +160,11 @@ export class VectorTransformNode
     if (!input) return this.toOpenSCAD({ x: 0, y: 0, z: 0 }, input)
     const name = this.label.toLowerCase()
     return { code: `${name}(${vector}) {\n${input.split('\n').map((line) => `    ${line}`).join('\n')}\n}` }
+  }
+
+  /** The removed-form case: a syntactically valid, argument-less call. */
+  private toOpenSCADExpressionNoArgs(input: string): TransformResult {
+    const name = this.label.toLowerCase()
+    return { code: `${name}() {\n${input.split('\n').map((line) => `    ${line}`).join('\n')}\n}` }
   }
 }

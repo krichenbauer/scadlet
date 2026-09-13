@@ -30,6 +30,16 @@ export class NodeEditorElement extends LitElement {
       position: absolute;
       inset: 0;
       outline: none;
+      /* Panning/zooming is entirely a CSS transform applied to this
+       * element's own content by the Rete area plugin - it must never
+       * become a native scroll container itself. Otherwise a plain
+       * focus() call on any descendant (e.g. restoring focus to the
+       * Collapse button after a node re-render) triggers the browser's
+       * built-in scroll-into-view behavior, which silently pans the whole
+       * graph by adjusting this element's scrollLeft/scrollTop outside
+       * of any tracked transform state. clip (unlike hidden) makes
+       * scrolling truly inert, including programmatic/focus-driven scroll. */
+      overflow: clip;
     }
 
     .view-recovery-control {
@@ -551,6 +561,115 @@ export class NodeEditorElement extends LitElement {
       color: #ff8f8f;
     }
 
+    /* The header Add menu (node-style.md "Add parameter"): shares the More
+       menu's compact icon-button language, positioned immediately before it. */
+    .node-add-menu {
+      position: relative;
+      flex: none;
+    }
+
+    .node-add-summary {
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      margin: -6px 0;
+      padding: 0;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      opacity: 0.8;
+      list-style: none;
+    }
+
+    .node-add-summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .node-add-summary:hover {
+      opacity: 1;
+      background: rgb(122 192 255 / 0.16);
+    }
+
+    .node-add-summary:focus-visible {
+      opacity: 1;
+      border-color: #7ac0ff;
+      outline: 2px solid rgb(122 192 255 / 0.45);
+      outline-offset: 1px;
+    }
+
+    .node-add-summary svg {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentcolor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* Visible but non-interactive: every currently permitted non-repeatable
+       form is already present. */
+    .node-add-menu--disabled .node-add-summary {
+      opacity: 0.4;
+      cursor: default;
+      pointer-events: none;
+    }
+
+    .node-add-options {
+      position: absolute;
+      z-index: 40;
+      top: calc(100% + 4px);
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 130px;
+      padding: 4px;
+      border: 1px solid #666;
+      border-radius: 6px;
+      background: #242424;
+      color: #eee;
+      font: 13px system-ui, sans-serif;
+      box-shadow: 0 4px 12px rgb(0 0 0 / 0.5);
+    }
+
+    .node-add-options button,
+    .node-add-options summary {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      min-height: 28px;
+      padding: 4px 8px;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .node-add-options summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .node-add-options button:hover,
+    .node-add-options button:focus-visible,
+    .node-add-options summary:hover,
+    .node-add-options summary:focus-visible {
+      background: rgb(122 192 255 / 0.16);
+      outline: none;
+    }
+
+    .node-add-options button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
     /* Rendered as a full-width block below .node-main (see .node's comment above) - its own padding replaces the spacing .node-body's padding used to provide when controls were nested inside it. */
     .node-controls {
       display: flex;
@@ -802,6 +921,67 @@ export class NodeEditorElement extends LitElement {
     .node-param-output-row .node-socket {
       margin-right: -6px;
     }
+
+    /* Row-level Remove (node-style.md "Remove parameter") and the
+       Module/Function interface row's Rename pencil - compact icon
+       buttons, never a wide bottom control. */
+    .node-param-remove,
+    .node-interface-rename,
+    .node-interface-remove {
+      flex: none;
+      display: grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      opacity: 0.7;
+    }
+
+    .node-param-remove:hover,
+    .node-interface-rename:hover,
+    .node-interface-remove:hover {
+      opacity: 1;
+      background: rgb(122 192 255 / 0.16);
+    }
+
+    .node-param-remove:focus-visible,
+    .node-interface-rename:focus-visible,
+    .node-interface-remove:focus-visible {
+      opacity: 1;
+      border-color: #7ac0ff;
+      outline: 2px solid rgb(122 192 255 / 0.45);
+      outline-offset: 1px;
+    }
+
+    .node-param-remove svg,
+    .node-interface-rename svg,
+    .node-interface-remove svg {
+      width: 13px;
+      height: 13px;
+      fill: none;
+      stroke: currentcolor;
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .node-interface-rename-input {
+      flex: 1;
+      min-width: 0;
+      box-sizing: border-box;
+      padding: 1px 3px;
+      border: 1px solid #666;
+      border-radius: 3px;
+      background: #1d1d1d;
+      color: inherit;
+      font: inherit;
+    }
+
     .node-param-edit { margin-left: 2px; padding: 0 3px; }
 
     .node-param-vector3 { display: flex; gap: 2px; min-width: 0; }

@@ -152,7 +152,8 @@ test('renders a restrained Geometry accent for live Geometry outputs and matchin
   await expect(cube).toHaveClass(/node--selected/)
   await expectGeometryCue(cube, true)
   await expect.poll(() => cube.evaluate((element) => getComputedStyle(element).boxShadow)).toContain('0px 0px 0px 2px')
-  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.locator('.node-add-summary').click()
+  await cube.getByText('Size', { exact: true }).click()
   await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
   const focusedSize = cube.locator('[data-param-key="size"] input')
   await focusedSize.focus()
@@ -178,8 +179,7 @@ test('renders a restrained Geometry accent for live Geometry outputs and matchin
   // Removing the last dynamic Geometry output immediately returns protected
   // Module Inputs to neutral; this proves the renderer is not caching a
   // classification from its original signature.
-  await inputs.getByRole('button', { name: 'Edit Geometry 1', exact: true }).click()
-  await inputs.getByRole('button', { name: 'Delete geometry input', exact: true }).click()
+  await inputs.getByRole('button', { name: 'Remove Geometry 1', exact: true }).click()
   await expectGeometryCue(inputs, false)
 })
 
@@ -265,7 +265,8 @@ test('keeps Value Conditional and Geometry If as fixed, parallel interfaces thro
   // dense graph setup below.
   await connectSockets(page, cube.locator('.node-socket[data-socket-side="output"]'), ifNode.locator('.node-socket[data-socket-key="then"]'))
   await connectSockets(page, sphere.locator('.node-socket[data-socket-side="output"]'), ifNode.locator('.node-socket[data-socket-key="else"]'))
-  await cube.getByText('+ Size', { exact: true }).click()
+  await cube.locator('.node-add-summary').click()
+  await cube.getByText('Size', { exact: true }).click()
   await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
   const ids = {
     boolean: await boolean.getAttribute('data-node-id'), number: await number.getAttribute('data-node-id'), conditional: await conditional.getAttribute('data-node-id'),

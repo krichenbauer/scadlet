@@ -30,8 +30,10 @@ async function connect(page: Page, source: Locator, target: Locator): Promise<vo
 test('explicit node collapse persists without changing wires or wire gestures', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('textbox', { name: 'Project name' })).toBeEnabled()
-  await dropPaletteNode(page, 'cube', { x: 160, y: 180 })
-  await dropPaletteNode(page, 'translate', { x: 500, y: 180 })
+  const canvas = await page.locator('node-editor').boundingBox()
+  if (!canvas) throw new Error('Expected node-editor canvas')
+  await dropPaletteNode(page, 'cube', { x: canvas.x + 40, y: canvas.y + 40 })
+  await dropPaletteNode(page, 'translate', { x: canvas.x + 220, y: canvas.y + 40 })
   const cube = await node(page, 'Cube')
   const translate = await node(page, 'Translate')
 
@@ -56,7 +58,7 @@ test('explicit node collapse persists without changing wires or wire gestures', 
   // Reconnecting from the occupied structural Geometry input also leaves
   // every collapsed node closed; only the already-visible compatible target
   // socket can highlight and accept the reconnected wire.
-  await dropPaletteNode(page, 'rotate', { x: 820, y: 180 })
+  await dropPaletteNode(page, 'rotate', { x: canvas.x + 40, y: canvas.y + 300 })
   const rotate = await node(page, 'Rotate')
   await rotate.getByRole('button', { name: 'Collapse node' }).click()
   const occupiedGeometry = await translate.locator('.node-port--input .node-socket').boundingBox()
@@ -75,7 +77,7 @@ test('explicit node collapse persists without changing wires or wire gestures', 
   // The control is focusable and can expand a compact target while the real
   // click-wire gesture remains active; the visible Number input then accepts
   // that same gesture without another source pick.
-  await dropPaletteNode(page, 'number', { x: 160, y: 420 })
+  await dropPaletteNode(page, 'number', { x: canvas.x + 220, y: canvas.y + 300 })
   const number = await node(page, 'Number')
   const output = number.locator('.node-port--output .node-socket')
   const outputBox = await output.boundingBox()
