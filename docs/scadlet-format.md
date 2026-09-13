@@ -850,6 +850,7 @@ Both arrays must have exactly 3 finite numbers each (`Invalid viewer.camera.posi
 | Node/marquee selection               | No         | Transient interaction state. |
 | Marquee drag rectangle               | No         | Transient interaction state. |
 | Inspect Node preview root             | No         | Temporary preview state, not part of the model. |
+| Live render preference/debounce/result freshness | No | Session runtime state; it never changes the portable or local-project schema. |
 | Node foreground/z-order (bring-to-front) | No     | Transient interaction state. |
 | Camera field of view/zoom/clipping   | No         | Not currently captured at all (see above). |
 

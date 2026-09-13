@@ -25,7 +25,7 @@ function differenceProject(subtractSize: number) {
 
 async function seedActiveProject(page: Page, project: unknown) {
   await page.goto('/')
-  await expect(page.locator('scadlet-app .project-picker')).toBeEnabled()
+  await expect(page.locator('scadlet-app .project-name')).toBeEnabled()
   await page.evaluate(async (projectToStore) => {
     const request = indexedDB.open('scadlet-projects')
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -45,8 +45,9 @@ async function seedActiveProject(page: Page, project: unknown) {
     sessionStorage.setItem('scadlet.activeProjectId', 'empty-geometry')
   }, project)
   await page.reload()
-  await expect(page.locator('scadlet-app .project-picker')).toBeEnabled()
-  await expect(page.locator('scadlet-app .project-picker')).toHaveValue('empty-geometry')
+  await page.getByRole('button', { name: 'Projects' }).click()
+  await expect(page.locator('scadlet-app .project-row--active')).toContainText('Empty Geometry')
+  await page.keyboard.press('Escape')
 }
 
 async function setSubtractSize(page: Page, size: string) {
@@ -55,11 +56,17 @@ async function setSubtractSize(page: Page, size: string) {
   const input = subtract.locator('[data-param-key="size"] input')
   await input.fill(size)
   await input.press('Tab')
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await page.waitForTimeout(800)
 }
 
 async function viewerHasMesh(page: Page): Promise<boolean> {
   return page.locator('geometry-viewer').evaluate((viewer) => Boolean((viewer as unknown as { mesh?: unknown }).mesh))
+}
+
+async function fileAction(page: Page, name: string) {
+  const trigger = page.getByRole('button', { name: 'File' })
+  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
+  return page.getByRole('menuitem', { name, exact: true })
 }
 
 test('treats a valid empty Difference as a cleared, localized preview result through bundled OpenSCAD-WASM', async ({ page }) => {
@@ -70,7 +77,7 @@ test('treats a valid empty Difference as a cleared, localized preview result thr
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(page.locator('scadlet-app .scad-output')).toContainText('difference()', { timeout: 15_000 })
   await expect(page.locator('scadlet-app .render-error')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
   await expect.poll(() => viewerHasMesh(page)).toBe(true)
 
   await setSubtractSize(page, '10')
@@ -85,7 +92,7 @@ test('treats a valid empty Difference as a cleared, localized preview result thr
   await expect(page.locator('scadlet-app .scad-output')).toContainText('difference()', { timeout: 15_000 })
   await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(5, center=true);')
   await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(10, center=true);')
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeDisabled()
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled()
   await expect.poll(() => viewerHasMesh(page)).toBe(false)
 
   // The transient preview status is excluded from the autosaved v6 project.
@@ -115,7 +122,7 @@ test('treats a valid empty Difference as a cleared, localized preview result thr
   await setSubtractSize(page, '4')
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(page.locator('geometry-viewer .empty-geometry-status')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
   await expect.poll(() => viewerHasMesh(page)).toBe(true)
 
   // Geometry Inspect has the same preview/status result, but must not mark

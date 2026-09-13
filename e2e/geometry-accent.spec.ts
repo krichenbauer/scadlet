@@ -2,8 +2,16 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 
 async function openEmptyProject(page: Page): Promise<void> {
   await page.goto('/')
-  await expect(page.locator('scadlet-app .project-picker')).toBeEnabled()
-  await expect(page.locator('scadlet-app .project-picker option')).toHaveCount(1)
+  await expect(page.locator('scadlet-app .project-name')).toBeEnabled()
+  await page.getByRole('button', { name: 'Projects' }).click()
+  await expect(page.locator('scadlet-app .project-row')).toHaveCount(1)
+  await page.keyboard.press('Escape')
+}
+
+async function fileAction(page: Page, name: string) {
+  const trigger = page.getByRole('button', { name: 'File' })
+  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
+  return page.getByRole('menuitem', { name, exact: true })
 }
 
 async function dropPaletteNode(page: Page, type: string, point: { x: number; y: number }): Promise<void> {
@@ -271,7 +279,7 @@ test('keeps Value Conditional and Geometry If as fixed, parallel interfaces thro
   await expect(source).toContainText('if (false) {', { timeout: 15_000 })
   await expect(source).toContainText('} else {')
   await expect(source).toContainText('sphere();')
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 })
 
 test('keeps nodes draggable from free surfaces without visible grab handles or control interference', async ({ page }) => {

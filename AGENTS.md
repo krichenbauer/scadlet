@@ -82,7 +82,11 @@ pane is for verification, not a code editor.
 
 The compact shell keeps local IndexedDB project management in Projects and
 portable `.scadlet`/source/STL actions in File. The default-on Live toggle is
-presentation-only until a separately scoped render-scheduling task.
+a transient session setting: semantic graph edits debounce through the normal
+render lifecycle, while layout, navigation, autosave, and other presentation
+state never schedule a render. Enabling Live and activating a different local
+project render the newly current stale graph immediately through that same
+lifecycle. It is never serialized or project-specific.
 
 ## Decision order
 

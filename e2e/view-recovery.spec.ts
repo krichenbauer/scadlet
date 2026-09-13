@@ -32,7 +32,7 @@ function emptyProject() {
 
 async function seedActiveProject(page: Page, project: unknown, id: string): Promise<void> {
   await page.goto('/')
-  await expect(page.locator('scadlet-app .project-picker')).toBeEnabled()
+  await expect(page.locator('scadlet-app .project-name')).toBeEnabled()
   await page.evaluate(async ({ projectToStore, projectId }) => {
     const request = indexedDB.open('scadlet-projects')
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -52,7 +52,9 @@ async function seedActiveProject(page: Page, project: unknown, id: string): Prom
     sessionStorage.setItem('scadlet.activeProjectId', projectId)
   }, { projectToStore: project, projectId: id })
   await page.reload()
-  await expect(page.locator('scadlet-app .project-picker')).toHaveValue(id)
+  await page.getByRole('button', { name: 'Projects' }).click()
+  await expect(page.locator('scadlet-app .project-row--active')).toHaveCount(1)
+  await page.keyboard.press('Escape')
 }
 
 async function panAndZoomAway(page: Page): Promise<void> {
@@ -61,6 +63,12 @@ async function panAndZoomAway(page: Page): Promise<void> {
     await instance.area.area.zoom(0.12, 0, 0)
     await instance.area.area.translate(-5000, -4000)
   })
+}
+
+async function fileAction(page: Page, name: string) {
+  const trigger = page.getByRole('button', { name: 'File' })
+  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
+  return page.getByRole('menuitem', { name, exact: true })
 }
 
 test('Fit graph is keyboard reachable and returns all visible nodes to the editor without changing project state', async ({ page }) => {
@@ -96,7 +104,7 @@ test('Fit graph is keyboard reachable and returns all visible nodes to the edito
 test('Reset 3D view frames a real OpenSCAD-WASM mesh and preserves source, inspect provenance, and stored camera', async ({ page }) => {
   await seedActiveProject(page, cubeProject(), 'view-recovery-mesh')
   await page.getByRole('button', { name: 'Render', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
   const cube = page.locator('node-editor .node[data-node-id="cube"]')
   await cube.locator('.node-header').dblclick()
   await expect(cube).toHaveClass(/node--inspected/, { timeout: 15_000 })

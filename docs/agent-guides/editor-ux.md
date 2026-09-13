@@ -113,9 +113,15 @@ first, and ordering of the remaining rows. Portable open/save/export actions
 belong only in File. Do not add row-level rename/delete affordances.
 
 The viewer's bottom-edge strip holds the manual Render action and a default-on
-Live toggle. The Live toggle is a real accessible visual control, but must not
-schedule work until its dedicated behavior is implemented. A manual render
-shows a quiet upper-left spinner; Stop replaces Render only after 200 ms.
+Live toggle. Live is an accessible, session-only switch: semantic graph edits
+start one background render after 400 ms of quiet, whereas selection, dragging,
+canvas/preview navigation, Inspect, menus, and autosave do not. Manual Render
+flushes a pending delay; Stop works for manual and Live runs, appearing after
+200 ms with the same upper-left spinner. Live automatically turns off after a
+completed Live run exceeds two seconds and announces why through the preview's
+accessible status. Turning Live on, or switching to another local project while
+Live is on, renders the current graph immediately rather than waiting for the
+edit debounce. Its checked state is never persisted in a project.
 
 Compact shell actions use the small local inline-SVG vocabulary rather than an
 external icon library. Icon-only controls retain a localized accessible name,

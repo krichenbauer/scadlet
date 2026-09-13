@@ -240,15 +240,53 @@ async function readLocalRecord(page: Page, id: string) {
 
 async function waitForLocalLibrary(page: Page) {
   await page.goto('/')
-  await expect(page.locator('scadlet-app .project-picker')).toBeEnabled()
-  await expect(page.locator('scadlet-app .project-picker option')).toHaveCount(1)
+  await expect(page.locator('scadlet-app .project-name')).toBeEnabled()
+  await expectProjectCount(page, 1)
+}
+
+async function openProjects(page: Page) {
+  const trigger = page.getByRole('button', { name: 'Projects' })
+  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
+  return page.locator('scadlet-app .project-menu-list')
+}
+
+async function expectProjectCount(page: Page, count: number): Promise<void> {
+  const list = await openProjects(page)
+  await expect(list.locator('.project-row')).toHaveCount(count)
+  await page.getByRole('button', { name: 'Projects' }).click()
+}
+
+async function expectActiveProject(page: Page, name: string): Promise<void> {
+  const list = await openProjects(page)
+  await expect(list.locator('.project-row--active')).toContainText(name)
+  await page.getByRole('button', { name: 'Projects' }).click()
+}
+
+async function activeProjectId(page: Page): Promise<string> {
+  return page.evaluate(() => sessionStorage.getItem('scadlet.activeProjectId') ?? '')
+}
+
+async function selectProject(page: Page, name: string): Promise<void> {
+  const list = await openProjects(page)
+  await list.getByRole('button', { name, exact: true }).click()
+}
+
+async function fileAction(page: Page, name: string) {
+  const trigger = page.getByRole('button', { name: 'File' })
+  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
+  return page.getByRole('menuitem', { name, exact: true })
+}
+
+/** Successful autosaves are intentionally silent in the completed shell. */
+async function waitForAutosave(page: Page): Promise<void> {
+  await page.waitForTimeout(800)
 }
 
 async function renameProject(page: Page, name: string) {
   const input = page.locator('scadlet-app .project-name')
   await input.fill(name)
   await input.press('Tab')
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
 }
 
 async function addAndEditCube(page: Page, size: string) {
@@ -259,7 +297,7 @@ async function addAndEditCube(page: Page, size: string) {
   await node.getByText('+ Size', { exact: true }).click()
   await node.getByRole('button', { name: 'XYZ', exact: true }).click()
   await node.locator('[data-param-key="sizeX"] input').fill(size)
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
 }
 
 /** Graph-node palette entries are deliberately drag-only. This dispatches
@@ -448,8 +486,7 @@ test('starts from the historical pre-Phase-4 v3 Module fixture without losing pa
   }], 'historical-module-project')
 
   await page.reload()
-  await expect(page.locator('scadlet-app .project-picker')).toBeEnabled()
-  await expect(page.locator('scadlet-app .project-picker')).toHaveValue('historical-module-project')
+  await expectActiveProject(page, project.metadata.name)
   const inputs = page.locator('node-editor .node[data-node-id="wheel-inputs"]')
   const call = page.locator('node-editor .node[data-node-id="main-wheel-call"]')
   await expect(inputs.locator('.node-port--output')).toHaveCount(4)
@@ -460,7 +497,7 @@ test('starts from the historical pre-Phase-4 v3 Module fixture without losing pa
   const savedName = page.locator('scadlet-app .project-name')
   await savedName.fill('Historical wheel saved')
   await savedName.press('Tab')
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   const saved = await readLocalRecord(page, 'historical-module-project') as { revision: number; project: typeof HISTORICAL_MODULE_PARAMETERS }
   expect(saved.revision).toBeGreaterThan(7)
   expect(saved.project.definitions[0].parameters).toEqual(project.definitions[0].parameters)
@@ -485,8 +522,7 @@ test('isolates a broken active record from the usable local library and never au
   ], 'broken-project')
 
   await page.reload()
-  await expect(page.locator('scadlet-app .project-picker')).toBeEnabled()
-  await expect(page.locator('scadlet-app .project-picker option')).toHaveCount(2)
+  await expectProjectCount(page, 2)
   await expect(page.locator('scadlet-app .persistence-status')).toContainText('Could not load local project "Broken recovery project"')
   await expect(page.locator('scadlet-app .persistence-status')).toContainText('node dataflow cycle')
   await expect(page.locator('scadlet-app .persistence-status')).not.toContainText('storage is unavailable')
@@ -494,12 +530,14 @@ test('isolates a broken active record from the usable local library and never au
   expect(await readLocalRecord(page, 'broken-project')).toEqual(brokenRecord)
 
   page.once('dialog', (dialog) => dialog.accept())
-  await page.getByRole('button', { name: 'Delete', exact: true }).click()
-  await expect(page.locator('scadlet-app .project-picker')).toHaveValue('valid-project')
+  await openProjects(page)
+  await page.getByRole('button', { name: 'Delete active project', exact: true }).click()
+  await expectActiveProject(page, 'Valid recovery project')
   await expect(page.locator('scadlet-app .project-name')).toHaveValue('Valid recovery project')
-  await expect(page.locator('scadlet-app .project-picker option')).toHaveCount(1)
-  await page.getByRole('button', { name: 'New', exact: true }).click()
-  await expect(page.locator('scadlet-app .project-picker option')).toHaveCount(2)
+  await expectProjectCount(page, 1)
+  await openProjects(page)
+  await page.getByRole('button', { name: 'New project', exact: true }).click()
+  await expectProjectCount(page, 2)
 })
 
 test('creates, displays, protects, and restores a Module definition', async ({ page }) => {
@@ -527,12 +565,12 @@ test('creates, displays, protects, and restores a Module definition', async ({ p
   await expect(output.locator('.node-port--input .node-socket[aria-label="Geometry"]')).toHaveCount(1)
 
   const title = frame.locator('.definition-frame-title')
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   await title.click()
   await expect(inputs).toHaveClass(/node--selected/)
   await expect(output).toHaveClass(/node--selected/)
   await expect(cube).not.toHaveClass(/node--selected/)
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden()
+  await waitForAutosave(page)
 
   const inputsBefore = await inputs.boundingBox()
   const outputBefore = await output.boundingBox()
@@ -579,7 +617,7 @@ test('creates, displays, protects, and restores a Module definition', async ({ p
   if (!individualAfter || !outputStillAfter) throw new Error('Expected individually moved Inputs node')
   expect(individualAfter.x - individualBefore.x).toBeCloseTo(40, 0)
   expect(outputStillAfter.x - outputStillBefore.x).toBeCloseTo(0, 0)
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   await page.reload()
   await expect(page.locator('node-palette .module-item')).toHaveText('wheel')
   await expect(page.locator('node-editor .definition-frame')).toHaveCount(1)
@@ -640,19 +678,19 @@ test('creates, renders, inspects, and restores a parameterless Module Call', asy
   await expect(page.locator('scadlet-app .scad-output')).toContainText('module wheel()', { timeout: 15_000 })
   await expect(page.locator('scadlet-app .scad-output')).toContainText('cube();')
   await expect(page.locator('scadlet-app .scad-output')).toContainText('wheel();')
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 
   await call.locator('.node-header').dblclick()
   await expect(page.locator('scadlet-app .scad-output')).toContainText('module wheel()', { timeout: 15_000 })
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled()
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled()
 
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   await page.reload()
   await expect(page.locator('node-editor .definition-frame')).toHaveCount(1)
   await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Cube' }) })).toHaveCount(1)
   await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'wheel' }) })).toHaveCount(1)
   await page.getByRole('button', { name: 'Render', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 })
 
 test('builds, autosaves, reloads, and renders acyclic nested Function Calls', async ({ page }) => {
@@ -724,16 +762,16 @@ test('builds, autosaves, reloads, and renders acyclic nested Function Calls', as
   await expect(source).toContainText('cube(outer());')
   const sourceText = await source.textContent()
   expect(sourceText!.indexOf('function inner')).toBeLessThan(sourceText!.indexOf('function outer'))
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   await page.reload()
   await expect(page.locator('node-editor .definition-frame')).toHaveCount(2)
   await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'inner' }) })).toHaveCount(1)
   await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'outer' }) })).toHaveCount(1)
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(outer());', { timeout: 15_000 })
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 })
 
 test('builds a terminating self-recursive Function visibly and renders it after autosave reload', async ({ page }) => {
@@ -877,8 +915,8 @@ test('builds a terminating self-recursive Function visibly and renders it after 
   await expect(source).toContainText('function factorial(n = 5) = ((n <= 1) ? 1 : (n * factorial(n = (n - 1))));', { timeout: 15_000 })
   expect((await source.textContent())?.match(/function factorial/g)).toHaveLength(1)
   await expect(source).toContainText('cube(factorial(n = 5));')
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
+  await waitForAutosave(page)
 
   await page.reload()
   await expect(page.locator(`node-editor .node[data-node-id="${selfIds[0]}"]`)).toHaveCount(1)
@@ -898,7 +936,7 @@ test('builds a terminating self-recursive Function visibly and renders it after 
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(source).toContainText('function fact(value = 5) = ((value <= 1) ? 1 : (value * fact(value = (value - 1))));', { timeout: 15_000 })
   await expect(source).toContainText('cube(fact(value = 5));')
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 
   // A result-type change preflights every self-Call use. Cancellation keeps
   // the recursive graph byte-for-byte intact; confirmation removes only the
@@ -936,7 +974,7 @@ test('builds a terminating self-recursive Function visibly and renders it after 
   await expect(output.locator('.node-socket[data-socket-key="result"]')).toHaveAttribute('data-socket-type', 'unresolved')
   await expect(page.locator(`node-editor .node[data-node-id="${selfIds[0]}"] .node-socket[data-socket-key="value"]`)).toHaveAttribute('data-socket-type', 'unresolved')
   await expect(page.locator(`node-editor .node[data-node-id="${mainIds[0]}"] .node-socket[data-socket-key="value"]`)).toHaveAttribute('data-socket-type', 'unresolved')
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(source).not.toContainText('function fact', { timeout: 15_000 })
   await expect(source).toContainText('cube(10);')
@@ -960,13 +998,13 @@ test('restores, evaluates, renders, autosaves, and reloads direct and mutually r
   await expect(source).toContainText('cube(factorial(n = 5));')
   const sourceText = await source.textContent()
   expect(sourceText!.indexOf('function is_odd')).toBeLessThan(sourceText!.indexOf('function is_even'))
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 
   await page.locator('node-editor .node[data-node-id="main-even"] .node-header').dblclick()
   await expect(page.locator('node-editor .node[data-node-id="main-even"] .node-inspect-value')).toHaveText('= true', { timeout: 15_000 })
   await expect(source).toContainText('echo("__SCADLET_VALUE__:", is_even(n = 6));')
 
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   await page.reload()
   await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(27)
   await expect(page.locator('node-editor .node[data-node-id="factorial-self"]')).toHaveCount(1)
@@ -974,7 +1012,7 @@ test('restores, evaluates, renders, autosaves, and reloads direct and mutually r
   await expect(page.locator('node-editor .node[data-node-id="even-odd-call"]')).toHaveCount(1)
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(source).toContainText('cube(factorial(n = 5));', { timeout: 15_000 })
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 
   // Deleting one member of the mutual SCC preflights every peer Call. A
   // cancellation is a complete no-op; confirmation removes both the owned
@@ -991,7 +1029,7 @@ test('restores, evaluates, renders, autosaves, and reloads direct and mutually r
   await expect(page.locator('node-editor .node[data-node-id="even-odd-call"]')).toHaveCount(0)
   await expect(page.locator('node-editor .node[data-node-id="factorial-self"]')).toHaveCount(1)
   await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(16)
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   const saved = await readLocalRecord(page, 'recursive-functions') as { project: { definitions: { id: string; resultType?: string; graph: { nodes: { type: string; parameters: { definitionId?: string } }[] } }[] } }
   expect(saved.project.definitions.map((definition) => definition.id)).toEqual(['factorial', 'even'])
   expect(saved.project.definitions.find((definition) => definition.id === 'even')?.resultType).toBeUndefined()
@@ -1020,13 +1058,13 @@ test('renders and restores a visible Compare-driven Conditional Function through
   const source = page.locator('scadlet-app .scad-output')
   await expect(source).toContainText('function absolute(x = 0) = ((x < 0) ? (x * -1) : x);', { timeout: 15_000 })
   await expect(source).toContainText('cube(absolute(x = 10));')
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
+  await waitForAutosave(page)
   await page.reload()
   await expect(page.locator('node-editor .node[data-node-id="conditional"] .node-socket[data-socket-key="result"]')).toHaveAttribute('data-socket-type', 'number')
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(source).toContainText('function absolute(x = 0) = ((x < 0) ? (x * -1) : x);', { timeout: 15_000 })
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 })
 
 test('renders and restores a Compare-driven Geometry If through real OpenSCAD-WASM', async ({ page }) => {
@@ -1045,13 +1083,13 @@ test('renders and restores a Compare-driven Geometry If through real OpenSCAD-WA
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   const source = page.locator('scadlet-app .scad-output')
   await expect(source).toContainText('if ((2 < 3)) {\n  cube(10);\n} else {\n  sphere(r=5);\n}', { timeout: 15_000 })
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
+  await waitForAutosave(page)
   await page.reload()
   await expect(page.locator('node-editor .node[data-node-id="if"] .node-socket[data-socket-key="geometry"]')).toHaveAttribute('data-socket-type', 'geometry')
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(source).toContainText('if ((2 < 3)) {\n  cube(10);\n} else {\n  sphere(r=5);\n}', { timeout: 15_000 })
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 })
 
 test('preselects palette/header operations with readable controls and safely changes atan2 dynamic inputs', async ({ page }) => {
@@ -1133,15 +1171,15 @@ test('preselects palette/header operations with readable controls and safely cha
   await connectSockets(page, numbers.nth(1).locator('.node-socket[data-socket-side="output"]'), trig.locator('[data-param-key="b"] .node-socket'))
   await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(2)
 
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
-  const projectId = await page.locator('scadlet-app .project-picker').inputValue()
+  await waitForAutosave(page)
+  const projectId = await activeProjectId(page)
   const beforeCancel = await readLocalRecord(page, projectId) as { revision: number }
   await page.evaluate(() => Object.defineProperty(window, 'confirm', { configurable: true, value: () => false }))
   await trig.locator('select.node-title').selectOption('cos')
   await expect(trig.locator('select.node-title')).toHaveValue('atan2')
   await expect(trig.locator('.node-param-row')).toHaveCount(2)
   await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(2)
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden()
+  await waitForAutosave(page)
   await page.waitForTimeout(700)
   expect((await readLocalRecord(page, projectId) as { revision: number }).revision).toBe(beforeCancel.revision)
   await page.evaluate(() => Object.defineProperty(window, 'confirm', { configurable: true, value: () => true }))
@@ -1149,7 +1187,7 @@ test('preselects palette/header operations with readable controls and safely cha
   await expect(trig.locator('select.node-title')).toHaveValue('cos')
   await expect(trig.locator('.node-param-row')).toHaveCount(1)
   await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(1)
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   await page.reload()
   await expect(arithmetic.locator('select.node-title')).toHaveValue('modulo')
   const restoredTrig = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Trigonometric operation"]') })
@@ -1244,14 +1282,14 @@ test('renders and restores pow/sqrt/Compare/Conditional Function math through re
   const source = page.locator('scadlet-app .scad-output')
   await expect(source).toContainText('function bounded_root(x = 3) = ((pow(x, 2) <= 25) ? sqrt(pow(x, 2)) : 5);', { timeout: 15_000 })
   await expect(source).toContainText('cube(bounded_root(x = 3));')
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
   await page.locator('node-editor .node[data-node-id="comparison"] select.node-title').selectOption('<')
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   await page.reload()
   await expect(page.locator('node-editor .node[data-node-id="comparison"] select.node-title')).toHaveValue('<')
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(source).toContainText('(pow(x, 2) < 25)', { timeout: 15_000 })
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 })
 
 test('restores, renders, autosaves, and reloads Module bodies containing both Call kinds', async ({ page }) => {
@@ -1271,15 +1309,15 @@ test('restores, renders, autosaves, and reloads Module bodies containing both Ca
   const sourceText = await source.textContent()
   expect(sourceText!.indexOf('function diameter')).toBeLessThan(sourceText!.indexOf('module inner'))
   expect(sourceText!.indexOf('module inner')).toBeLessThan(sourceText!.indexOf('module outer'))
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
+  await waitForAutosave(page)
 
   await page.reload()
   await expect(page.locator('node-editor .node[data-node-id="outer-module"] .node-socket[aria-label="r"]')).toHaveCount(1)
   await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(7)
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(source).toContainText('inner(r = diameter(r = r));', { timeout: 15_000 })
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 })
 
 test('restores, renders, edits, autosaves, reloads, and safely deletes recursive Modules', async ({ page }) => {
@@ -1306,7 +1344,7 @@ test('restores, renders, edits, autosaves, reloads, and safely deletes recursive
   expect(sourceText!.indexOf('function previous')).toBeLessThan(sourceText!.indexOf('module stack'))
   expect(sourceText!.indexOf('module stack')).toBeLessThan(sourceText!.indexOf('module pong'))
   expect(sourceText!.indexOf('module pong')).toBeLessThan(sourceText!.indexOf('module ping'))
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 
   const stackEntry = page.locator('node-palette .module-entry[data-definition-id="stack"]')
   await stackEntry.getByRole('button', { name: 'Edit stack', exact: true }).click()
@@ -1331,8 +1369,8 @@ test('restores, renders, edits, autosaves, reloads, and safely deletes recursive
   await expect(source).toContainText('module stack_layers(levels = 2)', { timeout: 15_000 })
   await expect(source).toContainText('stack_layers(levels = previous(n = levels))')
   await expect(source).toContainText('stack_layers(levels = 4)')
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
+  await waitForAutosave(page)
 
   let saved = await readLocalRecord(page, 'recursive-modules') as { project: { version: number; definitions: { id: string; name: string; parameters: { name: string; default: number }[]; geometryInputs?: { name: string }[]; graph: { nodes: { type: string; parameters: { definitionId?: string } }[] } }[] } }
   expect(saved.project.version).toBe(6)
@@ -1345,7 +1383,7 @@ test('restores, renders, edits, autosaves, reloads, and safely deletes recursive
   await expect(page.locator('node-editor .node[data-node-id="stack-self"] .node-socket[aria-label="Slice"]')).toHaveCount(1)
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(source).toContainText('stack_layers(levels = previous(n = levels))', { timeout: 15_000 })
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 
   // Deleting one mutual-SCC member preflights its own graph plus the Call
   // and wires owned by its peer. Cancellation is a complete no-op.
@@ -1360,7 +1398,7 @@ test('restores, renders, edits, autosaves, reloads, and safely deletes recursive
   await expect(page.locator('node-editor .definition-frame')).toHaveCount(3)
   await expect(page.locator('node-editor .node[data-node-id="ping-pong"]')).toHaveCount(0)
   await expect(page.locator('node-editor .node[data-node-id="stack-self"]')).toHaveCount(1)
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   saved = await readLocalRecord(page, 'recursive-modules') as typeof saved
   expect(saved.project.definitions.map((item) => item.id)).toEqual(['stack', 'ping', 'previous'])
   expect(saved.project.definitions.flatMap((item) => item.graph.nodes)
@@ -1432,7 +1470,7 @@ test('propagates nested Function result transitions and safely renames/deletes t
   await dropPaletteNode(page, 'boolean', { x: innerBox.x + innerBox.width / 2, y: innerBox.y + innerBox.height - 35 })
   const boolean = page.locator('node-editor .node').filter({ has: page.locator('.node-header input[aria-label="Boolean Name"]') })
   const innerOutput = page.locator('node-editor .node[data-node-id="inner-out"]')
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   await connectSockets(page, boolean.locator('.node-port--output .node-socket'), innerOutput.locator('.node-port--input .node-socket'))
   await expect(connections).toHaveCount(3)
   let saved = await readLocalRecord(page, 'nested-lifecycle') as { project: ReturnType<typeof nestedFunctionProject> }
@@ -1441,7 +1479,7 @@ test('propagates nested Function result transitions and safely renames/deletes t
   await page.evaluate(() => { Object.defineProperty(window, 'confirm', { configurable: true, value: () => true }) })
   await connectSockets(page, boolean.locator('.node-port--output .node-socket'), innerOutput.locator('.node-port--input .node-socket'))
   await expect(connections).toHaveCount(2)
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   saved = await readLocalRecord(page, 'nested-lifecycle') as { project: ReturnType<typeof nestedFunctionProject> }
   expect(saved.project.definitions.map((item) => item.resultType)).toEqual(['boolean', 'boolean'])
   expect(saved.project.graph.connections.map((item) => item.id)).not.toContain('main-size')
@@ -1486,7 +1524,7 @@ test('propagates nested Function result transitions and safely renames/deletes t
   await innerResultHit.dispatchEvent('pointerdown', { button: 0 })
   await page.keyboard.press('Delete')
   await expect(connections).toHaveCount(0)
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   saved = await readLocalRecord(page, 'nested-lifecycle') as { project: ReturnType<typeof nestedFunctionProject> }
   expect(saved.project.definitions.map((item) => item.resultType)).toEqual([undefined, undefined])
 
@@ -1496,7 +1534,7 @@ test('propagates nested Function result transitions and safely renames/deletes t
   await expect(page.locator('node-editor .definition-frame')).toHaveCount(1)
   await expect(page.locator('node-editor .node[data-node-id="outer-call"]')).toHaveCount(0)
   await expect(connections).toHaveCount(0)
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   saved = await readLocalRecord(page, 'nested-lifecycle') as { project: ReturnType<typeof nestedFunctionProject> }
   expect(saved.project.definitions).toHaveLength(1)
   expect(saved.project.definitions[0].id).toBe('outer')
@@ -1686,10 +1724,10 @@ test('two Geometry inputs with the second wired to Output render exactly one Geo
   await expect(page.locator('scadlet-app .scad-output')).toContainText('children(1);')
   await expect(page.locator('scadlet-app .scad-output')).toContainText('cube();')
   await expect(page.locator('scadlet-app .scad-output')).toContainText('sphere();')
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 
   // Reload after autosave: sockets and codegen must not duplicate on restore.
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   await page.reload()
   await expect(inputs.locator('.node-port--output')).toHaveCount(3)
   await expect(cube.locator('.node-port--output .node-socket[aria-label="Geometry"]')).toHaveCount(1)
@@ -1698,7 +1736,7 @@ test('two Geometry inputs with the second wired to Output render exactly one Geo
   await expect(call.locator('.node-port--input .node-socket[aria-label="Fnord"]')).toHaveCount(1)
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(page.locator('scadlet-app .scad-output')).toContainText('children(1);', { timeout: 15_000 })
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 })
 
 test('renames and deletes a Module through its sidebar actions', async ({ page }) => {
@@ -1714,14 +1752,14 @@ test('renames and deletes a Module through its sidebar actions', async ({ page }
   await rename.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(entry.locator('.module-item')).toHaveText('rim')
   await expect(page.locator('node-editor .definition-frame')).toContainText('module rim')
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   await page.reload()
   await expect(page.locator('node-palette .module-item')).toHaveText('rim')
   page.once('dialog', (confirm) => confirm.accept())
   await entry.getByRole('button', { name: 'Delete rim' }).click()
   await expect(page.locator('node-palette .module-item')).toHaveCount(0)
   await expect(page.locator('node-editor .definition-frame')).toHaveCount(0)
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   await page.reload()
   await expect(page.locator('node-palette .module-item')).toHaveCount(0)
 })
@@ -1782,7 +1820,7 @@ test('deletes a connected Module parameter only after confirmation and persists 
   await expect(secondCall.locator('.node-param-row', { hasText: 'radius' })).toHaveCount(0)
   // The Module body wire is unrelated and remains intact.
   await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(1)
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
 
   const saved = await readLocalRecord(page, 'delete-parameter-project') as { project: typeof project }
   expect(saved.project.definitions[0].parameters.map((parameter: { id: string }) => parameter.id)).not.toContain('radius-id')
@@ -1954,7 +1992,7 @@ test('rejects a visible node dataflow cycle without changing the valid graph, th
   await connectSockets(page, right.locator('.node-port--output .node-socket'), cube.locator('[data-param-key="size"] .node-socket'))
   const wires = page.locator('node-editor svg.connection[data-real-connection="true"]')
   await expect(wires).toHaveCount(2)
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
 
   // A successful Inspect gives the rejected attempt a meaningful
   // presentation-state invariant: it must not clear the active marker or
@@ -1963,7 +2001,7 @@ test('rejects a visible node dataflow cycle without changing the valid graph, th
   await expect(cube).toHaveClass(/node--inspected/, { timeout: 15_000 })
   const source = page.locator('scadlet-app .scad-output')
   const sourceBefore = await source.textContent()
-  const projectId = await page.locator('scadlet-app .project-picker').inputValue()
+  const projectId = await activeProjectId(page)
   const storedBefore = await readLocalRecord(page, projectId)
 
   const rejected = await tryConnectNodePorts(page, rightId, 'value', leftId, 'a')
@@ -1972,13 +2010,13 @@ test('rejects a visible node dataflow cycle without changing the valid graph, th
   await expect(wires).toHaveCount(2)
   await expect(cube).toHaveClass(/node--inspected/)
   await expect(source).toHaveText(sourceBefore ?? '')
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden()
+  await waitForAutosave(page)
   await page.waitForTimeout(1_000)
   expect(await readLocalRecord(page, projectId)).toEqual(storedBefore)
 
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(source).toContainText('cube(', { timeout: 15_000 })
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
 })
 
 test('creates a Compare with direct fallbacks, feeds Geometry If, and restores it through autosave', async ({ page }) => {
@@ -2011,8 +2049,8 @@ test('creates a Compare with direct fallbacks, feeds Geometry If, and restores i
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   const source = page.locator('scadlet-app .scad-output')
   await expect(source).toContainText('if ((3 > 10)) {', { timeout: 15_000 })
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
+  await waitForAutosave(page)
 
   await page.reload()
   const restored = page.locator('node-editor .node').filter({ has: page.locator('select.node-title[aria-label="Comparison operator"]') })
@@ -2030,7 +2068,7 @@ test('source names persist and value Inspect evaluates Arithmetic headlessly thr
   const number = page.locator('node-editor .node').filter({ has: page.locator('.node-header input.node-title') })
   await number.locator('.node-header input.node-title').fill('Width')
   await number.locator('.node-header input.node-title').press('Tab')
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
+  await waitForAutosave(page)
   await page.reload()
   const restoredNumber = page.locator('node-editor .node').filter({ has: page.locator('.node-header input.node-title') })
   await expect(restoredNumber.locator('.node-header input.node-title')).toHaveValue('Width')
@@ -2070,7 +2108,7 @@ test('Geometry Inspect renders the selected subtree immediately and Render retur
   await dropPaletteNode(page, 'sphere')
 
   await cube.locator('.node-header').dblclick()
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
   await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(', { timeout: 15_000 })
   await expect(page.locator('scadlet-app .scad-output')).not.toContainText('sphere(')
   await expect(cube).toHaveClass(/node--inspected/)
@@ -2449,9 +2487,10 @@ test('autosaves canonical graph state and restores it after reload', async ({ pa
   await renameProject(page, 'Persistent Cube')
   await addAndEditCube(page, '42')
 
-  const activeBefore = await page.locator('scadlet-app .project-picker').inputValue()
+  const activeBefore = await activeProjectId(page)
   await page.reload()
-  await expect(page.locator('scadlet-app .project-picker')).toHaveValue(activeBefore)
+  expect(await activeProjectId(page)).toBe(activeBefore)
+  await expectActiveProject(page, 'Persistent Cube')
   await expect(page.locator('scadlet-app .project-name')).toHaveValue('Persistent Cube')
   const restoredCube = page.locator('node-editor .node').filter({ hasText: 'Cube' })
   await expect(restoredCube.locator('[data-param-key="sizeX"] input')).toHaveValue('42')
@@ -2461,25 +2500,28 @@ test('keeps different projects active independently per tab and detects same-pro
   await waitForLocalLibrary(page)
   await renameProject(page, 'Project A')
   await addAndEditCube(page, '11')
-  const projectAId = await page.locator('scadlet-app .project-picker').inputValue()
+  const projectAId = await activeProjectId(page)
 
   const second = await context.newPage()
   await second.goto('/')
-  await expect(second.locator('scadlet-app .project-picker')).toHaveValue(projectAId)
-  await second.getByRole('button', { name: 'New', exact: true }).click()
+  await expectActiveProject(second, 'Project A')
+  await openProjects(second)
+  await second.getByRole('button', { name: 'New project', exact: true }).click()
   await renameProject(second, 'Project B')
   await dropPaletteNode(second, 'sphere')
-  await expect(second.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
-  const projectBId = await second.locator('scadlet-app .project-picker').inputValue()
+  await waitForAutosave(second)
+  const projectBId = await activeProjectId(second)
   expect(projectBId).not.toBe(projectAId)
-  await expect(page.locator('scadlet-app .project-picker')).toHaveValue(projectAId)
+  await expectActiveProject(page, 'Project A')
 
   await page.reload()
   await second.reload()
-  await expect(page.locator('scadlet-app .project-picker')).toHaveValue(projectAId)
-  await expect(second.locator('scadlet-app .project-picker')).toHaveValue(projectBId)
+  expect(await activeProjectId(page)).toBe(projectAId)
+  expect(await activeProjectId(second)).toBe(projectBId)
+  await expectActiveProject(page, 'Project A')
+  await expectActiveProject(second, 'Project B')
 
-  await second.locator('scadlet-app .project-picker').selectOption(projectAId)
+  await selectProject(second, 'Project A')
   await expect(second.locator('scadlet-app .project-name')).toHaveValue('Project A')
   await renameProject(page, 'Project A updated')
   await expect(second.locator('scadlet-app .persistence-status')).toContainText('changed in another SCADlet tab')
@@ -2487,7 +2529,7 @@ test('keeps different projects active independently per tab and detects same-pro
   const staleName = second.locator('scadlet-app .project-name')
   await staleName.fill('Stale tab copy')
   await staleName.press('Tab')
-  await expect(second.locator('scadlet-app .dirty-indicator')).toBeVisible()
+  await expect(second.locator('scadlet-app .persistence-status')).toBeVisible()
 
   const storedName = await page.evaluate(async (id) => {
     const request = indexedDB.open('scadlet-projects')
@@ -2507,24 +2549,24 @@ test('keeps different projects active independently per tab and detects same-pro
   await second.getByRole('button', { name: 'Save current as a new project' }).click()
   await expect(second.locator('scadlet-app .persistence-status')).toBeHidden()
   await expect(second.locator('scadlet-app .project-name')).toHaveValue('Stale tab copy')
-  expect(await second.locator('scadlet-app .project-picker').inputValue()).not.toBe(projectAId)
+  expect(await activeProjectId(second)).not.toBe(projectAId)
 })
 
 test('imports an external file under a new local identity and preserves fallback Save As', async ({ page }) => {
   await waitForLocalLibrary(page)
-  const oldId = await page.locator('scadlet-app .project-picker').inputValue()
+  const oldId = await activeProjectId(page)
   const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByRole('button', { name: 'Open', exact: true }).click()
+  await (await fileAction(page, 'Open')).click()
   const chooser = await chooserPromise
   await chooser.setFiles(join(ROOT, 'docs/examples/sphere-fn50.scadlet'))
 
   await expect(page.locator('scadlet-app .project-name')).toHaveValue('Sphere Benchmark')
-  const importedId = await page.locator('scadlet-app .project-picker').inputValue()
+  const importedId = await activeProjectId(page)
   expect(importedId).not.toBe(oldId)
-  await expect(page.locator('scadlet-app .project-picker option')).toHaveCount(2)
+  await expectProjectCount(page, 2)
 
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Save As', exact: true }).click()
+  await (await fileAction(page, 'Save .scadlet')).click()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe('Sphere Benchmark.scadlet')
 })
@@ -2532,7 +2574,7 @@ test('imports an external file under a new local identity and preserves fallback
 test('imports the static legacy v5 arithmetic fixture as canonical v6 nodes', async ({ page }) => {
   await waitForLocalLibrary(page)
   const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByRole('button', { name: 'Open', exact: true }).click()
+  await (await fileAction(page, 'Open')).click()
   const chooser = await chooserPromise
   await chooser.setFiles(LEGACY_ARITHMETIC_V5_PATH)
   await expect(page.locator('scadlet-app .project-name')).toHaveValue('Legacy arithmetic v5')
@@ -2542,9 +2584,9 @@ test('imports the static legacy v5 arithmetic fixture as canonical v6 nodes', as
   await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(8)
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(((((2 + 3) - 1) * 4) / 2));', { timeout: 15_000 })
-  await expect(page.getByRole('button', { name: 'Download .stl', exact: true })).toBeEnabled({ timeout: 15_000 })
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden({ timeout: 5_000 })
-  const activeId = await page.locator('scadlet-app .project-picker').inputValue()
+  await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
+  await waitForAutosave(page)
+  const activeId = await activeProjectId(page)
   const saved = await readLocalRecord(page, activeId) as { project: { version: number; graph: { nodes: { type: string }[] } } }
   expect(saved.project.version).toBe(6)
   expect(saved.project.graph.nodes.filter((node) => node.type === 'arithmetic')).toHaveLength(4)

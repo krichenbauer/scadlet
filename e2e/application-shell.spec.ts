@@ -1,6 +1,22 @@
 import { expect, test } from '@playwright/test'
 
-test('polishes the shell with accessible icons and a UI-only Live slider', async ({ page }) => {
+async function dropCube(page: import('@playwright/test').Page, offset: { x: number; y: number }): Promise<void> {
+  await page.evaluate(({ x, y }) => {
+    const editor = document.querySelector('scadlet-app')?.shadowRoot?.querySelector('node-editor')
+    const canvas = editor?.shadowRoot?.querySelector('#canvas')
+    if (!canvas) throw new Error('Expected node editor canvas')
+    const bounds = canvas.getBoundingClientRect()
+    const dataTransfer = new DataTransfer()
+    dataTransfer.setData('application/x-scadlet-node-type', 'cube')
+    for (const type of ['dragover', 'drop']) {
+      canvas.dispatchEvent(new DragEvent(type, {
+        bubbles: true, cancelable: true, clientX: bounds.left + x, clientY: bounds.top + y, dataTransfer,
+      }))
+    }
+  }, offset)
+}
+
+test('polishes the shell with accessible icons and a session-only Live slider', async ({ page }) => {
   await page.goto('/')
   const name = page.locator('scadlet-app .project-name')
   await expect(name).toBeEnabled()
@@ -32,7 +48,7 @@ test('polishes the shell with accessible icons and a UI-only Live slider', async
     await expect(action).toBeFocused()
   }
   await expect(page.locator('scadlet-app .project-row--active')).toHaveCount(1)
-  await expect(page.locator('scadlet-app .project-row').filter({ hasText: 'Rename' })).toHaveCount(0)
+  await expect(page.locator('scadlet-app .project-row [aria-label*="Rename"]')).toHaveCount(0)
   const sort = page.getByRole('combobox', { name: 'Sort:' })
   await expect(sort).toHaveValue('recent')
   await sort.selectOption('alphabetical')
@@ -59,4 +75,36 @@ test('polishes the shell with accessible icons and a UI-only Live slider', async
   await live.press('Space')
   await expect(live).toHaveAttribute('aria-checked', 'false')
   await expect(page.locator('geometry-viewer .render-spinner')).toHaveCount(0)
+})
+
+test('Live waits for 400ms of semantic quiet before using the normal render path', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('scadlet-app .project-name')).toBeEnabled()
+  await dropCube(page, { x: 220, y: 180 })
+  await expect(page.locator('node-editor .node')).toHaveCount(1)
+  // The source panel is only updated by the existing Render action.
+  await page.waitForTimeout(250)
+  await expect(page.locator('scadlet-app .scad-output')).not.toContainText('cube(')
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(', { timeout: 15_000 })
+
+  const live = page.locator('geometry-viewer .live-switch')
+  await live.click()
+  await expect(live).toHaveAttribute('aria-checked', 'false')
+  // The session preference is deliberately excluded from IndexedDB records.
+  const stored = await page.evaluate(async () => {
+    const request = indexedDB.open('scadlet-projects')
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = database.transaction('projects', 'readonly')
+    const get = transaction.objectStore('projects').getAll()
+    const records = await new Promise<unknown>((resolve, reject) => {
+      get.onsuccess = () => resolve(get.result)
+      get.onerror = () => reject(get.error)
+    })
+    database.close()
+    return JSON.stringify(records)
+  })
+  expect(stored).not.toContain('live')
 })

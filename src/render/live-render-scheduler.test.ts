@@ -1,0 +1,123 @@
+import { describe, expect, it, vi } from 'vitest'
+
+import { LiveRenderScheduler } from './live-render-scheduler'
+
+describe('LiveRenderScheduler', () => {
+  it('defaults to Live enabled and schedules one semantic revision after 400ms', () => {
+    vi.useFakeTimers()
+    const due = vi.fn()
+    const scheduler = new LiveRenderScheduler({ onDue: due })
+    expect(scheduler.live).toBe(true)
+    scheduler.semanticChange()
+    vi.advanceTimersByTime(399)
+    expect(due).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(due).toHaveBeenCalledExactlyOnceWith(1)
+    vi.useRealTimers()
+  })
+
+  it('resets its quiet timer for repeated semantic edits', () => {
+    vi.useFakeTimers()
+    const due = vi.fn()
+    const scheduler = new LiveRenderScheduler({ onDue: due })
+    scheduler.semanticChange()
+    vi.advanceTimersByTime(300)
+    scheduler.semanticChange()
+    vi.advanceTimersByTime(300)
+    expect(due).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(100)
+    expect(due).toHaveBeenCalledExactlyOnceWith(2)
+    vi.useRealTimers()
+  })
+
+  it('does not schedule until a semantic edit, so presentation and autosave callers have no effect', () => {
+    vi.useFakeTimers()
+    const due = vi.fn()
+    new LiveRenderScheduler({ onDue: due })
+    vi.advanceTimersByTime(1000)
+    expect(due).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('enabling Live immediately renders a stale revision, while disabling clears queued edits', () => {
+    vi.useFakeTimers()
+    const due = vi.fn()
+    const scheduler = new LiveRenderScheduler({ onDue: due })
+    scheduler.setLive(false)
+    scheduler.semanticChange()
+    scheduler.setLive(true)
+    expect(due).toHaveBeenCalledExactlyOnceWith(1)
+    scheduler.setLive(false)
+    vi.advanceTimersByTime(400)
+    expect(due).toHaveBeenCalledExactlyOnceWith(1)
+    vi.useRealTimers()
+  })
+
+  it('recognizes an unrendered initial graph as stale when Live is turned on', () => {
+    vi.useFakeTimers()
+    const due = vi.fn()
+    const scheduler = new LiveRenderScheduler({ onDue: due })
+    scheduler.setLive(false)
+    scheduler.setLive(true)
+    expect(due).toHaveBeenCalledExactlyOnceWith(0)
+    vi.useRealTimers()
+  })
+
+  it('flushes pending work for manual rendering, skips current successes, and suppresses a stopped revision', () => {
+    vi.useFakeTimers()
+    const due = vi.fn()
+    const scheduler = new LiveRenderScheduler({ onDue: due })
+    const revision = scheduler.semanticChange()
+    scheduler.cancelPending()
+    vi.advanceTimersByTime(400)
+    expect(due).not.toHaveBeenCalled()
+    scheduler.markSuccessful(revision)
+    scheduler.setLive(false)
+    scheduler.setLive(true)
+    expect(due).not.toHaveBeenCalled()
+    scheduler.semanticChange()
+    scheduler.stopCurrentRevision()
+    scheduler.setLive(false)
+    scheduler.setLive(true)
+    expect(due).toHaveBeenCalledExactlyOnceWith(2)
+    vi.useRealTimers()
+  })
+
+  it('marks project activation stale and immediately renders only when Live is on', () => {
+    const due = vi.fn()
+    const scheduler = new LiveRenderScheduler({ onDue: due })
+    scheduler.markSuccessful(0)
+    scheduler.projectChanged()
+    scheduler.renderImmediatelyIfStale()
+    expect(due).toHaveBeenCalledExactlyOnceWith(1)
+
+    scheduler.setLive(false)
+    scheduler.projectChanged()
+    scheduler.renderImmediatelyIfStale()
+    expect(due).toHaveBeenCalledExactlyOnceWith(1)
+  })
+
+  it('does not duplicate an immediate enable or activation when the revision is fresh', () => {
+    const due = vi.fn()
+    const scheduler = new LiveRenderScheduler({ onDue: due })
+    scheduler.markSuccessful(0)
+    scheduler.setLive(false)
+    scheduler.setLive(true)
+    scheduler.renderImmediatelyIfStale()
+    expect(due).not.toHaveBeenCalled()
+  })
+
+  it('clears an existing edit debounce before immediate re-enabling', () => {
+    vi.useFakeTimers()
+    const due = vi.fn()
+    const scheduler = new LiveRenderScheduler({ onDue: due })
+    scheduler.semanticChange()
+    expect(scheduler.hasPendingRender).toBe(true)
+    scheduler.setLive(false)
+    scheduler.setLive(true)
+    expect(due).toHaveBeenCalledExactlyOnceWith(1)
+    vi.advanceTimersByTime(400)
+    expect(due).toHaveBeenCalledExactlyOnceWith(1)
+    vi.useRealTimers()
+  })
+})

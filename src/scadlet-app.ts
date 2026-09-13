@@ -26,6 +26,7 @@ import { restoreProject } from './persistence/restore'
 import { serializeProject } from './persistence/serialize'
 import { RenderController } from './render/render-controller'
 import { ExecutionGeneration } from './render/execution-generation'
+import { LiveRenderScheduler } from './render/live-render-scheduler'
 import { scadBlob, stlBlob, triggerDownload } from './render/download'
 import { t } from './i18n/translate'
 import type { ModuleDefinition } from './editor/definitions'
@@ -339,6 +340,11 @@ export class ScadletApp extends LitElement {
   private readonly renderController = new RenderController()
   private readonly executionGeneration = new ExecutionGeneration()
   private activeExecution: 'render' | 'inspect' | null = null
+  /** The origin only affects scheduling/cancellation policy, never project data. */
+  private activeRenderOrigin: 'manual' | 'live' | null = null
+  private readonly liveScheduler = new LiveRenderScheduler({
+    onDue: (revision) => { void this._renderLive(revision) },
+  })
   private mainResizeObserver?: ResizeObserver
   private sideResizeObserver?: ResizeObserver
 
@@ -407,6 +413,10 @@ export class ScadletApp extends LitElement {
 
   @state()
   private showRenderStop = false
+
+  /** Live is intentionally app-session UI state, never project data. */
+  @state()
+  private live = true
 
   private renderStopTimer?: ReturnType<typeof setTimeout>
 
@@ -505,7 +515,7 @@ export class ScadletApp extends LitElement {
             class="side"
             style=${styleMap({ '--viewer-height': this.viewerHeight ? `${this.viewerHeight}px` : undefined })}
           >
-            <geometry-viewer .status=${this.renderInfo ?? ''} .rendering=${this.rendering} .showStop=${this.showRenderStop} @manual-render=${this._render} @manual-render-stop=${this._stop}></geometry-viewer>
+            <geometry-viewer .status=${this.renderInfo ?? ''} .live=${this.live} .rendering=${this.rendering} .showStop=${this.showRenderStop} @live-change=${this._setLive} @manual-render=${this._render} @manual-render-stop=${this._stop}></geometry-viewer>
             <layout-splitter orientation="horizontal" @splitter-move=${this._onSideSplitterMove}></layout-splitter>
             <div class="bottom-panel">
               <pre class="scad-output">${this.scadSource || `// ${t('toolbar.renderHint')}`}</pre>
@@ -686,7 +696,7 @@ export class ScadletApp extends LitElement {
       this.persistenceMessage = `Local project storage is unavailable. You can still use Open and Save: ${this._errorMessage(error)}`
     } finally {
       this.unsubscribeDirty = instance.onDirty(() => this._markDirty())
-      this.unsubscribeSemantic = instance.onSemanticChange(() => this._invalidateStaleInspect())
+      this.unsubscribeSemantic = instance.onSemanticChange(() => this._handleSemanticChange())
       this.unsubscribeInspect = instance.onInspect((nodeId) => void this._inspect(nodeId))
       this.unsubscribeCameraDirty = this.viewer.onCameraChange(() => this._markDirty())
       this.localInitializing = false
@@ -757,8 +767,9 @@ export class ScadletApp extends LitElement {
     }
   }
 
-  private async _applyStoredProject(stored: StoredProject, clearFileHandle = true): Promise<void> {
+  private async _applyStoredProject(stored: StoredProject, clearFileHandle = true, renderAfterActivation = false): Promise<void> {
     if (!this.editorInstance) throw new Error('The node editor is not ready.')
+    if (stored.id !== this.activeProjectId) this._invalidateProjectRender()
     await this._restoreProject(stored.project)
     this.activeProjectId = stored.id
     this.failedProject = null
@@ -773,6 +784,21 @@ export class ScadletApp extends LitElement {
     this.persistenceMessage = null
     if (clearFileHandle) this.fileService.clearHandle()
     this._clearRenderedOutput()
+    if (renderAfterActivation && this.live) this.liveScheduler.renderImmediatelyIfStale()
+  }
+
+  /** A local-project replacement makes every delayed/running result from the
+   * old graph invalid before restore can expose the new one. */
+  private _invalidateProjectRender(): void {
+    this.liveScheduler.projectChanged()
+    this.executionGeneration.invalidate()
+    if (this.renderStopTimer) clearTimeout(this.renderStopTimer)
+    this.renderStopTimer = undefined
+    this.activeExecution = null
+    this.activeRenderOrigin = null
+    this.rendering = false
+    this.showRenderStop = false
+    this.renderController.stop()
   }
 
   private async _restoreProject(project: ScadletProjectV1): Promise<void> {
@@ -827,7 +853,7 @@ export class ScadletApp extends LitElement {
     try {
       const stored = await this.localStore.getProject(id)
       if (!stored) throw new Error('That local project no longer exists.')
-      await this._applyStoredProject(stored)
+      await this._applyStoredProject(stored, true, true)
       await this._refreshProjectList()
     } catch (error) {
       this.persistenceMessage = `Could not open the local project: ${this._errorMessage(error)}`
@@ -843,7 +869,7 @@ export class ScadletApp extends LitElement {
     if (!this.localStore || !(await this._canLeaveCurrentProject())) return
     try {
       const stored = await this.localStore.createProject(createEmptyProject())
-      await this._applyStoredProject(stored)
+      await this._applyStoredProject(stored, true, true)
       this.localEvents?.publish({ type: 'project-created', projectId: stored.id, revision: stored.revision })
       await this._refreshProjectList()
     } catch (error) {
@@ -867,7 +893,7 @@ export class ScadletApp extends LitElement {
     while (existingNames.has(name)) name = `${base} ${suffix++}`
     try {
       const stored = await this.localStore.createProject({ ...source, metadata: { ...source.metadata, name } })
-      await this._applyStoredProject(stored)
+      await this._applyStoredProject(stored, true, true)
       this.localEvents?.publish({ type: 'project-created', projectId: stored.id, revision: stored.revision })
       await this._refreshProjectList()
       this.projectsMenuOpen = false
@@ -894,7 +920,7 @@ export class ScadletApp extends LitElement {
       this.localEvents?.publish({ type: 'project-deleted', projectId: deletedId })
       this.failedProject = null
       const replacement = await resolveStartupProject(this.localStore, this.activeProjectSession!)
-      await this._applyStoredProject(replacement)
+      await this._applyStoredProject(replacement, true, true)
       await this._refreshProjectList()
     } catch (error) {
       this.persistenceMessage = `Could not delete the local project: ${this._errorMessage(error)}`
@@ -922,7 +948,7 @@ export class ScadletApp extends LitElement {
     try {
       const stored = await this.localStore.getProject(this.activeProjectId)
       if (!stored) throw new Error('The local project was deleted.')
-      await this._applyStoredProject(stored, false)
+      await this._applyStoredProject(stored, false, true)
       await this._refreshProjectList()
     } catch (error) {
       this.persistenceMessage = `Could not reload the stored project: ${this._errorMessage(error)}`
@@ -1218,7 +1244,7 @@ export class ScadletApp extends LitElement {
         // Every external file import gets a new local identity. A
         // same-named project in the library is never overwritten.
         const stored = await this.localStore.createProject(project)
-        await this._applyStoredProject(stored, false)
+        await this._applyStoredProject(stored, false, true)
         this.hasExplicitName = true
         this.localEvents?.publish({ type: 'project-created', projectId: stored.id, revision: stored.revision })
         await this._refreshProjectList()
@@ -1269,11 +1295,12 @@ export class ScadletApp extends LitElement {
     void this._saveAs()
   }
 
-  private _beginExecution(kind: 'render' | 'inspect'): number {
+  private _beginExecution(kind: 'render' | 'inspect', origin: 'manual' | 'live' | null = null): number {
     const generation = this.executionGeneration.begin()
     if (this.renderController.isRendering) this.renderController.stop()
     if (this.renderStopTimer) clearTimeout(this.renderStopTimer)
     this.activeExecution = kind
+    this.activeRenderOrigin = kind === 'render' ? origin : null
     if (kind === 'inspect' || kind === 'render') {
       // A running replacement is never allowed to expose prior bytes as a
       // fresh export. The visible mesh itself remains until success.
@@ -1293,14 +1320,15 @@ export class ScadletApp extends LitElement {
     if (this.renderStopTimer) clearTimeout(this.renderStopTimer)
     this.renderStopTimer = undefined
     this.activeExecution = null
+    this.activeRenderOrigin = null
     this.rendering = false
     this.showRenderStop = false
   }
 
-  /** A semantic edit makes an in-flight Inspect obsolete. The existing last
-   * successful geometry preview stays in the viewer; only its pending worker
-   * request is cancelled, and no automatic re-evaluation is started. */
-  private _invalidateStaleInspect(): void {
+  /** A semantic edit invalidates Inspect and schedules through the one
+   * session-only Live policy. Presentation and persistence events never call
+   * this method because they are not editor semantic changes. */
+  private _handleSemanticChange(): void {
     this.editorInstance?.clearInspect()
     // The empty-preview note describes a completed Geometry result. A graph
     // edit leaves the blank canvas in place but makes that old result stale.
@@ -1308,33 +1336,53 @@ export class ScadletApp extends LitElement {
     // Keep the old successful mesh visible as helpful context, but never
     // treat its bytes as an export for the changed graph.
     this.stl = null
-    if (this.activeExecution !== 'inspect') return
-    this.executionGeneration.invalidate()
-    this.activeExecution = null
-    this.rendering = false
-    this.renderController.stop()
+    if (this.activeExecution === 'inspect' || this.activeRenderOrigin === 'live') {
+      this.executionGeneration.invalidate()
+      if (this.renderStopTimer) clearTimeout(this.renderStopTimer)
+      this.renderStopTimer = undefined
+      this.activeExecution = null
+      this.activeRenderOrigin = null
+      this.rendering = false
+      this.showRenderStop = false
+      this.renderController.stop()
+    }
+    this.liveScheduler.semanticChange()
   }
 
   private async _render() {
+    // A direct Render action wins over a quiet-period request and prevents a
+    // later duplicate automatic run for the same revision.
+    this.liveScheduler.cancelPending()
+    await this._renderProject('manual', this.liveScheduler.revision)
+  }
+
+  private async _renderLive(revision: number): Promise<void> {
+    if (!this.live || revision !== this.liveScheduler.revision) return
+    await this._renderProject('live', revision)
+  }
+
+  private async _renderProject(origin: 'manual' | 'live', revision: number): Promise<void> {
     // A normal render represents the whole project even when evaluation
     // fails. Clear before evaluation so an old Inspect marker cannot claim
     // the retained preview as its result.
     this.editorInstance?.clearInspect()
-    const generation = this._beginExecution('render')
+    const generation = this._beginExecution('render', origin)
     this.renderInfo = null
     const tStart = performance.now()
+    let renderStartedAt: number | null = null
     try {
       // Toolbar Render always evaluates the complete project. A temporary
       // Inspect root never changes normal preview or `.scad` export scope.
       const source = await this.nodeEditor.evaluate()
-      if (!this.executionGeneration.isCurrent(generation)) return
+      if (!this._isCurrentRender(generation, revision)) return
       this.scadSource = source
       if (!source.trim()) {
         this.renderError = 'Nothing to render - add at least one node.'
         return
       }
+      renderStartedAt = performance.now()
       const result = await this.renderController.render(source)
-      if (!this.executionGeneration.isCurrent(generation)) return
+      if (!this._isCurrentRender(generation, revision)) return
       if (result.kind === 'empty') {
         this.stl = null
         this.viewer.clear()
@@ -1343,17 +1391,36 @@ export class ScadletApp extends LitElement {
         this.stl = result.stl
         this.viewer.showSTL(result.stl)
       }
+      this.liveScheduler.markSuccessful(revision)
+      if (origin === 'live' && performance.now() - renderStartedAt > 2000) this._disableSlowLiveRender()
       console.log(`[scadlet-app] render total=${(performance.now() - tStart).toFixed(1)}ms`)
     } catch (error) {
-      if (!this.executionGeneration.isCurrent(generation)) return
+      if (!this._isCurrentRender(generation, revision)) return
       const message = error instanceof Error ? error.message : String(error)
       if (message !== 'Render stopped') {
         this.renderInfo = null
         this.renderError = message
+        if (origin === 'live' && renderStartedAt !== null && performance.now() - renderStartedAt > 2000) this._disableSlowLiveRender()
       }
     } finally {
       this._finishExecution(generation)
     }
+  }
+
+  private _isCurrentRender(generation: number, revision: number): boolean {
+    return this.executionGeneration.isCurrent(generation) && revision === this.liveScheduler.revision
+  }
+
+  private _disableSlowLiveRender(): void {
+    // This is feedback about the Live policy, not an OpenSCAD/WASM failure.
+    this.live = false
+    this.liveScheduler.setLive(false)
+    this.renderInfo = t('render.liveDisabledSlow')
+  }
+
+  private readonly _setLive = (event: CustomEvent<{ live: boolean }>): void => {
+    this.live = event.detail.live
+    this.liveScheduler.setLive(this.live)
   }
 
   /** Executes exactly one OpenSCAD-backed evaluation for the node selected
@@ -1410,10 +1477,12 @@ export class ScadletApp extends LitElement {
   }
 
   private _stop() {
+    if (this.activeRenderOrigin === 'live') this.liveScheduler.stopCurrentRevision()
     this.executionGeneration.invalidate()
     if (this.renderStopTimer) clearTimeout(this.renderStopTimer)
     this.renderStopTimer = undefined
     this.activeExecution = null
+    this.activeRenderOrigin = null
     this.renderController.stop()
     this.rendering = false
     this.showRenderStop = false
@@ -1451,6 +1520,7 @@ export class ScadletApp extends LitElement {
     this.unsubscribeLocalEvents?.()
     this.localEvents?.close()
     this.autosave?.destroy()
+    this.liveScheduler.destroy()
     this.renderController.destroy()
     if (this.renderStopTimer) clearTimeout(this.renderStopTimer)
     this.mainResizeObserver?.disconnect()

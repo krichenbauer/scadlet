@@ -165,7 +165,7 @@ export class GeometryViewer extends LitElement {
   @property({ type: String })
   status = ''
 
-  /** Presentation-only default-on control. It deliberately has no render side effect yet. */
+  /** Session-owned render preference; the host owns all scheduling effects. */
   @property({ type: Boolean })
   live = true
 
@@ -393,9 +393,11 @@ export class GeometryViewer extends LitElement {
   }
 
   private readonly toggleLive = (): void => {
-    // This intentionally only changes the control's own visual state. Live
-    // scheduling is a separately designed follow-up feature.
-    this.live = !this.live
+    this.dispatchEvent(new CustomEvent<{ live: boolean }>('live-change', {
+      detail: { live: !this.live },
+      bubbles: true,
+      composed: true,
+    }))
   }
 
   private readonly requestManualRender = (): void => {

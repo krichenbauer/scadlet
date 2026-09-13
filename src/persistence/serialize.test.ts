@@ -39,6 +39,9 @@ describe('serializeProject', () => {
     expect(project.metadata).toEqual({ name: 'Empty', updatedAt: '2026-01-01T00:00:00.000Z' })
     expect(project.graph).toEqual({ nodes: [], connections: [] })
     expect(project.definitions).toEqual([])
+    // Live scheduling is a session/UI policy; no portable project shape
+    // (including an empty project) can carry it.
+    expect(JSON.stringify(project)).not.toContain('live')
   })
 
   it('serializes node id/type/position/parameters', async () => {

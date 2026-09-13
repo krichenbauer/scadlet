@@ -51,9 +51,19 @@ OpenSCAD/WASM instance: reusing one `createOpenSCAD()` instance for multiple
 creates a clean one. The Manifold backend and binary STL output are deliberate
 performance choices. Never silently lower explicit detail such as `$fn`.
 
-The default-on Live control in the viewer is currently UI-only. It must not be
-treated as a second render path, scheduler, debounce mechanism, or persistent
-preference until a separately agreed implementation connects it to this flow.
+The default-on Live control is a session-only scheduling policy over this same
+Render action, not a second pipeline. Relevant semantic graph changes debounce
+for 400 ms; presentation, layout, navigation, inspect state, and autosave do
+not enter that policy. A newer semantic change cancels a running Live request,
+uses the existing worker termination and execution-generation guards, and may
+only apply the result for its current graph revision. Manual Render cancels a
+pending Live delay and renders immediately; Stop suppresses retry for that
+unchanged revision. A non-cancelled Live worker run over two seconds completes
+normally, then disables Live and reports accessible performance feedback.
+Enabling Live and replacing the active local project cancel pending work and
+immediately render a stale current graph through the same controller; replacing
+a project invalidates/terminates old work before restore so it cannot settle
+into the new preview. Live is not serialized or scoped to a project.
 
 Generated source must be valid and readable. Preview, `.scad`, and `.stl` use
 the same source; no JSCAD/replicad/other preview semantics. Imported `.scad`

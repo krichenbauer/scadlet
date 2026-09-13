@@ -190,6 +190,7 @@ const dictionaries: Record<LocaleId, Record<string, string>> = {
     'toolbar.reloadStored': 'Reload stored version',
     'toolbar.saveAsNew': 'Save current as a new project',
     'render.emptyGeometry': 'Nothing visible to render.',
+    'render.liveDisabledSlow': 'Live rendering was turned off because rendering took longer than 2 seconds.',
     'editor.fitGraph': 'Fit graph',
     'viewer.resetView': 'Reset 3D view',
     'viewer.live': 'Live',

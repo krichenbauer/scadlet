@@ -101,6 +101,10 @@ export class RenderController {
 
   private attachHandlers(worker: WorkerLike): void {
     worker.onmessage = (event) => {
+      // A terminated worker can still have a queued event in tests and some
+      // browser implementations. It must never settle work owned by the
+      // fresh worker created after Stop/supersession.
+      if (this.worker !== worker) return
       const data = event.data
       if (!isRenderResponse(data)) {
         this.rejectPending(new Error('Received a malformed message from the render worker'))
@@ -121,6 +125,7 @@ export class RenderController {
     }
 
     worker.onerror = (event) => {
+      if (this.worker !== worker) return
       this.worker?.terminate()
       this.worker = null
       this.rejectPending(new Error(event.message ?? 'The OpenSCAD render worker failed to initialize'))

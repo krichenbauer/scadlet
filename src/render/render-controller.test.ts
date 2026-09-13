@@ -128,6 +128,20 @@ describe('RenderController', () => {
     await expect(promise).resolves.toEqual({ kind: 'stl', stl: expect.any(ArrayBuffer) })
   })
 
+  it('ignores a late result from a terminated worker after a newer render starts', async () => {
+    let created = 0
+    const workers = [new FakeWorker(), new FakeWorker()]
+    const controller = new RenderController(() => workers[created++])
+    controller.render('cube(1);').catch(() => {})
+    controller.stop()
+
+    const current = controller.render('sphere(2);')
+    workers[0].onmessage?.(messageEvent({ type: 'result', stl: new ArrayBuffer(1) }))
+    expect(controller.isRendering).toBe(true)
+    workers[1].onmessage?.(messageEvent({ type: 'result', stl: new ArrayBuffer(2) }))
+    await expect(current).resolves.toEqual({ kind: 'stl', stl: expect.any(ArrayBuffer) })
+  })
+
   it('onerror terminates the worker and rejects the pending render', async () => {
     const worker = new FakeWorker()
     const controller = new RenderController(() => worker)

@@ -14,6 +14,9 @@ transient selection, marquee, hover, temporary expansion, drag, and Inspect;
 explicit user pinning is persistent presentation state.
 
 The specification is the detailed authoritative schema. Current format is v6.
+Runtime render state, including the default-on Live render preference, pending
+debounces, render revisions, and preview result freshness, is session-only and
+is never written to `.scadlet` or IndexedDB project data.
 Connections address node and stable port IDs, never displayed labels or port
 indices. Dynamic slots, definitions, and parameters retain identity across
 rename/reorder. `.scad` and `.stl` are exports, not project files.
