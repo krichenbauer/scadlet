@@ -272,7 +272,7 @@ async function selectProject(page: Page, name: string): Promise<void> {
 }
 
 async function fileAction(page: Page, name: string) {
-  const trigger = page.locator('scadlet-app header').getByRole('button', { name: 'File', exact: true })
+  const trigger = page.locator('scadlet-app header').getByRole('button', { name: /^File\b/ })
   if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
   return page.getByRole('menuitem', { name, exact: true })
 }
@@ -1120,7 +1120,8 @@ test('preselects palette/header operations with readable controls and safely cha
   await arithmetic.locator('[data-param-key="b"] input').fill('3')
   await arithmetic.locator('select.node-title').selectOption('modulo')
   await expect(arithmetic.locator('select.node-title')).toHaveValue('modulo')
-  await arithmetic.locator('.node-body').dblclick({ position: { x: 2, y: 10 } })
+  // Inspect from the node's free main surface, not the header select control.
+  await arithmetic.locator('.node-main').dblclick({ position: { x: 150, y: 40 } })
   await expect(arithmetic.locator('.node-inspect-value')).toHaveText('= 2', { timeout: 15_000 })
   await expect(page.locator('scadlet-app .scad-output')).toContainText('echo("__SCADLET_VALUE__:", (2 % 3));')
 

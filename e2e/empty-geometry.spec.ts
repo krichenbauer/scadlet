@@ -64,7 +64,7 @@ async function viewerHasMesh(page: Page): Promise<boolean> {
 }
 
 async function fileAction(page: Page, name: string) {
-  const trigger = page.locator('scadlet-app header').getByRole('button', { name: 'File', exact: true })
+  const trigger = page.locator('scadlet-app header').getByRole('button', { name: /^File\b/ })
   if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
   return page.getByRole('menuitem', { name, exact: true })
 }

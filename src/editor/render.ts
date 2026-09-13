@@ -472,6 +472,7 @@ function renderNode(
     })
     element.addEventListener('pointerdown', (event) => {
       if (isEditableTarget(event.target)) return
+      if (event.target instanceof Element && event.target.closest('button')) return
       if (event.target instanceof Element && event.target.closest<HTMLElement>('.node-socket')) {
         return
       }
