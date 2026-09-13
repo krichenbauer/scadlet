@@ -9,7 +9,7 @@ async function openEmptyProject(page: Page): Promise<void> {
 }
 
 async function fileAction(page: Page, name: string) {
-  const trigger = page.getByRole('button', { name: 'File' })
+  const trigger = page.locator('scadlet-app header').getByRole('button', { name: 'File', exact: true })
   if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
   return page.getByRole('menuitem', { name, exact: true })
 }

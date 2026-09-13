@@ -32,6 +32,28 @@ import { scopeTransferProblem, type ScopeTransferProblem } from './scope-transfe
 import { t } from '../i18n/translate'
 import { analyzeFunctionDependencies } from './function-dependencies'
 
+/** The displayed Geometry Inspect source is rooted at one node, so its
+ * participating canvas nodes are exactly that root plus its incoming graph
+ * dependencies. This is transient presentation data, never graph state. */
+function inspectParticipatingNodeIds(editor: NodeEditor<Schemes>, rootNodeId: string | null): Set<string> {
+  if (!rootNodeId || !editor.getNode(rootNodeId)) return new Set()
+  const incoming = new Map<string, string[]>()
+  for (const connection of editor.getConnections()) {
+    const sources = incoming.get(connection.target) ?? []
+    sources.push(connection.source)
+    incoming.set(connection.target, sources)
+  }
+  const ids = new Set<string>()
+  const pending = [rootNodeId]
+  while (pending.length > 0) {
+    const id = pending.pop()!
+    if (ids.has(id)) continue
+    ids.add(id)
+    pending.push(...(incoming.get(id) ?? []))
+  }
+  return ids
+}
+
 export interface SCADletEditor {
   editor: NodeEditor<Schemes>
   area: AreaPlugin<Schemes, AreaExtra>
@@ -65,6 +87,8 @@ export interface SCADletEditor {
   clearInspect(): void
   /** The node id that produced the currently displayed Inspect result, or `null`. */
   getInspectedNodeId(): string | null
+  isGeometryNode(nodeId: string): boolean
+  getInspectParticipatingNodeIds(): ReadonlySet<string>
   /** Safely removes a dynamic port and all of its attached connections. */
   removeInputSafely(nodeId: string, inputKey: string): Promise<boolean>
   removeOutputSafely(nodeId: string, outputKey: string): Promise<boolean>
@@ -422,6 +446,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // concept from expanded/pinned, not another boolean on the same class.
   const inspect = new InspectManager({
     onChange: (id) => void area.update('node', id),
+    onScopeChange: () => { for (const node of editor.getNodes()) void area.update('node', node.id) },
   })
   const unsubscribeConnectionSelection = connectionSelection.subscribe((previous, current) => {
     if (previous) void area.update('connection', previous)
@@ -458,10 +483,6 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   }
   function notifySemanticChange(): void {
     if (dirtySuspended) return
-    // Inspect provenance is valid only for the exact graph state OpenSCAD
-    // evaluated. Layout and presentation-only dirty events do not reach this
-    // path, so hovering, pinning, and canvas movement retain it.
-    inspect.clear()
     for (const listener of semanticListeners) listener()
   }
   function notifySemanticDirty(): void {
@@ -538,9 +559,17 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     connectionSelection,
     notifyDirty,
     (nodeId) => {
+      if (inspect.id === nodeId) {
+        inspect.clear()
+        return
+      }
+      inspect.activate(nodeId, inspectParticipatingNodeIds(editor, nodeId))
       for (const listener of inspectListeners) listener(nodeId)
     },
-    () => connectionSelection.clear(),
+    (nodeId) => {
+      connectionSelection.clear()
+      if (inspect.id !== null && !inspect.participates(nodeId)) inspect.clear()
+    },
     selectConnection,
   )
   const detachDefinitionFrames = attachDefinitionFrames(area, definitions, {
@@ -1686,6 +1715,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     commitValueInspect: (nodeId, value) => inspect.commitValue(nodeId, value),
     clearInspect: () => inspect.clear(),
     getInspectedNodeId: () => inspect.id,
+    isGeometryNode: (nodeId) => Boolean(editor.getNode(nodeId)?.outputs.geometry),
+    getInspectParticipatingNodeIds: () => inspectParticipatingNodeIds(editor, inspect.id),
     removeInputSafely: (nodeId, inputKey) => removeInputSafely(editor, nodeId, inputKey),
     removeOutputSafely: (nodeId, outputKey) => removeOutputSafely(editor, nodeId, outputKey),
     isPinned: (nodeId: string) => presentation.isPinned(nodeId),

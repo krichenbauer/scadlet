@@ -146,7 +146,7 @@ export function attachRenderer(
   connectionSelection: ConnectionSelectionManager,
   notifyDirty: () => void,
   onInspect: (nodeId: string) => void,
-  onNodeInteraction: () => void,
+  onNodeInteraction: (nodeId: string) => void,
   onConnectionInteraction: (connectionId: string) => void,
 ): () => void {
   const socketPosition = getDOMSocketPosition<Schemes, AreaExtra>()
@@ -353,7 +353,7 @@ function renderNode(
   nodeListenersWired: WeakSet<HTMLElement>,
   notifyDirty: () => void,
   onInspect: (nodeId: string) => void,
-  onNodeInteraction: () => void,
+  onNodeInteraction: (nodeId: string) => void,
 ): void {
   element.classList.add('node')
   element.dataset.nodeId = node.id
@@ -367,6 +367,7 @@ function renderNode(
 
   const inspected = inspect.isInspected(node.id)
   element.classList.toggle('node--inspected', inspected)
+  element.classList.toggle('node--inspect-out-of-scope', inspect.id !== null && !inspect.participates(node.id))
   presentation.syncSelection(node.id, Boolean(node.selected))
 
   // The two OpenSCAD conditional forms deliberately share a small, fixed
@@ -475,8 +476,8 @@ function renderNode(
         return
       }
       if (connectionGesture.active) return
-      onNodeInteraction()
       if (inspect.registerPointerDown(node.id)) onInspect(node.id)
+      else onNodeInteraction(node.id)
     })
   }
 

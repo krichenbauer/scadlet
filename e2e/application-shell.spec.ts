@@ -55,7 +55,7 @@ test('polishes the shell with accessible icons and a session-only Live slider', 
   await expect(sort).toHaveValue('alphabetical')
   await expect(page.locator('scadlet-app .sort-icon')).toHaveAttribute('title', 'A–Z')
 
-  await page.getByRole('button', { name: 'File' }).click()
+  await page.locator('scadlet-app header').getByRole('button', { name: 'File', exact: true }).click()
   await expect(page.getByRole('menuitem', { name: 'Open' })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: 'Save .scadlet' })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: 'Download .scad' })).toBeVisible()

@@ -272,7 +272,7 @@ async function selectProject(page: Page, name: string): Promise<void> {
 }
 
 async function fileAction(page: Page, name: string) {
-  const trigger = page.getByRole('button', { name: 'File' })
+  const trigger = page.locator('scadlet-app header').getByRole('button', { name: 'File', exact: true })
   if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
   return page.getByRole('menuitem', { name, exact: true })
 }
@@ -2087,8 +2087,10 @@ test('source names persist and value Inspect evaluates Arithmetic headlessly thr
   await add.locator('.node-body').dblclick({ position: { x: 2, y: 10 } })
   await expect(add.locator('.node-inspect-value')).toHaveText('= 12', { timeout: 15_000 })
   await add.locator('[data-param-key="a"] input').fill('10')
-  await expect(add.locator('.node-inspect-value')).toHaveCount(0)
+  await expect(add.locator('.node-inspect-value')).toHaveText('= 12')
   await page.waitForTimeout(500)
+  await expect(add.locator('.node-inspect-value')).toHaveText('= 12')
+  await add.locator('.node-body').dblclick({ position: { x: 2, y: 10 } })
   await expect(add.locator('.node-inspect-value')).toHaveCount(0)
   await add.locator('.node-body').dblclick({ position: { x: 2, y: 10 } })
   await expect(add.locator('.node-inspect-value')).toHaveText('= 17', { timeout: 15_000 })
@@ -2124,7 +2126,7 @@ test('Geometry Inspect renders the selected subtree immediately and Render retur
   await cube.locator('.node-header').dblclick()
   await expect(cube).toHaveClass(/node--inspected/, { timeout: 15_000 })
   await dropPaletteNode(page, 'cylinder')
-  await expect(page.locator('node-editor .node.node--inspected')).toHaveCount(0)
+  await expect(page.locator('node-editor .node.node--inspected')).toHaveCount(1)
 })
 
 test('Boolean and Vector3 use editable source titles without redundant body labels', async ({ page }) => {

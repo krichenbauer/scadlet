@@ -1340,7 +1340,6 @@ export class ScadletApp extends LitElement {
    * session-only Live policy. Presentation and persistence events never call
    * this method because they are not editor semantic changes. */
   private _handleSemanticChange(): void {
-    this.editorInstance?.clearInspect()
     // The empty-preview note describes a completed Geometry result. A graph
     // edit leaves the blank canvas in place but makes that old result stale.
     this.renderInfo = null
@@ -1373,10 +1372,13 @@ export class ScadletApp extends LitElement {
   }
 
   private async _renderProject(origin: 'manual' | 'live', revision: number): Promise<void> {
-    // A normal render represents the whole project even when evaluation
-    // fails. Clear before evaluation so an old Inspect marker cannot claim
-    // the retained preview as its result.
-    this.editorInstance?.clearInspect()
+    const inspectedId = this.editorInstance?.getInspectedNodeId() ?? null
+    const inspectTarget = origin === 'live' && inspectedId !== null && this.editorInstance?.isGeometryNode(inspectedId)
+      ? inspectedId
+      : null
+    // Manual Render is the explicit return to the complete project. Live
+    // keeps an active Geometry Inspect rooted at that same subtree.
+    if (origin === 'manual') this.editorInstance?.clearInspect()
     const generation = this._beginExecution('render', origin)
     this.renderInfo = null
     const tStart = performance.now()
@@ -1384,8 +1386,8 @@ export class ScadletApp extends LitElement {
     try {
       // Toolbar Render always evaluates the complete project. A temporary
       // Inspect root never changes normal preview or `.scad` export scope.
-      const source = await this.nodeEditor.evaluate()
-      if (!this._isCurrentRender(generation, revision)) return
+      const source = await this.nodeEditor.evaluate(inspectTarget ?? undefined)
+      if (!this._isCurrentRender(generation, revision, inspectTarget)) return
       this.scadSource = source
       if (!source.trim()) {
         this.renderError = 'Nothing to render - add at least one node.'
@@ -1393,7 +1395,7 @@ export class ScadletApp extends LitElement {
       }
       renderStartedAt = performance.now()
       const result = await this.renderController.render(source)
-      if (!this._isCurrentRender(generation, revision)) return
+      if (!this._isCurrentRender(generation, revision, inspectTarget)) return
       if (result.kind === 'empty') {
         this.stl = null
         this.viewer.clear()
@@ -1406,7 +1408,7 @@ export class ScadletApp extends LitElement {
       if (origin === 'live' && performance.now() - renderStartedAt > 2000) this._disableSlowLiveRender()
       console.log(`[scadlet-app] render total=${(performance.now() - tStart).toFixed(1)}ms`)
     } catch (error) {
-      if (!this._isCurrentRender(generation, revision)) return
+      if (!this._isCurrentRender(generation, revision, inspectTarget)) return
       const message = error instanceof Error ? error.message : String(error)
       if (message !== 'Render stopped') {
         this.renderInfo = null
@@ -1418,8 +1420,9 @@ export class ScadletApp extends LitElement {
     }
   }
 
-  private _isCurrentRender(generation: number, revision: number): boolean {
+  private _isCurrentRender(generation: number, revision: number, inspectTarget: string | null = null): boolean {
     return this.executionGeneration.isCurrent(generation) && revision === this.liveScheduler.revision
+      && (inspectTarget === null || this.editorInstance?.getInspectedNodeId() === inspectTarget)
   }
 
   private _disableSlowLiveRender(): void {

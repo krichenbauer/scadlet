@@ -182,6 +182,9 @@ export class NodeEditorElement extends LitElement {
       outline-offset: 2px;
     }
 
+    .node--inspect-out-of-scope { opacity: 0.5; }
+    .node--inspect-out-of-scope.node--selected { opacity: 0.72; }
+
     .node-inspect-badge {
       flex: none;
       font-size: 12px;

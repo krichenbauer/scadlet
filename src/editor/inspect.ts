@@ -1,6 +1,7 @@
 export interface InspectManagerOptions {
   /** Called whenever a node's inspected state changes and it needs to be re-rendered (e.g. `area.update('node', id)`). */
   onChange(nodeId: string): void
+  onScopeChange?: () => void
   /** Max gap in ms between two pointerdowns on the same node to count as a double-click. Overridable for tests. */
   doubleClickThresholdMs?: number
   /** Injectable clock, overridable for tests instead of real `Date.now()`. */
@@ -24,12 +25,15 @@ export class InspectManager {
   private inspectedId: string | null = null
   private valueResult: string | null = null
   private readonly onChange: (nodeId: string) => void
+  private readonly onScopeChange: () => void
   private readonly doubleClickThresholdMs: number
   private readonly now: () => number
   private lastPointerDown: { nodeId: string; time: number } | null = null
+  private participatingIds = new Set<string>()
 
   constructor(options: InspectManagerOptions) {
     this.onChange = options.onChange
+    this.onScopeChange = options.onScopeChange ?? (() => {})
     this.doubleClickThresholdMs = options.doubleClickThresholdMs ?? 400
     this.now = options.now ?? (() => Date.now())
   }
@@ -45,6 +49,20 @@ export class InspectManager {
 
   getValueResult(nodeId: string): string | null {
     return this.inspectedId === nodeId ? this.valueResult : null
+  }
+
+  activate(nodeId: string, participatingIds: ReadonlySet<string>): void {
+    const previous = this.inspectedId
+    this.inspectedId = nodeId
+    this.valueResult = null
+    this.participatingIds = new Set(participatingIds)
+    if (previous !== null && previous !== nodeId) this.onChange(previous)
+    this.onChange(nodeId)
+    this.onScopeChange()
+  }
+
+  participates(nodeId: string): boolean {
+    return this.inspectedId !== null && this.participatingIds.has(nodeId)
   }
 
   /** Commits a successful Geometry Inspect after its STL replaced the viewer preview. */
@@ -64,7 +82,9 @@ export class InspectManager {
     if (previous === null) return
     this.inspectedId = null
     this.valueResult = null
+    this.participatingIds.clear()
     this.onChange(previous)
+    this.onScopeChange()
   }
 
   private commit(nodeId: string, value: string | null): void {
@@ -73,6 +93,7 @@ export class InspectManager {
     this.valueResult = value
     if (previous !== null && previous !== nodeId) this.onChange(previous)
     this.onChange(nodeId)
+    this.onScopeChange()
   }
 
   /**
