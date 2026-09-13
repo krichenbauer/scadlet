@@ -248,6 +248,7 @@ export class NodeEditorElement extends LitElement {
      * node downward from its unchanged top-left graph position.
      */
     .node {
+      position: relative;
       display: flex;
       flex-direction: column;
       gap: 4px;
@@ -668,6 +669,125 @@ export class NodeEditorElement extends LitElement {
     .node-add-options button:disabled {
       opacity: 0.5;
       cursor: default;
+    }
+
+    /* A transient parameter proposal belongs near the Add action, not in the
+       Inputs node's flex layout. Its absolute positioning keeps existing
+       node dimensions, connector anchors, and keyboard order unchanged. */
+    .node-parameter-popover {
+      position: absolute;
+      z-index: 45;
+      top: 36px;
+      right: -8px;
+      width: 210px;
+      padding: 10px;
+      border: 1px solid #66798c;
+      border-radius: 7px;
+      background: #20252b;
+      color: #eee;
+      font: 13px system-ui, sans-serif;
+      box-shadow: 0 8px 20px rgb(0 0 0 / 0.55);
+    }
+
+    .node-parameter-popover h3 {
+      margin: 0 0 8px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .node-parameter-popover-form {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .node-parameter-popover-form > label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: #cbd3dc;
+      font-size: 12px;
+    }
+
+    .node-parameter-popover input[type='text'],
+    .node-parameter-popover input[type='number'],
+    .node-parameter-popover select {
+      min-width: 0;
+      box-sizing: border-box;
+      border: 1px solid #576573;
+      border-radius: 4px;
+      background: #171b20;
+      color: #f3f6f8;
+      font: inherit;
+    }
+
+    .node-parameter-popover input[type='text'],
+    .node-parameter-popover select,
+    .node-parameter-popover-default > input[type='number'] {
+      width: 118px;
+      min-height: 28px;
+      padding: 3px 6px;
+    }
+
+    .node-parameter-popover input:focus-visible,
+    .node-parameter-popover select:focus-visible,
+    .node-parameter-popover button:focus-visible {
+      border-color: #7ac0ff;
+      outline: 2px solid rgb(122 192 255 / 0.45);
+      outline-offset: 1px;
+    }
+
+    .node-parameter-popover-default input[type='checkbox'] {
+      width: 18px;
+      height: 18px;
+      margin-right: 100px;
+      accent-color: #7ac0ff;
+    }
+
+    .node-parameter-popover-vector3 {
+      display: flex;
+      gap: 3px;
+    }
+
+    .node-parameter-popover-vector3 input {
+      width: 36px;
+      min-width: 0;
+      min-height: 28px;
+      padding: 3px;
+    }
+
+    .node-parameter-popover-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 5px;
+      margin-top: 2px;
+    }
+
+    .node-parameter-popover-actions button {
+      min-width: 52px;
+      min-height: 28px;
+      padding: 4px 8px;
+      border: 1px solid #576573;
+      border-radius: 4px;
+      background: #303942;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .node-parameter-popover-actions button[type='submit'] {
+      border-color: #5294c8;
+      background: #2b6087;
+    }
+
+    .node-parameter-popover-actions button:hover {
+      background: #3b4955;
+    }
+
+    .node-parameter-popover-actions button[type='submit']:hover {
+      background: #3574a2;
     }
 
     /* Rendered as a full-width block below .node-main (see .node's comment above) - its own padding replaces the spacing .node-body's padding used to provide when controls were nested inside it. */

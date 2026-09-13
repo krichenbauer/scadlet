@@ -66,8 +66,9 @@ export class Vector3Control extends ClassicPreset.Control {
   setValue(value: [number, number, number]): void { this.value = [...value] as [number, number, number] }
 }
 
-/** Compact inline creation state for the permanent Module Inputs node. It is
- * intentionally only an add form; signature mutation UI belongs to Phase 4. */
+/** Transient creation state for a Module/Function Inputs parameter popover.
+ * It is intentionally only an add form; signature mutation UI belongs to
+ * the established per-row controls. */
 export class ModuleParameterAddControl extends ClassicPreset.Control {
   open = false
   name = ''
@@ -79,7 +80,18 @@ export class ModuleParameterAddControl extends ClassicPreset.Control {
   onChange: () => void
   onSubmit: (value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => boolean | void | Promise<boolean | void>
   constructor(onChange: () => void, onSubmit: (value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => boolean | void | Promise<boolean | void>) { super(); this.onChange = onChange; this.onSubmit = onSubmit }
-  show(): void { this.open = true; this.error = null; this.onChange() }
+  show(): void {
+    // Every invocation is a fresh parameter proposal. Validation failures
+    // keep the current proposal open because they never call `show()` again.
+    this.name = ''
+    this.type = 'number'
+    this.defaultNumber = 0
+    this.defaultBoolean = false
+    this.defaultVector = [0, 0, 0]
+    this.open = true
+    this.error = null
+    this.onChange()
+  }
   hide(): void { this.open = false; this.onChange() }
 }
 

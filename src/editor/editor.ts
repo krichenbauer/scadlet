@@ -757,6 +757,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     if (!definition) throw new Error(`Unknown Module definition "${definitionId}".`)
     const nameProblem = moduleParameterNameProblem(input.name, (definition.parameters ?? []).map((parameter) => parameter.name))
     if (nameProblem) throw new Error(nameProblem === 'duplicate' ? t('definition.duplicateParameter') : t('definition.invalidParameter'))
+    if (!moduleParameterDefaultIsValid(input.type, input.default)) throw new Error(t('definition.invalidParameterDefault'))
     const parameter: ModuleParameter = { id: crypto.randomUUID(), name: input.name, type: input.type, default: input.default }
     // Mutation first, then every live projection. All following steps are
     // synchronous structural additions, so calls can never render a partial
@@ -980,6 +981,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     if (!definition) throw new Error(`Unknown Function definition "${definitionId}".`)
     const nameProblem = moduleParameterNameProblem(input.name, (definition.parameters ?? []).map((parameter) => parameter.name))
     if (nameProblem) throw new Error(nameProblem === 'duplicate' ? t('definition.duplicateFunctionParameter') : t('definition.invalidParameter'))
+    if (!moduleParameterDefaultIsValid(input.type, input.default)) throw new Error(t('definition.invalidParameterDefault'))
     const parameter: ModuleParameter = { id: crypto.randomUUID(), name: input.name, type: input.type, default: input.default }
     definitions.addParameter(definitionId, parameter)
     const updated = definitions.get(definitionId)!

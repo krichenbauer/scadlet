@@ -798,7 +798,7 @@ test('builds a terminating self-recursive Function visibly and renders it after 
   await inputs.getByLabel('Name', { exact: true }).fill('n')
   await inputs.getByLabel('Type').selectOption('number')
   await inputs.getByLabel('Default').fill('5')
-  await inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Add', exact: true }).click()
+  await inputs.locator('.node-parameter-popover').getByRole('button', { name: 'Add', exact: true }).click()
 
   const initialFrameBox = await definitionFrame.boundingBox()
   if (!initialFrameBox) throw new Error('Expected factorial frame')
@@ -1641,7 +1641,7 @@ test('adds a typed Module parameter and materializes matching border-anchored Ca
   await inputs.getByLabel('Name', { exact: true }).fill('radius')
   await inputs.getByLabel('Type').selectOption('number')
   await inputs.getByLabel('Default').fill('10')
-  await inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Add', exact: true }).click()
+  await inputs.locator('.node-parameter-popover').getByRole('button', { name: 'Add', exact: true }).click()
   const outputSocket = inputs.locator('.node-param-output-row .node-socket[aria-label="radius"]')
   await expect(outputSocket).toHaveCount(1)
   const inputBox = await inputs.boundingBox(); const outputBox = await outputSocket.boundingBox()
@@ -1679,7 +1679,7 @@ test('two Geometry inputs with the second wired to Output render exactly one Geo
   await inputs.locator('.node-add-summary').click()
   await inputs.getByRole('button', { name: 'Geometry input', exact: true }).click()
   await inputs.getByLabel('Geometry input name').fill('Fnord')
-  await inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Add', exact: true }).click()
+  await inputs.locator('.node-parameter-popover').getByRole('button', { name: 'Add', exact: true }).click()
   await inputs.getByRole('button', { name: 'Rename Geometry 1', exact: true }).click()
   await inputs.locator('.node-interface-rename-input').fill('Foobar')
   await inputs.locator('.node-interface-rename-input').press('Enter')
@@ -1687,7 +1687,7 @@ test('two Geometry inputs with the second wired to Output render exactly one Geo
   await inputs.getByRole('button', { name: 'Parameter', exact: true }).click()
   await inputs.getByLabel('Name', { exact: true }).fill('foo')
   await inputs.getByLabel('Default').fill('-2')
-  await inputs.locator('.node-control--module-parameter').getByRole('button', { name: 'Add', exact: true }).click()
+  await inputs.locator('.node-parameter-popover').getByRole('button', { name: 'Add', exact: true }).click()
 
   // No duplicate/extra rows: exactly 2 Geometry + 1 typed parameter output, in order.
   await expect(inputs.locator('.node-port--output')).toHaveCount(3)

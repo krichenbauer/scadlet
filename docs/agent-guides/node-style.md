@@ -190,9 +190,10 @@ interface cannot be duplicated or deleted as an ordinary graph node.
 
 - In a Module definition, Add offers **Geometry input** and **Parameter**.
 - In a Function definition, Add offers **Parameter** only.
-- Adding an interface item presents a compact temporary inline row for name,
+- Choosing Parameter from Add opens a compact anchored popover for name,
   type, and default value where applicable, with explicit confirmation/cancel
-  actions. It does not use permanent wide bottom buttons.
+  actions. It never changes the Inputs node's layout or permanent keyboard
+  order while open.
 - Each removable interface item uses the row-level Remove parameter action and
   the established wire-disconnection warning when required.
 

@@ -363,6 +363,12 @@ function renderNode(
   const addActionsControl = Object.values(node.controls).find(
     (control): control is ParameterActionsControl => control instanceof ParameterActionsControl,
   )
+  // Parameter creation is a transient popover anchored to the Add action.
+  // Keeping it outside the ordinary control collection is important: an open
+  // proposal must not change this persistent Inputs node's size or tab order.
+  const parameterPopoverControl = Object.values(node.controls).find(
+    (control): control is ModuleParameterAddControl => control instanceof ModuleParameterAddControl && !(control instanceof ModuleParameterEditControl),
+  )
   // Row-level Remove buttons (node-style.md "Remove parameter"), keyed by
   // the port key each removable form's designated row owns.
   const removableRowsByKey = new Map(
@@ -373,13 +379,13 @@ function renderNode(
   // never through this generic control area.
   const standaloneControls = Object.entries(node.controls).filter(
     ([key, ctrl]) => ctrl && !paramInputKeys.has(key) && !(ctrl instanceof ParameterActionsControl) && !(ctrl instanceof TitleSelectControl)
-      && !(ctrl instanceof ModuleParameterEditControl) && !(ctrl instanceof ModuleGeometryInputEditControl) && !(sourceNameControl && key === 'name'),
+      && !(ctrl instanceof ModuleParameterAddControl) && !(ctrl instanceof ModuleParameterEditControl) && !(ctrl instanceof ModuleGeometryInputEditControl) && !(sourceNameControl && key === 'name'),
   )
   // Literal value sources have no inputs, so their primary control is part
   // of the compact node rather than hidden behind explicit collapse. Other
   // standalone controls retain the normal progressive-disclosure behavior.
   const alwaysVisibleControls = standaloneControls.filter(
-    ([key, control]) => (Boolean(sourceNameControl) && key === 'value' && parameterInputs.length === 0) || (control instanceof ModuleParameterAddControl && control.open) || (control instanceof ModuleGeometryInputAddControl && control.open),
+    ([key, control]) => (Boolean(sourceNameControl) && key === 'value' && parameterInputs.length === 0) || (control instanceof ModuleGeometryInputAddControl && control.open),
   )
   const expandableStandaloneControls = standaloneControls.filter(([key]) => !alwaysVisibleControls.some(([primary]) => primary === key))
 
@@ -570,6 +576,8 @@ function renderNode(
     }
     element.appendChild(controls)
   }
+
+  if (parameterPopoverControl?.open) element.appendChild(renderParameterPopover(parameterPopoverControl))
 }
 
 /**
@@ -1098,7 +1106,7 @@ function renderParamControlValue(control: ClassicPreset.Control, overridden: boo
 
 function renderControl(key: string, control: ClassicPreset.Control, hideLabel = false): HTMLElement | null {
   if (control instanceof ModuleGeometryInputAddControl) return control.open ? renderModuleGeometryInputAddControl(control) : null
-  if (control instanceof ModuleParameterAddControl) return control.open ? renderModuleParameterAddControl(control) : null
+  if (control instanceof ModuleParameterAddControl) return null
   if (control instanceof CheckboxControl) {
     const wrapper = document.createElement('label')
     wrapper.className = 'node-control node-control--checkbox'
@@ -1196,55 +1204,144 @@ function renderModuleGeometryInputAddControl(control: ModuleGeometryInputAddCont
   return wrapper
 }
 
-function renderModuleParameterAddControl(control: ModuleParameterAddControl): HTMLElement {
-  const wrapper = document.createElement('div')
-  wrapper.className = 'node-control node-control--module-parameter'
-  const name = document.createElement('input'); name.type = 'text'; name.placeholder = t('definition.parameterName'); name.value = control.name
+/** A short-lived parameter proposal that is visually anchored to Inputs's
+ * header Add button, but absolutely positioned so it cannot reflow the node. */
+function renderParameterPopover(control: ModuleParameterAddControl): HTMLElement {
+  const popover = document.createElement('div')
+  popover.className = 'node-parameter-popover'
+  popover.setAttribute('role', 'dialog')
+  popover.setAttribute('aria-labelledby', 'new-parameter-title')
+  popover.addEventListener('pointerdown', (event) => event.stopPropagation())
+
+  const title = document.createElement('h3')
+  title.id = 'new-parameter-title'
+  title.textContent = t('definition.newParameter')
+
+  const form = document.createElement('form')
+  form.className = 'node-parameter-popover-form'
+  form.noValidate = true
+  const errorId = 'new-parameter-error'
+
+  const nameField = document.createElement('label')
+  nameField.textContent = t('definition.parameterName')
+  const name = document.createElement('input')
+  name.type = 'text'
+  name.value = control.name
+  name.autocomplete = 'off'
   name.setAttribute('aria-label', t('definition.parameterName'))
-  name.addEventListener('pointerdown', (event) => event.stopPropagation())
   name.addEventListener('input', () => { control.name = name.value })
-  const type = document.createElement('select'); type.setAttribute('aria-label', t('definition.parameterType'))
-  for (const value of ['number', 'boolean', 'vector3'] as const) { const option = document.createElement('option'); option.value = value; option.textContent = value === 'vector3' ? 'Vector3' : value[0].toUpperCase() + value.slice(1); option.selected = control.type === value; type.appendChild(option) }
-  type.addEventListener('pointerdown', (event) => event.stopPropagation())
+  nameField.appendChild(name)
+
+  const typeField = document.createElement('label')
+  typeField.textContent = t('definition.parameterType')
+  const type = document.createElement('select')
+  type.setAttribute('aria-label', t('definition.parameterType'))
+  const types = [
+    ['number', t('definition.parameterTypeNumber')],
+    ['boolean', t('definition.parameterTypeBoolean')],
+    ['vector3', t('definition.parameterTypeVector3')],
+  ] as const
+  for (const [value, label] of types) {
+    const option = document.createElement('option')
+    option.value = value
+    option.textContent = label
+    option.selected = control.type === value
+    type.appendChild(option)
+  }
   type.addEventListener('change', () => {
     control.type = type.value as typeof control.type
-    // A type change starts from that type's canonical valid literal; the
-    // user may still edit it before Save, but no stale incompatible default
-    // can accidentally be committed.
+    // A type change begins with a valid default and cannot leak a stale,
+    // incompatible literal into the existing signature lifecycle.
     if (control.type === 'number') control.defaultNumber = 0
     else if (control.type === 'boolean') control.defaultBoolean = false
     else control.defaultVector = [0, 0, 0]
     control.onChange()
   })
-  wrapper.append(name, type)
-  const defaultValue = control.type === 'boolean'
-    ? (() => { const input = document.createElement('input'); input.type = 'checkbox'; input.checked = control.defaultBoolean; input.setAttribute('aria-label', t('definition.parameterDefault')); input.addEventListener('change', () => { control.defaultBoolean = input.checked }); return input })()
-    : control.type === 'vector3'
-      ? renderVectorDefault(control)
-      : (() => { const input = document.createElement('input'); input.type = 'number'; input.value = String(control.defaultNumber); input.setAttribute('aria-label', t('definition.parameterDefault')); input.addEventListener('input', () => { control.defaultNumber = input.valueAsNumber }); return input })()
-  defaultValue.addEventListener('pointerdown', (event) => event.stopPropagation())
-  wrapper.appendChild(defaultValue)
-  const submit = document.createElement('button'); submit.type = 'button'; submit.textContent = control instanceof ModuleParameterEditControl ? t('definition.save') : t('definition.add')
-  submit.addEventListener('pointerdown', (event) => event.stopPropagation())
-  submit.addEventListener('click', () => {
-    void Promise.resolve(control.onSubmit({ name: control.name, type: control.type, default: control.type === 'number' ? control.defaultNumber : control.type === 'boolean' ? control.defaultBoolean : control.defaultVector }))
-      .then((saved) => { if (saved !== false) control.hide() })
-      .catch((error: unknown) => { control.error = error instanceof Error ? error.message : String(error); control.onChange() })
-  })
-  const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = t('definition.cancel'); cancel.addEventListener('pointerdown', (event) => event.stopPropagation()); cancel.addEventListener('click', () => control.hide())
-  wrapper.append(submit, cancel)
-  if (control.error) { const error = document.createElement('span'); error.className = 'node-control-error'; error.textContent = control.error; wrapper.appendChild(error) }
-  return wrapper
-}
+  typeField.appendChild(type)
 
-function renderVectorDefault(control: ModuleParameterAddControl): HTMLElement {
-  const wrapper = document.createElement('span')
-  control.defaultVector.forEach((value, index) => {
-    const input = document.createElement('input'); input.type = 'number'; input.value = String(value); input.setAttribute('aria-label', `${t('definition.parameterDefault')} ${index + 1}`)
-    input.addEventListener('input', () => { const next = [...control.defaultVector] as [number, number, number]; next[index] = input.valueAsNumber; control.defaultVector = next })
-    wrapper.appendChild(input)
+  const defaultField = document.createElement('label')
+  defaultField.className = 'node-parameter-popover-default'
+  defaultField.textContent = t('definition.parameterDefault')
+  if (control.type === 'boolean') {
+    const input = document.createElement('input')
+    input.type = 'checkbox'
+    input.checked = control.defaultBoolean
+    input.setAttribute('aria-label', t('definition.parameterDefault'))
+    input.addEventListener('change', () => { control.defaultBoolean = input.checked })
+    defaultField.appendChild(input)
+  } else if (control.type === 'vector3') {
+    const values = document.createElement('span')
+    values.className = 'node-parameter-popover-vector3'
+    control.defaultVector.forEach((value, index) => {
+      const input = document.createElement('input')
+      input.type = 'number'
+      input.value = String(value)
+      input.setAttribute('aria-label', `${t('definition.parameterDefault')} ${index + 1}`)
+      input.addEventListener('input', () => {
+        const next = [...control.defaultVector] as [number, number, number]
+        next[index] = input.valueAsNumber
+        control.defaultVector = next
+      })
+      values.appendChild(input)
+    })
+    defaultField.appendChild(values)
+  } else {
+    const input = document.createElement('input')
+    input.type = 'number'
+    input.value = String(control.defaultNumber)
+    input.setAttribute('aria-label', t('definition.parameterDefault'))
+    input.addEventListener('input', () => { control.defaultNumber = input.valueAsNumber })
+    defaultField.appendChild(input)
+  }
+
+  const submit = async (): Promise<void> => {
+    try {
+      const saved = await Promise.resolve(control.onSubmit({
+        name: control.name,
+        type: control.type,
+        default: control.type === 'number' ? control.defaultNumber : control.type === 'boolean' ? control.defaultBoolean : control.defaultVector,
+      }))
+      if (saved !== false) control.hide()
+    } catch (error) {
+      control.error = error instanceof Error ? error.message : String(error)
+      control.onChange()
+    }
+  }
+  form.addEventListener('submit', (event) => { event.preventDefault(); void submit() })
+  form.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      control.hide()
+    }
   })
-  return wrapper
+
+  const actions = document.createElement('div')
+  actions.className = 'node-parameter-popover-actions'
+  const add = document.createElement('button')
+  add.type = 'submit'
+  add.textContent = t('definition.add')
+  const cancel = document.createElement('button')
+  cancel.type = 'button'
+  cancel.textContent = t('definition.cancel')
+  cancel.addEventListener('click', () => control.hide())
+  actions.append(add, cancel)
+
+  form.append(nameField, typeField, defaultField, actions)
+  if (control.error) {
+    const error = document.createElement('p')
+    error.id = errorId
+    error.className = 'node-control-error'
+    error.setAttribute('role', 'alert')
+    error.textContent = control.error
+    name.setAttribute('aria-invalid', 'true')
+    name.setAttribute('aria-describedby', errorId)
+    form.appendChild(error)
+  }
+  popover.append(title, form)
+  // Rendering replaces this node's children. Focus only after the new input
+  // is connected, and only for a freshly opened/validation-repaired proposal.
+  queueMicrotask(() => name.focus())
+  return popover
 }
 
 function renderParameterAction(action: ParameterAction, onActivate?: () => void): HTMLElement {
