@@ -303,6 +303,17 @@ export class NodeEditorElement extends LitElement {
       outline-offset: 1px;
     }
 
+    .node-collapse svg {
+      width: 16px;
+      height: 16px;
+      vertical-align: middle;
+      fill: none;
+      stroke: currentcolor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
     /* Rendered as a full-width block below .node-main (see .node's comment above) - its own padding replaces the spacing .node-body's padding used to provide when controls were nested inside it. */
     .node-controls {
       display: flex;
@@ -604,6 +615,13 @@ export class NodeEditorElement extends LitElement {
       stroke-width: 16px;
       pointer-events: stroke;
       cursor: pointer;
+    }
+
+    /* A held wire is presentation, not an existing selectable connection.
+       Its transparent hit path must not cover the explicit expand button. */
+    .connection[data-real-connection='false'],
+    .connection[data-real-connection='false'] .connection-hit-path {
+      pointer-events: none;
     }
 
     .connection--selected .connection-path {

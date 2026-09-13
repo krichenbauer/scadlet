@@ -17,11 +17,12 @@ import { BooleanOpNode } from './nodes/boolean-op-node'
 import { isRedundantTypeLabel } from './ports'
 import type { NodePresentationManager } from './presentation'
 import type { AreaExtra, Schemes } from './schemes'
-import { compatiblePortKeys, type ConnectionGestureManager } from './connection-gesture'
+import type { ConnectionGestureManager } from './connection-gesture'
 import { nearestSnapTarget, type SnapCandidate } from './connection-gesture'
 import type { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData } from './connection-compatibility'
 import { hasGeometryOutput } from './geometry-accent'
+import { compactIconElement } from '../components/icons'
 
 type Position = { x: number; y: number }
 type Side = 'input' | 'output'
@@ -46,12 +47,11 @@ export function parameterRowPresentation(
   canonicalKeys: readonly string[],
   expanded: boolean,
   connectedKeys: ReadonlySet<string>,
-  disclosedKeys: ReadonlySet<string>,
 ): ParameterRowPresentation[] {
   return canonicalKeys.map((key) => ({
     key,
     connected: connectedKeys.has(key),
-    visible: expanded || connectedKeys.has(key) || disclosedKeys.has(key),
+    visible: expanded || connectedKeys.has(key),
   }))
 }
 
@@ -162,69 +162,6 @@ export function attachRenderer(
   // listeners must only be wired the first time a given element is seen,
   // not on every re-render.
   const nodeListenersWired = new WeakSet<HTMLElement>()
-  let disclosedNodeId: string | null = null
-  let snapFrame: number | null = null
-  const clearDisclosure = (): void => {
-    if (!disclosedNodeId) return
-    presentation.setConnectionDisclosure(disclosedNodeId, new Set())
-    disclosedNodeId = null
-  }
-  const setCandidate = (node: Schemes['Node'] | undefined): void => {
-    const active = connectionGesture.active
-    if (!active || !node) {
-      clearDisclosure()
-      connectionGesture.setCandidate(null)
-      return
-    }
-
-    if (active.origin.side === 'output') {
-      const matchingInputs = compatiblePortKeys(node.inputs, active.origin.socketType)
-      if (matchingInputs.length === 0) {
-        clearDisclosure()
-        connectionGesture.setCandidate(null)
-        return
-      }
-      if (disclosedNodeId !== node.id) clearDisclosure()
-      // Geometry inputs are structural and always visible. Only compatible
-      // parameter rows need temporary disclosure below the stable header.
-      const parameterKeys = new Set(matchingInputs.filter((key) => node.inputs[key]?.socket.name !== 'geometry'))
-      presentation.setConnectionDisclosure(node.id, parameterKeys)
-      disclosedNodeId = parameterKeys.size > 0 ? node.id : null
-      connectionGesture.setCandidate(node.id)
-      return
-    }
-
-    // Starting from an input is still a valid Rete gesture. Outputs are
-    // structurally visible already, so it records a compatible candidate
-    // without manufacturing a second disclosure UI.
-    if (compatiblePortKeys(node.outputs, active.origin.socketType).length === 0) {
-      clearDisclosure()
-      connectionGesture.setCandidate(null)
-      return
-    }
-    clearDisclosure()
-    connectionGesture.setCandidate(node.id)
-  }
-  const nodeAtPointer = (event: PointerEvent): Schemes['Node'] | undefined => {
-    const elements = event.composedPath().filter((item): item is Element => item instanceof Element)
-    // Pointer events observed inside the node-editor Shadow DOM carry their
-    // real target in the composed path. The fallback stays within that same
-    // root as `document.elementsFromPoint()` cannot see through a shadow
-    // boundary.
-    const rootNode = area.container.getRootNode()
-    const fallback = rootNode instanceof ShadowRoot
-      ? rootNode.elementsFromPoint(event.clientX, event.clientY)
-      : document.elementsFromPoint(event.clientX, event.clientY)
-    for (const element of [...elements, ...fallback]) {
-      const root = element instanceof HTMLElement
-        ? element.closest<HTMLElement>('.node')
-        : element.parentElement?.closest<HTMLElement>('.node')
-      if (!root || !area.container.contains(root)) continue
-      const nodeId = root.dataset.nodeId
-      if (nodeId) return editor.getNode(nodeId)
-    }
-    return undefined
-  }
   const updateSnapTarget = (clientX: number, clientY: number): void => {
     const active = connectionGesture.active
     if (!active) return
@@ -256,15 +193,7 @@ export function attachRenderer(
   }
   const handlePointerMove = (event: PointerEvent): void => {
     if (!connectionGesture.active) return
-    setCandidate(nodeAtPointer(event))
     updateSnapTarget(event.clientX, event.clientY)
-    // Disclosure can mount an input row during this same movement. Re-scan
-    // after layout so the newly visible port is immediately eligible.
-    if (snapFrame !== null) cancelAnimationFrame(snapFrame)
-    snapFrame = requestAnimationFrame(() => {
-      snapFrame = null
-      updateSnapTarget(event.clientX, event.clientY)
-    })
   }
   area.container.addEventListener('pointermove', handlePointerMove, { capture: true })
   const syncSnapPresentation = (): void => {
@@ -280,13 +209,7 @@ export function attachRenderer(
     socket?.classList.add('node-socket--snap-target')
     area.container.classList.add('connection-gesture--snapped')
   }
-  const unsubscribeGesture = connectionGesture.subscribe((previous, current) => {
-    // Beginning a fresh gesture, completing/cancelling one, or resetting the
-    // editor must never leave an old target row temporarily visible.
-    if (!current || !previous || previous.origin !== current.origin ||
-      (previous.candidateNodeId !== null && current.candidateNodeId === null)) clearDisclosure()
-    syncSnapPresentation()
-  })
+  const unsubscribeGesture = connectionGesture.subscribe(syncSnapPresentation)
 
   area.addPipe((context) => {
     if (context.type === 'render') {
@@ -334,10 +257,8 @@ export function attachRenderer(
 
   return () => {
     area.container.removeEventListener('pointermove', handlePointerMove, { capture: true })
-    if (snapFrame !== null) cancelAnimationFrame(snapFrame)
     unsubscribeGesture()
     area.container.classList.remove('connection-gesture--snapped')
-    clearDisclosure()
   }
 }
 
@@ -447,10 +368,8 @@ function renderNode(
       .filter((connection) => connection.target === node.id && parameterInputs.some(([key]) => key === connection.targetInput))
       .map((connection) => connection.targetInput),
   ])
-  const disclosedInputKeys = presentation.getDisclosedInputKeys(node.id)
-  // Explicit expansion shows ALL parameter rows and standalone controls.
-  // It is distinct from connection disclosure, which only shows specific rows
-  // so that an unconnected Translate with Z connected doesn't show X/Y/Vector rows.
+  // Explicit expansion shows all parameter rows and standalone controls;
+  // compact nodes show only rows backed by existing connections.
   const expanded = hasCollapsibleContent && presentation.isInteractivelyExpanded(node.id)
   element.classList.toggle('node--expanded', !fixedConditionalInterface && presentation.isExpanded(node.id))
 
@@ -524,7 +443,6 @@ function renderNode(
       parameterInputs.map(([key]) => key),
       expanded,
       connectedInputKeys,
-      disclosedInputKeys,
     )
 
     const paramRows = document.createElement('div')
@@ -682,12 +600,13 @@ function renderHeader(
     collapse.type = 'button'
     collapse.className = 'node-collapse'
     collapse.setAttribute('aria-label', collapsed ? t('node.expand') : t('node.collapse'))
+    collapse.setAttribute('aria-expanded', String(!collapsed))
     collapse.title = collapsed ? t('node.expand') : t('node.collapse')
-    collapse.textContent = collapsed ? 'v' : '^'
+    collapse.appendChild(compactIconElement(collapsed ? 'chevron-down' : 'chevron-up'))
     // These direct interaction handlers deliberately keep a collapse toggle
     // out of Rete's node-drag and connection lifecycle. In particular, a
-    // visible `v` can be activated while a wire is held without cancelling
-    // or completing that wire gesture.
+    // visible expand chevron can be activated while a wire is held without
+    // cancelling or completing that wire gesture.
     collapse.addEventListener('pointerdown', (event) => event.stopPropagation())
     collapse.addEventListener('pointerup', (event) => event.stopPropagation())
     collapse.addEventListener('click', (event) => {

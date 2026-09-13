@@ -6,18 +6,16 @@ export interface NodePresentationManagerOptions {
 interface InternalState {
   /** Explicit, persisted compact state. New nodes intentionally start open. */
   collapsed: boolean
-  /** Connected and gesture-disclosed rows remain visible while compact so
-   * their real Rete sockets keep stable, usable connection anchors. */
+  /** Connected rows remain visible while compact so their real Rete sockets
+   * keep stable, usable connection anchors. */
   connectedInputKeys: Set<string>
-  disclosedInputKeys: Set<string>
 }
 
 /**
  * Owns node-only presentation state outside Rete's semantic graph. Unlike
  * the former hover/pin model, a node changes size only through its explicit
- * collapse button. Connection disclosure is deliberately separate: it reveals
- * compatible existing input rows during a live wire gesture without expanding
- * the node or changing its persisted state.
+ * collapse button. Pointer movement and connection gestures have no path into
+ * this state, so they cannot expand a node or reveal hidden parameter rows.
  */
 export class NodePresentationManager {
   private readonly states = new Map<string, InternalState>()
@@ -30,7 +28,7 @@ export class NodePresentationManager {
   private stateFor(nodeId: string): InternalState {
     let state = this.states.get(nodeId)
     if (!state) {
-      state = { collapsed: false, connectedInputKeys: new Set(), disclosedInputKeys: new Set() }
+      state = { collapsed: false, connectedInputKeys: new Set() }
       this.states.set(nodeId, state)
     }
     return state
@@ -70,19 +68,6 @@ export class NodePresentationManager {
 
   getConnectedInputKeys(nodeId: string): ReadonlySet<string> {
     return this.stateFor(nodeId).connectedInputKeys
-  }
-
-  getDisclosedInputKeys(nodeId: string): ReadonlySet<string> {
-    return this.stateFor(nodeId).disclosedInputKeys
-  }
-
-  /** Does not alter collapsed state, which keeps a held wire gesture alive. */
-  setConnectionDisclosure(nodeId: string, keys: ReadonlySet<string>): void {
-    const state = this.stateFor(nodeId)
-    const changed = state.disclosedInputKeys.size !== keys.size || [...keys].some((key) => !state.disclosedInputKeys.has(key))
-    if (!changed) return
-    state.disclosedInputKeys = new Set(keys)
-    this.onChange(nodeId)
   }
 
   remove(nodeId: string): void {

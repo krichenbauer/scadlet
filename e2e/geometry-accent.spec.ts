@@ -150,7 +150,8 @@ test('renders a restrained Geometry accent for live Geometry outputs and matchin
   const focusedSize = cube.locator('[data-param-key="size"] input')
   await focusedSize.focus()
   await expect(focusedSize).toBeFocused()
-  await expect(cube.getByRole('button', { name: 'Collapse node' })).toHaveText('^')
+  await expect(cube.getByRole('button', { name: 'Collapse node' })).toHaveAttribute('aria-expanded', 'true')
+  await expect(cube.getByRole('button', { name: 'Collapse node' }).locator('svg')).toHaveCount(1)
   await expectGeometryCue(cube, true)
 
   await page.getByRole('button', { name: '+ New module', exact: true }).click()
@@ -232,21 +233,25 @@ test('keeps Value Conditional and Geometry If as fixed, parallel interfaces thro
   await expect(conditional.locator('.node-main > .node-outputs .node-socket[data-socket-key="result"][data-socket-type="unresolved"]')).toHaveCount(1)
   await expect(ifNode.locator('.node-main > .node-outputs .node-socket[data-socket-key="geometry"][data-socket-type="geometry"]')).toHaveCount(1)
 
-  const drag = async (node: Locator) => {
+  const drag = async (node: Locator, dx = 28, dy = 18) => {
     const before = await node.boundingBox()
     const surface = await node.locator('.node-body').boundingBox()
     if (!before || !surface) throw new Error('Expected fixed-node free surface')
     await page.mouse.move(surface.x + 3, surface.y + surface.height / 2)
     await page.mouse.down()
-    await page.mouse.move(surface.x + 28, surface.y + surface.height / 2 + 18, { steps: 4 })
+    await page.mouse.move(surface.x + dx, surface.y + surface.height / 2 + dy, { steps: 4 })
     await page.mouse.up()
     const after = await node.boundingBox()
     if (!after) throw new Error('Expected moved fixed node')
-    expect(after.x - before.x).toBeCloseTo(25, 0)
-    expect(after.y - before.y).toBeCloseTo(18, 0)
+    expect(after.x - before.x).toBeCloseTo(dx - 3, 0)
+    expect(after.y - before.y).toBeCloseTo(dy, 0)
   }
-  await drag(conditional)
+  await drag(conditional, -110, 18)
   await drag(ifNode)
+  // Expanded-by-default nodes occupy more vertical space. Move the Number
+  // through the visible node-drag interaction so its output cannot overlap
+  // Cube's + Size control later in this dense graph.
+  await drag(number, -80, 180)
 
   // Socket drags stay direct interactions, including Geometry If's optional
   // False branch. They also supply a real Rete connection instance for the
@@ -335,6 +340,7 @@ test('keeps nodes draggable from free surfaces without visible grab handles or c
 
   const collapseBefore = await position(arithmetic)
   await arithmetic.getByRole('button', { name: 'Collapse node' }).click()
-  await expect(arithmetic.getByRole('button', { name: 'Expand node' })).toHaveText('v')
+  await expect(arithmetic.getByRole('button', { name: 'Expand node' })).toHaveAttribute('aria-expanded', 'false')
+  await expect(arithmetic.getByRole('button', { name: 'Expand node' }).locator('svg')).toHaveCount(1)
   await expectUnmoved(arithmetic, collapseBefore)
 })

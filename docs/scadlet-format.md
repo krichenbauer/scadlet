@@ -290,8 +290,8 @@ sections below for exact shapes.
   parameter: a collapsed node renders its compact editor body without
   changing generated OpenSCAD.
 - Explicit collapse is persisted because it is a deliberate user action.
-  Hover, selection, and transient compatible-port disclosure during a held
-  wire gesture do not change this field.
+  Hover, selection, and held wire gestures do not change this field or reveal
+  hidden controls.
 - The writer (`serializeProject` in `src/persistence/serialize.ts`) omits
   `collapsed` for an expanded node rather than writing `"collapsed": false`.
   This optional default lets old v6 records lacking the field restore normally
@@ -846,7 +846,7 @@ Both arrays must have exactly 3 finite numbers each (`Invalid viewer.camera.posi
 | Viewer camera position/target       | Yes        | User's 3D view. |
 | Explicit collapse state              | Yes        | Deliberate user presentation state; omission means expanded. |
 | Hover/selection-driven expansion     | No         | These interactions do not expand nodes. |
-| Wire-gesture port disclosure         | No         | Reveals compatible existing targets without changing collapse state. |
+| Wire-gesture target highlighting     | No         | Highlights only already-visible compatible targets without changing collapse state. |
 | Node/marquee selection               | No         | Transient interaction state. |
 | Marquee drag rectangle               | No         | Transient interaction state. |
 | Inspect Node preview root             | No         | Temporary preview state, not part of the model. |

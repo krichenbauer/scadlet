@@ -69,7 +69,8 @@ function vectorParameterProject() {
 
 async function seedActiveProject(page: Page, project: unknown, id: string): Promise<void> {
   await page.goto('/')
-  await expect(page.locator('scadlet-app .project-picker')).toBeEnabled()
+  await expect(page.getByRole('textbox', { name: 'Project name' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Projects' })).toBeEnabled()
   await page.evaluate(async ({ projectToStore, projectId }) => {
     const request = indexedDB.open('scadlet-projects')
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -89,7 +90,16 @@ async function seedActiveProject(page: Page, project: unknown, id: string): Prom
     sessionStorage.setItem('scadlet.activeProjectId', projectId)
   }, { projectToStore: project, projectId: id })
   await page.reload()
-  await expect(page.locator('scadlet-app .project-picker')).toHaveValue(id)
+  await expect(page.getByRole('textbox', { name: 'Project name' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Projects' }).click()
+  await expect(page.locator('scadlet-app .project-menu-list .project-row--active')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Projects' }).click()
+}
+
+async function fileAction(page: Page, name: string) {
+  const trigger = page.locator('scadlet-app header').getByRole('button', { name: /^File\b/ })
+  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
+  return page.getByRole('menuitem', { name, exact: true })
 }
 
 /** Generated source is displayed before the worker returns, so this needs no
@@ -152,7 +162,7 @@ test('an emptied numeric literal keeps its last valid value and never becomes Na
 
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    page.getByRole('button', { name: 'Save', exact: true }).click(),
+    (await fileAction(page, 'Save .scadlet')).click(),
   ])
   const savedPath = await download.path()
   const saved = JSON.parse(readFileSync(savedPath, 'utf8')) as { graph: { nodes: { id: string; parameters: Record<string, unknown> }[] } }
@@ -162,7 +172,7 @@ test('an emptied numeric literal keeps its last valid value and never becomes Na
   expect(savedParameters.get('cube')).toMatchObject({ size: 9, sizeScalar: 9 })
 
   const chooser = page.waitForEvent('filechooser')
-  await page.getByRole('button', { name: 'Open', exact: true }).click()
+  await (await fileAction(page, 'Open')).click()
   await (await chooser).setFiles(savedPath)
   await expect(page.locator('node-editor .node')).toHaveCount(3)
   await expect(page.locator('scadlet-app .render-error')).toHaveCount(0)

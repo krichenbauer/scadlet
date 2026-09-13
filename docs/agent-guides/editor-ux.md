@@ -53,14 +53,14 @@ may be deleted before node deletion. No selection/hover/gesture state changes
 program semantics or persistence.
 
 Nodes are compact/collapsible presentation only. Normally collapsible nodes
-start expanded and provide an always-visible `^`/`v` header button to collapse
+start expanded and provide an always-visible chevron header button to collapse
 or expand explicitly; its accessible name states the next action. Value
 Conditional and Geometry If keep their fixed compact interfaces and show no
 such control. Keep structural input/output anchors stable in a fixed row;
-expansion grows below. Reveal all connected inputs while compact and compatible
-unused targets during a wire gesture without moving the aimed socket, but do
-not expand merely because of hover, selection, or the gesture. Activating `v`
-during a held wire gesture expands the node without ending that gesture. Use
+expansion grows below. Reveal connected inputs while compact, but never reveal
+hidden rows merely because of hover, selection, or a connection gesture.
+Activating the downward chevron during a held wire gesture expands the node
+without ending that gesture. Use
 Rete DOM ordering—not a parallel z-index model—to bring an explicitly
 interacted node forward where needed.
 

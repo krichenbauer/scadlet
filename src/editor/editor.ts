@@ -1814,6 +1814,10 @@ function attachConnectionGestureEvents(
   const onPointerDown = (event: PointerEvent): void => {
     const socket = findSocket(event.target)
     if (gesture.active) {
+      // The explicit expand button is part of the held click-wire workflow:
+      // let its own handlers re-render the target without dropping, replacing,
+      // or restarting Rete's current connection pick.
+      if (event.target instanceof Element && event.target.closest('.node-collapse')) return
       // Let Rete's socket listener receive this second click before clearing
       // our presentation state: clearing synchronously re-renders the
       // candidate and would unmount the very socket Rete is about to use.
