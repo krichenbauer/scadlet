@@ -63,6 +63,7 @@ that apply; their constraints are part of the project contract.
 | `.scadlet`, migration, save/open, autosave, IndexedDB, or tabs | [Persistence](docs/agent-guides/persistence.md) and [format specification](docs/scadlet-format.md) |
 | Dependencies, build/development tooling, hosting, privacy, errors, or tests | [Delivery and quality](docs/agent-guides/delivery-quality.md) |
 | Work that might be a later feature | [Roadmap](docs/agent-guides/roadmap.md) |
+| Rules for node styles | [node-style](docs/agent-guides/node-style.md) |
 
 When a change affects more than one area, read every applicable reference.
 If a decision would change a documented contract, explain the tradeoff before
