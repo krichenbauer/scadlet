@@ -34,7 +34,8 @@ describe('Arithmetic/math persistence v6', () => {
       ['module-add', 'arithmetic', 'addition'],
       ['function-divide', 'arithmetic', 'division'],
     ])
-    expect(project.graph.nodes.find((node) => node.id === 'add-main')).toMatchObject({ position: { x: 100, y: 20 }, pinned: true })
+    expect(project.graph.nodes.find((node) => node.id === 'add-main')).toMatchObject({ position: { x: 100, y: 20 } })
+    expect(project.graph.nodes.find((node) => node.id === 'add-main')?.collapsed).toBeUndefined()
     expect(project.graph.connections).toEqual(legacyV5.graph.connections)
     expect(project.definitions[0]?.graph.connections).toEqual(legacyV5.definitions[0].graph.connections)
     expect(project.definitions[1]?.graph.connections).toEqual(legacyV5.definitions[1].graph.connections)

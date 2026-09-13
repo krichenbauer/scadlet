@@ -5,7 +5,7 @@
   "graph": {
     "nodes": [
       { "id": "number-main", "type": "number", "position": { "x": 10, "y": 20 }, "parameters": { "value": 2, "name": "Two" } },
-      { "id": "add-main", "type": "add", "position": { "x": 100, "y": 20 }, "parameters": { "a": 0, "b": 3 }, "pinned": true },
+      { "id": "add-main", "type": "add", "position": { "x": 100, "y": 20 }, "parameters": { "a": 0, "b": 3 } },
       { "id": "subtract-main", "type": "subtract", "position": { "x": 220, "y": 20 }, "parameters": { "a": 0, "b": 1 } },
       { "id": "multiply-main", "type": "multiply", "position": { "x": 340, "y": 20 }, "parameters": { "a": 0, "b": 4 } },
       { "id": "divide-main", "type": "divide", "position": { "x": 460, "y": 20 }, "parameters": { "a": 0, "b": 2 } },

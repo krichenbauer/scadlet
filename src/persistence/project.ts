@@ -21,8 +21,8 @@ export interface ScadletProjectMetadata {
  * state (including any progressive-disclosure state that changes
  * generated OpenSCAD, e.g. a Sphere's size mode or `$fn`), validated
  * against the node's own catalog entry (`editor/node-catalog.ts`).
- * `pinned` is explicit user presentation state (AGENTS.md: persist
- * deliberate pinning, not transient hover/selection-driven expansion).
+ * `collapsed` is explicit user presentation state. Its omission is the
+ * v6-compatible expanded default, so old records restore normally open.
  */
 export interface ScadletNodeDTO {
   id: string
@@ -30,7 +30,7 @@ export interface ScadletNodeDTO {
   type: string
   position: Position
   parameters: Record<string, unknown>
-  pinned?: boolean
+  collapsed?: boolean
 }
 
 /**

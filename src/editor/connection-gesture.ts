@@ -9,7 +9,6 @@ export interface ConnectionGestureOrigin {
 
 export interface ActiveConnectionGesture {
   origin: ConnectionGestureOrigin
-  candidateNodeId: string | null
   snapTarget: ConnectionSnapTarget | null
 }
 
@@ -47,26 +46,10 @@ export function nearestSnapTarget(
 
 type GestureListener = (previous: ActiveConnectionGesture | null, current: ActiveConnectionGesture | null) => void
 
-interface SocketPort {
-  socket?: { name?: string }
-}
-
-/** Returns the currently existing ports compatible with a connection type.
- * It deliberately only examines active Rete ports: disclosure never creates
- * an optional parameter or switches a node's representation. */
-export function compatiblePortKeys(
-  ports: Record<string, SocketPort | undefined>,
-  socketType: SocketType,
-): string[] {
-  return Object.entries(ports)
-    .filter(([, port]) => port?.socket?.name === socketType)
-    .map(([key]) => key)
-}
-
 /**
  * Presentation-only lifecycle for a connection the user is currently
- * creating. Rete remains the authority for the real connection; this small
- * state only lets compact nodes reliably disclose relevant existing ports.
+ * creating. Rete remains the authority for the real connection; this state
+ * only tracks visible-socket snapping and never changes node presentation.
  */
 export class ConnectionGestureManager {
   private current: ActiveConnectionGesture | null = null
@@ -82,12 +65,7 @@ export class ConnectionGestureManager {
   }
 
   begin(origin: ConnectionGestureOrigin): void {
-    this.set({ origin, candidateNodeId: null, snapTarget: null })
-  }
-
-  setCandidate(nodeId: string | null): void {
-    if (!this.current || this.current.candidateNodeId === nodeId) return
-    this.set({ ...this.current, candidateNodeId: nodeId, snapTarget: nodeId === this.current.candidateNodeId ? this.current.snapTarget : null })
+    this.set({ origin, snapTarget: null })
   }
 
   setSnapTarget(target: ConnectionSnapTarget | null): void {
@@ -105,14 +83,14 @@ export class ConnectionGestureManager {
     this.set(null)
   }
 
-  /** A removed source invalidates the whole gesture; a removed candidate
-   * simply leaves the still-active wire without a hovered target. */
+  /** A removed source invalidates the whole gesture; removing a snapped
+   * target simply leaves the still-active wire without that target. */
   removeNode(nodeId: string): void {
     if (!this.current) return
     if (this.current.origin.nodeId === nodeId) {
       this.cancel()
-    } else if (this.current.candidateNodeId === nodeId) {
-      this.setCandidate(null)
+    } else if (this.current.snapTarget?.nodeId === nodeId) {
+      this.setSnapTarget(null)
     }
   }
 

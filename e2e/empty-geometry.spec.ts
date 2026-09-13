@@ -52,7 +52,6 @@ async function seedActiveProject(page: Page, project: unknown) {
 
 async function setSubtractSize(page: Page, size: string) {
   const subtract = page.locator('node-editor .node[data-node-id="subtract"]')
-  await subtract.locator('.node-pin').click()
   const input = subtract.locator('[data-param-key="size"] input')
   await input.fill(size)
   await input.press('Tab')

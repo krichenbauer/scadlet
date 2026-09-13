@@ -47,11 +47,11 @@ describe('docs/scadlet-format.md examples stay valid', () => {
     })
   })
 
-  it('cube-sphere-union-translate.scadlet has valid topology, ports, and a pinned node', () => {
+  it('cube-sphere-union-translate.scadlet has valid topology, ports, and a collapsed node', () => {
     const project = parseScadletProject(readExample('cube-sphere-union-translate.scadlet'))
     expect(project.graph.nodes).toHaveLength(4)
     expect(project.graph.connections).toHaveLength(3)
-    expect(project.graph.nodes.find((n) => n.id === 'translate-1')?.pinned).toBe(true)
+    expect(project.graph.nodes.find((n) => n.id === 'translate-1')?.collapsed).toBe(true)
   })
 
   it('recursive-functions-v6.scadlet preserves direct and mutual recursive Calls', () => {

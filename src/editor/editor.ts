@@ -92,10 +92,10 @@ export interface SCADletEditor {
   /** Safely removes a dynamic port and all of its attached connections. */
   removeInputSafely(nodeId: string, inputKey: string): Promise<boolean>
   removeOutputSafely(nodeId: string, outputKey: string): Promise<boolean>
-  /** Whether `nodeId` is currently explicitly pinned open (editor presentation state - see `presentation.ts`). */
-  isPinned(nodeId: string): boolean
-  /** Sets a node's pinned state directly (used by `.scadlet` project restore) rather than toggling. */
-  setPinned(nodeId: string, pinned: boolean): void
+  /** Whether `nodeId` is explicitly collapsed (editor presentation state). */
+  isCollapsed(nodeId: string): boolean
+  /** Applies restored explicit collapse state without touching graph semantics. */
+  setCollapsed(nodeId: string, collapsed: boolean): void
   createModule(name: string): Promise<ModuleDefinition>
   renameModule(definitionId: string, name: string): Promise<boolean>
   deleteModule(definitionId: string): Promise<boolean>
@@ -124,7 +124,7 @@ export interface SCADletEditor {
   onDefinitionsChange(callback: () => void): () => void
   /**
    * Subscribes to "the project has unsaved changes" notifications:
-   * node/connection add/remove, node move, canvas pan/zoom, pin state,
+   * node/connection add/remove, node move, canvas pan/zoom, collapse state,
    * and persisted-parameter control edits (see `dirty.ts` and
    * `node-catalog.ts`'s `wireDirtyNotifications`) - project-name edits
    * are tracked separately in `scadlet-app.ts`. Returns an unsubscribe
@@ -144,7 +144,7 @@ export interface SCADletEditor {
   /**
    * Runs `fn`, suppressing all `onDirty` notifications for its duration -
    * used by `.scadlet` project restore, which necessarily performs
-   * operations (adding nodes, moving them, restoring pin state/viewport)
+   * operations (adding nodes, moving them, restoring collapse state/viewport)
    * that would otherwise look like user edits and incorrectly leave a
    * freshly loaded project dirty.
    */
@@ -431,7 +431,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return context
   })
 
-  // Presentation state (collapsed / temporarily expanded / pinned - see
+  // Presentation state (explicitly collapsed or expanded - see
   // `presentation.ts`) is intentionally kept outside the Rete graph model,
   // so it lives here rather than as node data. `onChange` re-renders just
   // the affected node, the same mechanism Cylinder's progressive
@@ -443,7 +443,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // Inspect Node state (which node, if any, is the temporary preview
   // root - see `inspect.ts`) is likewise kept outside the Rete graph
   // model and outside `NodePresentationManager`: it is an independent
-  // concept from expanded/pinned, not another boolean on the same class.
+  // concept from collapsed/expanded, not another boolean on the same class.
   const inspect = new InspectManager({
     onChange: (id) => void area.update('node', id),
     onScopeChange: () => { for (const node of editor.getNodes()) void area.update('node', node.id) },
@@ -458,7 +458,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // rather than being inlined here, so the exact set of signals that
   // count as a persisted change is easy to review/extend without a real
   // `NodeEditor`/`AreaPlugin`. `dirtySuspended` lets `.scadlet` project
-  // restore (`scadlet-app.ts`) perform node/connection/position/pin/
+  // restore (`scadlet-app.ts`) perform node/connection/position/collapse/
   // viewport operations that would otherwise look like user edits
   // without leaving the freshly loaded project dirty.
   const dirtyListeners = new Set<() => void>()
@@ -1528,7 +1528,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const previousDirtySuspended = dirtySuspended
     dirtySuspended = true
     const removedConnections: Schemes['Connection'][] = []
-    const removedNodes: { node: Schemes['Node']; scope: string | null; pinned: boolean; position?: Position }[] = []
+    const removedNodes: { node: Schemes['Node']; scope: string | null; collapsed: boolean; position?: Position }[] = []
     try {
       connection.drop(); connectionGesture.cancel()
       for (const item of connections) {
@@ -1538,7 +1538,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       for (const nodeId of nodeIds) {
         const node = editor.getNode(nodeId)!
         const position = area.nodeViews.get(nodeId)?.position
-        removedNodes.push({ node, scope: definitions.scopeOf(nodeId), pinned: presentation.isPinned(nodeId), ...(position ? { position: { ...position } } : {}) })
+        removedNodes.push({ node, scope: definitions.scopeOf(nodeId), collapsed: presentation.isCollapsed(nodeId), ...(position ? { position: { ...position } } : {}) })
         if (!await editor.removeNode(nodeId)) throw new Error(`Could not remove node ${nodeId}.`)
       }
       definitions.remove(definitionId)
@@ -1548,7 +1548,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
         if (item.scope && definitions.get(item.scope) && !definitions.isProtectedNode(item.node.id)) definitions.assignNode(item.scope, item.node.id)
         await editor.addNode(item.node)
         if (item.position) await area.translate(item.node.id, item.position)
-        if (item.pinned && !presentation.isPinned(item.node.id)) presentation.togglePin(item.node.id)
+        if (item.collapsed) presentation.setCollapsed(item.node.id, true)
       }
       for (const item of removedConnections) if (!editor.getConnections().some((candidate) => candidate.id === item.id)) await editor.addConnection(item)
       dirtySuspended = previousDirtySuspended
@@ -1669,7 +1669,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const previousDirtySuspended = dirtySuspended
     dirtySuspended = true
     const removedConnections: Schemes['Connection'][] = []
-    const removedNodes: { node: Schemes['Node']; scope: string | null; pinned: boolean; position?: Position }[] = []
+    const removedNodes: { node: Schemes['Node']; scope: string | null; collapsed: boolean; position?: Position }[] = []
     const previousTypes = new Map([...transitionPlan.resultTypes].map(([id]) => [id, definitions.get(id)?.resultType] as const))
     try {
       connection.drop(); connectionGesture.cancel()
@@ -1680,7 +1680,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       for (const nodeId of nodeIds) {
         const node = editor.getNode(nodeId)!
         const position = area.nodeViews.get(nodeId)?.position
-        removedNodes.push({ node, scope: definitions.scopeOf(nodeId), pinned: presentation.isPinned(nodeId), ...(position ? { position: { ...position } } : {}) })
+        removedNodes.push({ node, scope: definitions.scopeOf(nodeId), collapsed: presentation.isCollapsed(nodeId), ...(position ? { position: { ...position } } : {}) })
         if (!await editor.removeNode(nodeId)) throw new Error(`Could not remove node ${nodeId}.`)
       }
       await applyFunctionResultTransitions(transitionPlan)
@@ -1692,7 +1692,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
         if (item.scope && definitions.get(item.scope) && !definitions.isProtectedNode(item.node.id)) definitions.assignNode(item.scope, item.node.id)
         await editor.addNode(item.node)
         if (item.position) await area.translate(item.node.id, item.position)
-        if (item.pinned && !presentation.isPinned(item.node.id)) presentation.togglePin(item.node.id)
+        if (item.collapsed) presentation.setCollapsed(item.node.id, true)
       }
       for (const item of removedConnections) if (!editor.getConnections().some((candidate) => candidate.id === item.id)) await editor.addConnection(item)
       dirtySuspended = previousDirtySuspended
@@ -1719,10 +1719,10 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     getInspectParticipatingNodeIds: () => inspectParticipatingNodeIds(editor, inspect.id),
     removeInputSafely: (nodeId, inputKey) => removeInputSafely(editor, nodeId, inputKey),
     removeOutputSafely: (nodeId, outputKey) => removeOutputSafely(editor, nodeId, outputKey),
-    isPinned: (nodeId: string) => presentation.isPinned(nodeId),
-    setPinned: (nodeId: string, pinned: boolean) => {
-      if (presentation.isPinned(nodeId) === pinned) return
-      presentation.togglePin(nodeId)
+    isCollapsed: (nodeId: string) => presentation.isCollapsed(nodeId),
+    setCollapsed: (nodeId: string, collapsed: boolean) => {
+      if (presentation.isCollapsed(nodeId) === collapsed) return
+      presentation.setCollapsed(nodeId, collapsed)
       notifyDirty()
     },
     createModule,
@@ -1814,6 +1814,10 @@ function attachConnectionGestureEvents(
   const onPointerDown = (event: PointerEvent): void => {
     const socket = findSocket(event.target)
     if (gesture.active) {
+      // The explicit expand button is part of the held click-wire workflow:
+      // let its own handlers re-render the target without dropping, replacing,
+      // or restarting Rete's current connection pick.
+      if (event.target instanceof Element && event.target.closest('.node-collapse')) return
       // Let Rete's socket listener receive this second click before clearing
       // our presentation state: clearing synchronously re-renders the
       // candidate and would unmount the very socket Rete is about to use.

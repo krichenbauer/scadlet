@@ -31,7 +31,7 @@
         "type": "translate",
         "position": { "x": 200, "y": 75 },
         "parameters": { "x": 10, "y": 0, "z": 0 },
-        "pinned": true
+        "collapsed": true
       }
     ],
     "connections": [

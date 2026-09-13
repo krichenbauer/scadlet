@@ -14,15 +14,15 @@ import { isEditableTarget } from './deletion'
 import { t } from '../i18n/translate'
 import type { InspectManager } from './inspect'
 import { BooleanOpNode } from './nodes/boolean-op-node'
-import { bringNodeToFront } from './order'
 import { isRedundantTypeLabel } from './ports'
 import type { NodePresentationManager } from './presentation'
 import type { AreaExtra, Schemes } from './schemes'
-import { compatiblePortKeys, type ConnectionGestureManager } from './connection-gesture'
+import type { ConnectionGestureManager } from './connection-gesture'
 import { nearestSnapTarget, type SnapCandidate } from './connection-gesture'
 import type { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData } from './connection-compatibility'
 import { hasGeometryOutput } from './geometry-accent'
+import { compactIconElement } from '../components/icons'
 
 type Position = { x: number; y: number }
 type Side = 'input' | 'output'
@@ -47,12 +47,11 @@ export function parameterRowPresentation(
   canonicalKeys: readonly string[],
   expanded: boolean,
   connectedKeys: ReadonlySet<string>,
-  disclosedKeys: ReadonlySet<string>,
 ): ParameterRowPresentation[] {
   return canonicalKeys.map((key) => ({
     key,
     connected: connectedKeys.has(key),
-    visible: expanded || connectedKeys.has(key) || disclosedKeys.has(key),
+    visible: expanded || connectedKeys.has(key),
   }))
 }
 
@@ -163,69 +162,6 @@ export function attachRenderer(
   // listeners must only be wired the first time a given element is seen,
   // not on every re-render.
   const nodeListenersWired = new WeakSet<HTMLElement>()
-  let disclosedNodeId: string | null = null
-  let snapFrame: number | null = null
-  const clearDisclosure = (): void => {
-    if (!disclosedNodeId) return
-    presentation.setConnectionDisclosure(disclosedNodeId, new Set())
-    disclosedNodeId = null
-  }
-  const setCandidate = (node: Schemes['Node'] | undefined): void => {
-    const active = connectionGesture.active
-    if (!active || !node) {
-      clearDisclosure()
-      connectionGesture.setCandidate(null)
-      return
-    }
-
-    if (active.origin.side === 'output') {
-      const matchingInputs = compatiblePortKeys(node.inputs, active.origin.socketType)
-      if (matchingInputs.length === 0) {
-        clearDisclosure()
-        connectionGesture.setCandidate(null)
-        return
-      }
-      if (disclosedNodeId !== node.id) clearDisclosure()
-      // Geometry inputs are structural and always visible. Only compatible
-      // parameter rows need temporary disclosure below the stable header.
-      const parameterKeys = new Set(matchingInputs.filter((key) => node.inputs[key]?.socket.name !== 'geometry'))
-      presentation.setConnectionDisclosure(node.id, parameterKeys)
-      disclosedNodeId = parameterKeys.size > 0 ? node.id : null
-      connectionGesture.setCandidate(node.id)
-      return
-    }
-
-    // Starting from an input is still a valid Rete gesture. Outputs are
-    // structurally visible already, so it records a compatible candidate
-    // without manufacturing a second disclosure UI.
-    if (compatiblePortKeys(node.outputs, active.origin.socketType).length === 0) {
-      clearDisclosure()
-      connectionGesture.setCandidate(null)
-      return
-    }
-    clearDisclosure()
-    connectionGesture.setCandidate(node.id)
-  }
-  const nodeAtPointer = (event: PointerEvent): Schemes['Node'] | undefined => {
-    const elements = event.composedPath().filter((item): item is Element => item instanceof Element)
-    // Pointer events observed inside the node-editor Shadow DOM carry their
-    // real target in the composed path. The fallback stays within that same
-    // root as `document.elementsFromPoint()` cannot see through a shadow
-    // boundary.
-    const rootNode = area.container.getRootNode()
-    const fallback = rootNode instanceof ShadowRoot
-      ? rootNode.elementsFromPoint(event.clientX, event.clientY)
-      : document.elementsFromPoint(event.clientX, event.clientY)
-    for (const element of [...elements, ...fallback]) {
-      const root = element instanceof HTMLElement
-        ? element.closest<HTMLElement>('.node')
-        : element.parentElement?.closest<HTMLElement>('.node')
-      if (!root || !area.container.contains(root)) continue
-      const nodeId = root.dataset.nodeId
-      if (nodeId) return editor.getNode(nodeId)
-    }
-    return undefined
-  }
   const updateSnapTarget = (clientX: number, clientY: number): void => {
     const active = connectionGesture.active
     if (!active) return
@@ -257,15 +193,7 @@ export function attachRenderer(
   }
   const handlePointerMove = (event: PointerEvent): void => {
     if (!connectionGesture.active) return
-    setCandidate(nodeAtPointer(event))
     updateSnapTarget(event.clientX, event.clientY)
-    // Disclosure can mount an input row during this same movement. Re-scan
-    // after layout so the newly visible port is immediately eligible.
-    if (snapFrame !== null) cancelAnimationFrame(snapFrame)
-    snapFrame = requestAnimationFrame(() => {
-      snapFrame = null
-      updateSnapTarget(event.clientX, event.clientY)
-    })
   }
   area.container.addEventListener('pointermove', handlePointerMove, { capture: true })
   const syncSnapPresentation = (): void => {
@@ -281,13 +209,7 @@ export function attachRenderer(
     socket?.classList.add('node-socket--snap-target')
     area.container.classList.add('connection-gesture--snapped')
   }
-  const unsubscribeGesture = connectionGesture.subscribe((previous, current) => {
-    // Beginning a fresh gesture, completing/cancelling one, or resetting the
-    // editor must never leave an old target row temporarily visible.
-    if (!current || !previous || previous.origin !== current.origin ||
-      (previous.candidateNodeId !== null && current.candidateNodeId === null)) clearDisclosure()
-    syncSnapPresentation()
-  })
+  const unsubscribeGesture = connectionGesture.subscribe(syncSnapPresentation)
 
   area.addPipe((context) => {
     if (context.type === 'render') {
@@ -335,10 +257,8 @@ export function attachRenderer(
 
   return () => {
     area.container.removeEventListener('pointermove', handlePointerMove, { capture: true })
-    if (snapFrame !== null) cancelAnimationFrame(snapFrame)
     unsubscribeGesture()
     area.container.classList.remove('connection-gesture--snapped')
-    clearDisclosure()
   }
 }
 
@@ -368,12 +288,11 @@ function renderNode(
   const inspected = inspect.isInspected(node.id)
   element.classList.toggle('node--inspected', inspected)
   element.classList.toggle('node--inspect-out-of-scope', inspect.id !== null && !inspect.participates(node.id))
-  presentation.syncSelection(node.id, Boolean(node.selected))
 
   // The two OpenSCAD conditional forms deliberately share a small, fixed
   // interface. Their differently typed inputs remain visible side-by-side
   // in their declared semantic order; neither has progressive disclosure or
-  // pinning presentation. Their Rete port ids and dataflow stay untouched.
+  // collapse presentation. Their Rete port ids and dataflow stay untouched.
   const fixedConditionalInterface = node instanceof ConditionalNode || node instanceof IfNode
 
   // Separate structural geometry inputs from semantic parameter inputs (number/vector3).
@@ -395,7 +314,7 @@ function renderNode(
     }
     // Function Output's single `result` port is never geometry-typed, but
     // (like Module Output's `geometry` input) is structural interface
-    // infrastructure that must stay visible regardless of hover/pin state,
+    // infrastructure that must stay visible regardless of compact state,
     // not a collapsible parameter row.
     if (input.socket.name === 'geometry' || (node instanceof FunctionOutputNode && key === 'result')) {
       geometryInputs.push([key, input])
@@ -428,7 +347,7 @@ function renderNode(
     ([key, ctrl]) => ctrl && !paramInputKeys.has(key) && !(ctrl instanceof RepresentationSelectControl) && !(ctrl instanceof TitleSelectControl) && !(sourceNameControl && key === 'name'),
   )
   // Literal value sources have no inputs, so their primary control is part
-  // of the compact node rather than hidden behind hover/pinning. Other
+  // of the compact node rather than hidden behind explicit collapse. Other
   // standalone controls retain the normal progressive-disclosure behavior.
   const alwaysVisibleControls = standaloneControls.filter(
     ([key, control]) => (Boolean(sourceNameControl) && key === 'value' && parameterInputs.length === 0) || control instanceof ModuleParameterAddControl || control instanceof ModuleGeometryInputAddControl || (control instanceof ModuleParameterEditControl && control.open) || (control instanceof ModuleGeometryInputEditControl && control.open),
@@ -436,7 +355,8 @@ function renderNode(
   const expandableStandaloneControls = standaloneControls.filter(([key]) => !alwaysVisibleControls.some(([primary]) => primary === key))
 
   // A node has collapsible content if it has parameter inputs (whose rows can be shown/hidden)
-  // or standalone controls (shown only when expanded). This drives pin-button visibility.
+  // or standalone controls (shown only when expanded). This drives the
+  // explicit collapse-button visibility.
   const hasCollapsibleContent = !fixedConditionalInterface && (parameterInputs.length > 0 || parameterOutputs.length > 0 || geometryOutputs.length > 0 || expandableStandaloneControls.length > 0 || representationControls.length > 0)
   // Rete remains authoritative for the semantic endpoint. Presentation keeps
   // compact expansion state, while this direct read ensures a freshly
@@ -448,28 +368,13 @@ function renderNode(
       .filter((connection) => connection.target === node.id && parameterInputs.some(([key]) => key === connection.targetInput))
       .map((connection) => connection.targetInput),
   ])
-  const disclosedInputKeys = presentation.getDisclosedInputKeys(node.id)
-  // Hover/pin expansion: shows ALL parameter rows and standalone controls.
-  // Distinguished from connection-forced expansion (which only shows specific connected rows)
-  // so that an unconnected Translate with Z connected doesn't show X/Y/Vector rows.
+  // Explicit expansion shows all parameter rows and standalone controls;
+  // compact nodes show only rows backed by existing connections.
   const expanded = hasCollapsibleContent && presentation.isInteractivelyExpanded(node.id)
   element.classList.toggle('node--expanded', !fixedConditionalInterface && presentation.isExpanded(node.id))
 
   if (!nodeListenersWired.has(element)) {
     nodeListenersWired.add(element)
-    element.addEventListener('pointerenter', () => {
-      bringNodeToFront(area, node.id)
-      presentation.handlePointerEnter(node.id)
-    })
-    element.addEventListener('pointerleave', () => {
-      presentation.handlePointerLeave(node.id)
-    })
-    element.addEventListener('focusin', () => presentation.handleFocusEnter(node.id))
-    element.addEventListener('focusout', () => {
-      queueMicrotask(() => {
-        if (!element.contains(document.activeElement)) presentation.handleFocusLeave(node.id)
-      })
-    })
     element.addEventListener('pointerdown', (event) => {
       if (isEditableTarget(event.target)) return
       if (event.target instanceof Element && event.target.closest('button')) return
@@ -488,7 +393,7 @@ function renderNode(
 
   element.replaceChildren()
 
-  // `.node-main`: stable header row - geometry sockets + title/pin + geometry output.
+  // `.node-main`: stable header row - geometry sockets + title/collapse + geometry output.
   // Height depends only on geometry port count and title; never on parameter rows below.
   const main = document.createElement('div')
   main.className = 'node-main'
@@ -505,7 +410,7 @@ function renderNode(
 
   const body = document.createElement('div')
   body.className = 'node-body'
-  body.appendChild(renderHeader(node, presentation, hasCollapsibleContent, inspected, notifyDirty, sourceNameControl, titleSelectControl))
+  body.appendChild(renderHeader(node, presentation, hasCollapsibleContent, inspected, notifyDirty, sourceNameControl, titleSelectControl, element))
   main.appendChild(body)
 
   if (mainOutputs.length > 0) {
@@ -530,7 +435,7 @@ function renderNode(
 
   // Parameter input rows: socket + label + inline value control, rendered below `.node-main`.
   // A connection keeps its row visible while compact, but rendering always
-  // follows the active node-defined input order. Expanded/pinned/focused and
+  // follows the active node-defined input order. Expanded and
   // disclosed views therefore retain semantic X/Y/Z, A/B, etc. ordering.
   if (parameterInputs.length > 0) {
     const inputsByKey = new Map(parameterInputs)
@@ -538,7 +443,6 @@ function renderNode(
       parameterInputs.map(([key]) => key),
       expanded,
       connectedInputKeys,
-      disclosedInputKeys,
     )
 
     const paramRows = document.createElement('div')
@@ -612,9 +516,9 @@ function renderNode(
 }
 
 /**
- * Title plus the pin/expand header control (AGENTS.md sections 2, 6, 7).
+ * Title plus the explicit collapse header control.
  * A node with no collapsible content (e.g. Difference) has nothing to
- * collapse/expand, so the pin affordance is only rendered "where
+ * collapse/expand, so the control is only rendered "where
  * relevant" - i.e. when the node actually has something to expand.
  */
 function renderHeader(
@@ -625,6 +529,7 @@ function renderHeader(
   notifyDirty: () => void,
   sourceNameControl: LabeledTextControl | undefined,
   titleSelectControl: TitleSelectControl | undefined,
+  nodeElement: HTMLElement,
 ): HTMLElement {
   const header = document.createElement('div')
   header.className = 'node-header'
@@ -690,30 +595,29 @@ function renderHeader(
   }
 
   if (hasCollapsibleContent) {
-    const pinned = presentation.isPinned(node.id)
-
-    const pin = document.createElement('button')
-    pin.type = 'button'
-    pin.className = 'node-pin'
-    pin.classList.toggle('node-pin--active', pinned)
-    pin.setAttribute('aria-pressed', String(pinned))
-    pin.setAttribute('aria-label', pinned ? t('node.unpin') : t('node.pin'))
-    pin.textContent = '📌'
-    // Prevent the node-drag handler from starting when interacting with the
-    // pin button, mirroring the same pattern used for control inputs below.
-    // Clicking the pin toggles pinning (which also expands/collapses the
-    // node - see `NodePresentationManager.togglePin`); it never selects the
-    // node or picks a socket. Explicit pinning is persisted state (unlike
-    // hover/selection-driven expansion), so it must also mark the project
-    // dirty - `presentation.togglePin` itself has no notion of dirty
-    // tracking (its `onChange` also fires for non-persisted hover/select
-    // expansion), so this is called alongside it rather than folded in.
-    pin.addEventListener('pointerdown', (event) => event.stopPropagation())
-    pin.addEventListener('click', () => {
-      presentation.togglePin(node.id)
+    const collapsed = presentation.isCollapsed(node.id)
+    const collapse = document.createElement('button')
+    collapse.type = 'button'
+    collapse.className = 'node-collapse'
+    collapse.setAttribute('aria-label', collapsed ? t('node.expand') : t('node.collapse'))
+    collapse.setAttribute('aria-expanded', String(!collapsed))
+    collapse.title = collapsed ? t('node.expand') : t('node.collapse')
+    collapse.appendChild(compactIconElement(collapsed ? 'chevron-down' : 'chevron-up'))
+    // These direct interaction handlers deliberately keep a collapse toggle
+    // out of Rete's node-drag and connection lifecycle. In particular, a
+    // visible expand chevron can be activated while a wire is held without
+    // cancelling or completing that wire gesture.
+    collapse.addEventListener('pointerdown', (event) => event.stopPropagation())
+    collapse.addEventListener('pointerup', (event) => event.stopPropagation())
+    collapse.addEventListener('click', (event) => {
+      event.stopPropagation()
+      presentation.toggleCollapsed(node.id)
       notifyDirty()
+      // Rete's progressive renderer replaces this header. Restore focus onto
+      // its fresh control so keyboard users retain a visible focus target.
+      requestAnimationFrame(() => nodeElement.querySelector<HTMLButtonElement>('.node-collapse')?.focus())
     })
-    header.appendChild(pin)
+    header.appendChild(collapse)
   }
 
   return header
