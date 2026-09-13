@@ -25,7 +25,7 @@ SCADlet is fully client-side: a graph evaluates to readable OpenSCAD source, whi
 
 ## Development
 
-The Nix development shell provides Node.js, pnpm, Git, and Chromium:
+The Nix development shell works on Linux and Intel/Apple-Silicon macOS. It provides Node.js, pnpm, and Git; Linux also supplies Chromium for Playwright:
 
 ```bash
 nix develop
