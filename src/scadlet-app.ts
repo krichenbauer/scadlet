@@ -1440,6 +1440,10 @@ export class ScadletApp extends LitElement {
   /** Executes exactly one OpenSCAD-backed evaluation for the node selected
    * by an Inspect double-click. It never starts live/background evaluation. */
   private async _inspect(nodeId: string): Promise<void> {
+    // An explicit Inspect wins over semantic edits still waiting for Live's
+    // quiet-period deadline. Otherwise that delayed run can begin while the
+    // OpenSCAD-backed Inspect is in flight and cancel it before it commits.
+    this.liveScheduler.cancelPending()
     const generation = this._beginExecution('inspect')
     try {
       const inspected = await this.nodeEditor.evaluateInspect(nodeId)

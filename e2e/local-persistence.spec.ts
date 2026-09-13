@@ -892,8 +892,7 @@ test('builds a terminating self-recursive Function visibly and renders it after 
   await connectNodePorts(page, positionedIds.conditional!, 'result', positionedIds.output, 'result')
   await expect(liveConnections).toHaveCount(10)
 
-  const latestFrame = await definitionFrame.boundingBox()
-  if (!latestFrame) throw new Error('Expected expanded factorial frame')
+  const latestFrame = await waitForBoundingBox(definitionFrame)
   const mainPoint = { x: editorBox.x + 35, y: editorBox.y + editorBox.height - 45 }
   expect(mainPoint.y).toBeGreaterThan(latestFrame.y + latestFrame.height)
   await dropFunctionCall(page, definitionId, mainPoint)
