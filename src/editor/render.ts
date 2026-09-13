@@ -822,6 +822,24 @@ function renderParamRow(
   return row
 }
 
+/**
+ * The single commit path for every inline numeric literal field. An empty
+ * or half-typed field (`''`, `-`, `1e`) reads back as `NaN` through
+ * `valueAsNumber`, so committing it unconditionally would put `NaN` into the
+ * graph: generated source becomes `cube(NaN);`, autosave's validating write
+ * starts failing (which also blocks New/Open, since those flush first), and
+ * `JSON.stringify` persists it as `null` - a `.scadlet` file the project
+ * validator then refuses to reopen. A non-numeric field therefore commits
+ * nothing and keeps the last valid literal, matching the finite-value rule
+ * `param-validation.ts` and the definition-parameter forms already enforce.
+ */
+function commitNumberLiteralOnInput(input: HTMLInputElement, commit: (value: number) => void): void {
+  input.addEventListener('input', () => {
+    if (!Number.isFinite(input.valueAsNumber)) return
+    commit(input.valueAsNumber)
+  })
+}
+
 /** Renders just the value element for a parameter row (no wrapper label, no pointerdown stop for drag-suppression - that's on the element itself). When `overridden` is true, the element is disabled: the connected value takes precedence over the inline literal. */
 function renderParamControlValue(control: ClassicPreset.Control, overridden: boolean): HTMLElement | null {
   if (control instanceof LabeledNumberControl || (control instanceof ClassicPreset.InputControl && control.type === 'number')) {
@@ -832,7 +850,7 @@ function renderParamControlValue(control: ClassicPreset.Control, overridden: boo
     if (overridden) input.title = t('control.overridden')
     input.className = 'node-param-value'
     input.addEventListener('pointerdown', (event) => event.stopPropagation())
-    input.addEventListener('input', () => (control as ClassicPreset.InputControl<'number'>).setValue(input.valueAsNumber))
+    commitNumberLiteralOnInput(input, (value) => (control as ClassicPreset.InputControl<'number'>).setValue(value))
     return input
   }
   if (control instanceof CheckboxControl) {
@@ -857,9 +875,9 @@ function renderParamControlValue(control: ClassicPreset.Control, overridden: boo
       input.disabled = overridden
       input.className = 'node-param-value'
       input.addEventListener('pointerdown', (event) => event.stopPropagation())
-      input.addEventListener('input', () => {
+      commitNumberLiteralOnInput(input, (component) => {
         const next = [...control.value] as [number, number, number]
-        next[index] = input.valueAsNumber
+        next[index] = component
         control.setValue(next)
       })
       wrapper.appendChild(input)
@@ -943,7 +961,7 @@ function renderControl(key: string, control: ClassicPreset.Control, hideLabel = 
     input.value = String(control.value ?? '')
     input.disabled = control.readonly
     input.addEventListener('pointerdown', (event) => event.stopPropagation())
-    input.addEventListener('input', () => control.setValue(input.valueAsNumber))
+    commitNumberLiteralOnInput(input, (value) => control.setValue(value))
     wrapper.appendChild(input)
 
     return wrapper
