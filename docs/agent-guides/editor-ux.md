@@ -119,9 +119,11 @@ canvas/preview navigation, Inspect, menus, and autosave do not. Manual Render
 flushes a pending delay; Stop works for manual and Live runs, appearing after
 200 ms with the same upper-left spinner. Live automatically turns off after a
 completed Live run exceeds two seconds and announces why through the preview's
-accessible status. Turning Live on, or switching to another local project while
-Live is on, renders the current graph immediately rather than waiting for the
-edit debounce. Its checked state is never persisted in a project.
+accessible status. Turning Live on, switching to another local project while
+Live is on, or successfully restoring an existing local project on page load
+renders the current graph immediately rather than waiting for the edit debounce.
+The first empty project created for an empty library remains idle. Its checked
+state is never persisted in a project.
 
 Compact shell actions use the small local inline-SVG vocabulary rather than an
 external icon library. Icon-only controls retain a localized accessible name,

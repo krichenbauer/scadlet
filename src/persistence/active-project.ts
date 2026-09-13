@@ -22,6 +22,13 @@ export class StartupProjectLoadError extends Error {
   }
 }
 
+/** The startup resolver keeps the ordinary stored project API while exposing
+ * whether it opened existing local work or created the first empty project. */
+export interface StartupProjectResolution {
+  project: StoredProject
+  restored: boolean
+}
+
 /** Tab-scoped active-project identity. Browser `sessionStorage` is deliberately used rather than shared `localStorage`. */
 export class ActiveProjectSession {
   private readonly storage: SessionStorageLike
@@ -82,6 +89,19 @@ export async function resolveStartupProject(
   store: LocalProjectStore,
   session: ActiveProjectSession,
 ): Promise<StoredProject> {
+  return (await resolveStartupProjectWithOrigin(store, session)).project
+}
+
+/**
+ * Resolves the startup project together with its origin. Callers that need
+ * bootstrap-only presentation behavior can distinguish a restored local
+ * project from the empty record created for a brand-new library without
+ * changing the stored-project lifecycle itself.
+ */
+export async function resolveStartupProjectWithOrigin(
+  store: LocalProjectStore,
+  session: ActiveProjectSession,
+): Promise<StartupProjectResolution> {
   const activeId = session.get()
   if (activeId) {
     let active: StoredProject | null
@@ -91,7 +111,7 @@ export async function resolveStartupProject(
       if (error instanceof CorruptLocalProjectError) throw new StartupProjectLoadError(activeId, error)
       throw error
     }
-    if (active) return active
+    if (active) return { project: active, restored: true }
     session.clear()
   }
 
@@ -108,11 +128,11 @@ export async function resolveStartupProject(
     }
     if (stored) {
       session.set(stored.id)
-      return stored
+      return { project: stored, restored: true }
     }
   }
 
   const created = await store.createProject(createEmptyProject())
   session.set(created.id)
-  return created
+  return { project: created, restored: false }
 }

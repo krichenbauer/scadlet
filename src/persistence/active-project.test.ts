@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { ActiveProjectSession, resolveStartupProject, StartupProjectLoadError, type SessionStorageLike } from './active-project'
+import { ActiveProjectSession, resolveStartupProject, resolveStartupProjectWithOrigin, StartupProjectLoadError, type SessionStorageLike } from './active-project'
 import { CorruptLocalProjectError, type LocalProjectStore, type StoredProject } from './local-project-store'
 import { createEmptyProject } from './project'
 
@@ -84,6 +84,32 @@ describe('resolveStartupProject', () => {
     expect(result.id).toBe('new-id')
     expect(result.project.graph.nodes).toEqual([])
     expect(session.get()).toBe('new-id')
+  })
+
+  it('marks only an existing local project as restored for bootstrap presentation', async () => {
+    const restored = await resolveStartupProjectWithOrigin(
+      fakeStore([stored('existing', 'Existing')]),
+      new ActiveProjectSession(new MemorySessionStorage()),
+    )
+    const missingSession = new ActiveProjectSession(new MemorySessionStorage())
+    missingSession.set('missing')
+    const created = await resolveStartupProjectWithOrigin(fakeStore([]), missingSession)
+    expect(restored).toMatchObject({ project: { id: 'existing' }, restored: true })
+    expect(created).toMatchObject({ project: { id: 'new-id' }, restored: false })
+  })
+
+  it('does not return a restored project when active-record validation fails', async () => {
+    const session = new ActiveProjectSession(new MemorySessionStorage())
+    session.set('broken')
+    const store = fakeStore([stored('valid', 'Valid')])
+    vi.mocked(store.getProject).mockImplementation(async (id) => {
+      if (id === 'broken') throw new CorruptLocalProjectError(id, new Error('bad payload'))
+      return null
+    })
+    await expect(resolveStartupProjectWithOrigin(store, session)).rejects.toMatchObject({
+      name: StartupProjectLoadError.name,
+      projectId: 'broken',
+    })
   })
 
   it('reports a corrupt active record as a project-load failure, not a store failure', async () => {

@@ -97,6 +97,19 @@ describe('LiveRenderScheduler', () => {
     expect(due).toHaveBeenCalledExactlyOnceWith(1)
   })
 
+  it('immediately renders one restored stale project without scheduling an edit debounce', () => {
+    vi.useFakeTimers()
+    const due = vi.fn()
+    const scheduler = new LiveRenderScheduler({ onDue: due })
+    scheduler.projectChanged()
+    scheduler.renderImmediatelyIfStale()
+    expect(due).toHaveBeenCalledExactlyOnceWith(1)
+    expect(scheduler.hasPendingRender).toBe(false)
+    vi.advanceTimersByTime(400)
+    expect(due).toHaveBeenCalledExactlyOnceWith(1)
+    vi.useRealTimers()
+  })
+
   it('does not duplicate an immediate enable or activation when the revision is fresh', () => {
     const due = vi.fn()
     const scheduler = new LiveRenderScheduler({ onDue: due })

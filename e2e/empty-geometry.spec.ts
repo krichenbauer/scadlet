@@ -72,9 +72,9 @@ async function fileAction(page: Page, name: string) {
 test('treats a valid empty Difference as a cleared, localized preview result through bundled OpenSCAD-WASM', async ({ page }) => {
   await seedActiveProject(page, differenceProject(4))
 
-  // First create a real mesh. The subsequent valid-empty render must remove
-  // this exact existing preview rather than leaving it misleadingly visible.
-  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  // Startup restoration takes the normal Live path and creates the first
+  // real mesh. The subsequent valid-empty render must remove this exact
+  // existing preview rather than leaving it misleadingly visible.
   await expect(page.locator('scadlet-app .scad-output')).toContainText('difference()', { timeout: 15_000 })
   await expect(page.locator('scadlet-app .render-error')).toHaveCount(0)
   await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
@@ -115,7 +115,7 @@ test('treats a valid empty Difference as a cleared, localized preview result thr
   expect(stored).not.toContain('renderError')
 
   await page.reload()
-  await expect(page.locator('geometry-viewer .empty-geometry-status')).toHaveCount(0)
+  await expect(page.locator('geometry-viewer .empty-geometry-status')).toHaveText('Nothing visible to render.', { timeout: 15_000 })
   await expect(page.locator('scadlet-app .render-error')).toHaveCount(0)
 
   // A later visible result restores the mesh and removes the empty status.

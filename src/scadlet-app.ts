@@ -10,7 +10,7 @@ import { compactIcon } from './components/icons'
 import type { NodeEditorElement } from './components/node-editor'
 import type { GeometryViewer } from './components/geometry-viewer'
 import type { SCADletEditor } from './editor/editor'
-import { ActiveProjectSession, createBrowserActiveProjectSession, resolveStartupProject, StartupProjectLoadError } from './persistence/active-project'
+import { ActiveProjectSession, createBrowserActiveProjectSession, resolveStartupProject, resolveStartupProjectWithOrigin, StartupProjectLoadError } from './persistence/active-project'
 import { AutosaveController, type AutosaveStatus } from './persistence/autosave'
 import { sanitizeFilename, toScadletFilename } from './persistence/filename'
 import { createBrowserFileSystemCapability, pickFileWithInput, ProjectFileService } from './persistence/file-service'
@@ -668,9 +668,14 @@ export class ScadletApp extends LitElement {
 
       let stored: StoredProject
       try {
-        stored = await resolveStartupProject(store, session)
+        const startup = await resolveStartupProjectWithOrigin(store, session)
+        stored = startup.project
         await this._applyStoredProject(stored, false)
         this._refreshDefinitions(instance)
+        // The complete graph, source-producing definitions, and active
+        // identity are now current. Reuse the Projects activation request;
+        // the new-library empty fallback is deliberately left idle.
+        if (startup.restored) this._renderCurrentProjectImmediatelyIfLive()
       } catch (error) {
         await this._refreshProjectList()
         const failedId = error instanceof StartupProjectLoadError ? error.projectId : this.activeProjectSession?.get() ?? null
@@ -784,7 +789,13 @@ export class ScadletApp extends LitElement {
     this.persistenceMessage = null
     if (clearFileHandle) this.fileService.clearHandle()
     this._clearRenderedOutput()
-    if (renderAfterActivation && this.live) this.liveScheduler.renderImmediatelyIfStale()
+    if (renderAfterActivation) this._renderCurrentProjectImmediatelyIfLive()
+  }
+
+  /** Startup restore and visible Projects activation share this one immediate
+   * Live request; the scheduler cancels stale delay and owns freshness. */
+  private _renderCurrentProjectImmediatelyIfLive(): void {
+    if (this.live) this.liveScheduler.renderImmediatelyIfStale()
   }
 
   /** A local-project replacement makes every delayed/running result from the

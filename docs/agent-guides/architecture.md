@@ -61,9 +61,12 @@ pending Live delay and renders immediately; Stop suppresses retry for that
 unchanged revision. A non-cancelled Live worker run over two seconds completes
 normally, then disables Live and reports accessible performance feedback.
 Enabling Live and replacing the active local project cancel pending work and
-immediately render a stale current graph through the same controller; replacing
-a project invalidates/terminates old work before restore so it cannot settle
-into the new preview. Live is not serialized or scoped to a project.
+immediately render a stale current graph through the same controller. After a
+successful startup restore of an existing local project, that same activation
+path immediately renders once when Live is on; the brand-new empty-library
+fallback does not render. Replacing a project invalidates/terminates old work
+before restore so it cannot settle into the new preview. Live is not serialized
+or scoped to a project.
 
 Generated source must be valid and readable. Preview, `.scad`, and `.stl` use
 the same source; no JSCAD/replicad/other preview semantics. Imported `.scad`

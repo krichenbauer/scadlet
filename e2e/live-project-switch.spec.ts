@@ -43,10 +43,20 @@ async function selectProject(page: Page, name: string): Promise<void> {
   await page.locator('scadlet-app .project-menu-list').getByRole('button', { name, exact: true }).click()
 }
 
+async function viewerHasMesh(page: Page): Promise<boolean> {
+  return page.locator('geometry-viewer').evaluate((viewer) => Boolean((viewer as unknown as { mesh?: unknown }).mesh))
+}
+
+test('startup restores and immediately Live-renders the persisted active project through OpenSCAD-WASM', async ({ page }) => {
+  await seedProjects(page)
+  const source = page.locator('scadlet-app .scad-output')
+  await expect(source).toContainText('cube(11);', { timeout: 15_000 })
+  await expect.poll(() => viewerHasMesh(page)).toBe(true)
+})
+
 test('Projects menu immediately Live-renders the newly active local project', async ({ page }) => {
   await seedProjects(page)
   const source = page.locator('scadlet-app .scad-output')
-  await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(source).toContainText('cube(11);', { timeout: 15_000 })
 
   await selectProject(page, 'Large cube')
