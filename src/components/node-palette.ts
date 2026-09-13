@@ -1,8 +1,9 @@
 import { LitElement, css, html, nothing } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 
-import { FUNCTION_CALL_DRAG_MIME_TYPE, MODULE_CALL_DRAG_MIME_TYPE, NODE_CATALOG, NODE_CATEGORIES, NODE_DRAG_MIME_TYPE, NODE_DRAG_PARAMS_MIME_TYPE, type NodeCatalogEntry, type NodeCategory } from '../editor/node-catalog'
+import { FUNCTION_CALL_DRAG_MIME_TYPE, MODULE_CALL_DRAG_MIME_TYPE, NODE_CATALOG, NODE_CATEGORIES, NODE_DRAG_MIME_TYPE, NODE_DRAG_PARAMS_MIME_TYPE, nodeTypeIcon, type NodeCatalogEntry, type NodeCategory } from '../editor/node-catalog'
 import { catalogProducesGeometry } from '../editor/geometry-accent'
+import { compactIcon } from './icons'
 import { t } from '../i18n/translate'
 
 /**
@@ -88,6 +89,28 @@ export class NodePaletteElement extends LitElement {
       cursor: grabbing;
     }
 
+    /* Decorative only: the adjacent readable label already supplies the
+       accessible name (node-style.md "Icons in nodes and palette"). */
+    .node-item-icon {
+      display: inline-flex;
+      flex: none;
+      width: 15px;
+      height: 15px;
+      margin-right: 6px;
+      vertical-align: -3px;
+      opacity: 0.85;
+    }
+
+    .node-item-icon svg {
+      width: 100%;
+      height: 100%;
+      fill: none;
+      stroke: currentcolor;
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
     /* The same narrow inset edge used on Geometry-producing canvas nodes.
        It adds no layout width, so palette scanning and drag targets stay
        exactly as compact as before. */
@@ -158,7 +181,7 @@ export class NodePaletteElement extends LitElement {
         ${this.modules.map((module) => html`
           <div class="module-entry" data-definition-id=${module.id}>
             <div role="listitem" class="node-item module-item node-item--geometry-output" draggable="true"
-              @dragstart=${(event: DragEvent) => this._onModuleDragStart(event, module.id)} aria-label=${module.name}>${module.name}</div>
+              @dragstart=${(event: DragEvent) => this._onModuleDragStart(event, module.id)} aria-label=${module.name}><span class="node-item-icon">${compactIcon('module')}</span>${module.name}</div>
             <button type="button" class="module-action" aria-label=${t('definition.focusModule').replace('{name}', module.name)} @click=${() => this._moduleAction('focus-module', module.id)}>⌖</button>
             <button type="button" class="module-action" aria-label=${t('definition.editModule').replace('{name}', module.name)} @click=${() => this._moduleAction('edit-module', module.id)}>✎</button>
             <button type="button" class="module-action" aria-label=${t('definition.deleteModule').replace('{name}', module.name)} @click=${() => this._moduleAction('delete-module', module.id)}>×</button>
@@ -171,7 +194,7 @@ export class NodePaletteElement extends LitElement {
         ${this.functions.map((functionDef) => html`
           <div class="module-entry" data-definition-id=${functionDef.id}>
             <div role="listitem" class="node-item module-item" draggable=${functionDef.callable} aria-disabled=${!functionDef.callable}
-              @dragstart=${(event: DragEvent) => this._onFunctionDragStart(event, functionDef.id, functionDef.callable)} aria-label=${functionDef.name}>${functionDef.name}</div>
+              @dragstart=${(event: DragEvent) => this._onFunctionDragStart(event, functionDef.id, functionDef.callable)} aria-label=${functionDef.name}><span class="node-item-icon">${compactIcon('function')}</span>${functionDef.name}</div>
             <button type="button" class="module-action" aria-label=${t('definition.focusFunction').replace('{name}', functionDef.name)} @click=${() => this._functionAction('focus-function', functionDef.id)}>⌖</button>
             <button type="button" class="module-action" aria-label=${t('definition.editFunction').replace('{name}', functionDef.name)} @click=${() => this._functionAction('edit-function', functionDef.id)}>✎</button>
             <button type="button" class="module-action" aria-label=${t('definition.deleteFunction').replace('{name}', functionDef.name)} @click=${() => this._functionAction('delete-function', functionDef.id)}>×</button>
@@ -198,7 +221,7 @@ export class NodePaletteElement extends LitElement {
               @dragstart=${(event: DragEvent) => this._onDragStart(event, entry.type)}
               aria-label=${t(entry.labelKey)}
             >
-              ${t(entry.labelKey)}
+              <span class="node-item-icon">${compactIcon(nodeTypeIcon(entry.type))}</span>${t(entry.labelKey)}
             </div>
           `)}
       </div>
@@ -211,7 +234,7 @@ export class NodePaletteElement extends LitElement {
     return html`
       <div role="listitem" class=${catalogProducesGeometry(entry) ? 'node-item node-item--operation node-item--geometry-output' : 'node-item node-item--operation'} data-node-type=${entry.type} draggable="true"
         @dragstart=${(event: DragEvent) => this._onOperationDragStart(event, entry, selectedOperation)} aria-label=${t(entry.labelKey)}>
-        <span class="node-operation-label" title=${t(entry.labelKey)}>${t(entry.labelKey)}</span>
+        <span class="node-operation-label" title=${t(entry.labelKey)}><span class="node-item-icon">${compactIcon(nodeTypeIcon(entry.type))}</span>${t(entry.labelKey)}</span>
         <select aria-label=${t(config.accessibleLabelKey)} @pointerdown=${this._stopOperationControlGesture} @dragstart=${this._stopOperationControlGesture} @change=${(event: Event) => {
           const select = event.currentTarget as HTMLSelectElement
           this.selectedOperations.set(entry.type, select.value)

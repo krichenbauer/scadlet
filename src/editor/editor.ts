@@ -549,6 +549,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     }
     container.focus({ preventScroll: true })
   }
+  // Shared by keyboard Delete/Backspace (`attachDeletion` below) and the
+  // header More menu's Delete action - one predicate, one removal path.
+  const canDeleteNode = (nodeId: string): boolean => !definitions.isProtectedNode(nodeId)
   const detachRenderer = attachRenderer(
     editor,
     area,
@@ -571,6 +574,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       if (inspect.id !== null && !inspect.participates(nodeId)) inspect.clear()
     },
     selectConnection,
+    (nodeId) => { void removeNodeWithConnections(editor, nodeId, canDeleteNode) },
   )
   const detachDefinitionFrames = attachDefinitionFrames(area, definitions, {
     select: selectDefinition,
@@ -583,7 +587,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
 
   AreaExtensions.simpleNodesOrder(area)
 
-  attachDeletion(editor, area, container, connectionSelection, (nodeId) => !definitions.isProtectedNode(nodeId), (connectionId) => void removeConnectionOrConfirm(connectionId))
+  attachDeletion(editor, area, container, connectionSelection, canDeleteNode, (connectionId) => void removeConnectionOrConfirm(connectionId))
   const selectConnectionOnPointerDown = (event: PointerEvent): void => {
     if (event.button !== 0) return
     const wire = event.composedPath().find((item): item is Element =>

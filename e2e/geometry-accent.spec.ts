@@ -53,16 +53,23 @@ async function expectGeometryCue(node: Locator, expected: boolean): Promise<void
   const style = await node.evaluate((element) => {
     const computed = getComputedStyle(element)
     return {
-      border: [computed.borderTopColor, computed.borderRightColor, computed.borderBottomColor, computed.borderLeftColor],
+      border: computed.borderTopColor,
+      background: computed.backgroundColor,
       shadow: computed.boxShadow,
+      selected: element.classList.contains('node--selected'),
     }
   })
+  // Geometry identity is a subtle tinted background (node-style.md "Node
+  // families and colour"), never the border - the border only ever
+  // changes for the separate selection/focus/error/Inspect treatments,
+  // independent of Geometry-family identity.
   if (expected) {
-    expect(style.border).toEqual(['rgb(122, 192, 255)', 'rgb(122, 192, 255)', 'rgb(122, 192, 255)', 'rgb(122, 192, 255)'])
+    expect(style.background).toBe('rgb(44, 53, 64)')
     expect(style.shadow).not.toContain('inset')
   } else {
-    expect(style.border).toEqual(['rgb(102, 102, 102)', 'rgb(102, 102, 102)', 'rgb(102, 102, 102)', 'rgb(102, 102, 102)'])
+    expect(style.background).toBe('rgb(42, 42, 42)')
   }
+  if (!style.selected) expect(style.border).toBe('rgb(102, 102, 102)')
 }
 
 async function connectSockets(page: Page, source: Locator, target: Locator): Promise<void> {
@@ -158,7 +165,7 @@ test('renders a restrained Geometry accent for live Geometry outputs and matchin
   const dialog = page.getByRole('form', { name: 'Create module' })
   await dialog.getByLabel('Module name').fill('accented_module')
   await dialog.getByRole('button', { name: 'Create', exact: true }).click()
-  const frame = page.locator('node-editor .definition-frame').filter({ hasText: 'module accented_module' })
+  const frame = page.locator('node-editor .definition-frame').filter({ hasText: 'accented_module' })
   const definitionId = await frame.getAttribute('data-definition-id')
   if (!definitionId) throw new Error('Expected Module definition id')
   const inputs = await nodeWithModelLabel(page, 'Inputs')
@@ -329,9 +336,19 @@ test('keeps nodes draggable from free surfaces without visible grab handles or c
   await expectUnmoved(arithmetic, arithmeticBeforeControl)
 
   const numberBeforeInput = await position(number)
+  // The title is normal text by default; Rename (via the header More menu)
+  // opens the inline input, which must still ignore drag gestures exactly
+  // like every other in-node control (node-style.md "Value nodes").
+  await number.locator('.node-more-summary').click()
+  await number.getByRole('menuitem', { name: 'Rename' }).click()
   await number.locator('input.node-title').fill('Width')
-  await number.locator('.node-controls--primary input[type="number"]').fill('12')
   await expectUnmoved(number, numberBeforeInput)
+  await number.locator('input.node-title').press('Enter')
+  await expect(number.locator('.node-title')).toHaveText('Width')
+
+  const numberBeforeValue = await position(number)
+  await number.locator('.node-controls--primary input[type="number"]').fill('12')
+  await expectUnmoved(number, numberBeforeValue)
 
   const booleanBeforeCheckbox = await position(boolean)
   await boolean.locator('.node-controls--primary input[type="checkbox"]').check()

@@ -128,7 +128,7 @@ test('treats a valid empty Difference as a cleared, localized preview result thr
   // the empty node as the provenance of a visible inspected mesh.
   await setSubtractSize(page, '10')
   const difference = page.locator('node-editor .node[data-node-id="difference"]')
-  await difference.locator('.node-header').dblclick()
+  await difference.locator('.node-title').dblclick()
   await expect(page.locator('geometry-viewer .empty-geometry-status')).toHaveText('Nothing visible to render.', { timeout: 15_000 })
   await expect(page.locator('node-editor .node.node--inspected')).toHaveCount(0)
   await expect.poll(() => viewerHasMesh(page)).toBe(false)

@@ -22,7 +22,8 @@ import { nearestSnapTarget, type SnapCandidate } from './connection-gesture'
 import type { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData } from './connection-compatibility'
 import { hasGeometryOutput } from './geometry-accent'
-import { compactIconElement } from '../components/icons'
+import { compactIconElement, type CompactIconName } from '../components/icons'
+import { identifyNodeType, nodeTypeIcon } from './node-catalog'
 
 type Position = { x: number; y: number }
 type Side = 'input' | 'output'
@@ -147,6 +148,7 @@ export function attachRenderer(
   onInspect: (nodeId: string) => void,
   onNodeInteraction: (nodeId: string) => void,
   onConnectionInteraction: (connectionId: string) => void,
+  onDeleteNode: (nodeId: string) => void,
 ): () => void {
   const socketPosition = getDOMSocketPosition<Schemes, AreaExtra>()
   // `attach()` only uses `connection` to walk up to its parent `area` via
@@ -156,6 +158,11 @@ export function attachRenderer(
   socketPosition.attach(connection as unknown as Scope<never, [AreaExtra]>)
 
   const connections = new Map<HTMLElement, ConnectionState>()
+  // Transient "this node's title is currently being renamed" state - never
+  // persisted, cleared as soon as the node re-renders for any other reason
+  // (matches the collapse/inspect precedent of keeping presentation state
+  // outside the Rete graph, see `NodePresentationManager`/`InspectManager`).
+  const renamingNodeIds = new Set<string>()
   // Tracks which node root elements already have hover/dblclick listeners
   // attached. A node's root element is created once and reused across
   // re-renders (only its children are replaced - see `renderNode`), so
@@ -216,7 +223,7 @@ export function attachRenderer(
       const { data } = context
 
       if (data.type === 'node') {
-        renderNode(editor, area, data.element, data.payload, presentation, inspect, connectionGesture, nodeListenersWired, notifyDirty, onInspect, onNodeInteraction)
+        renderNode(editor, area, data.element, data.payload, presentation, inspect, connectionGesture, nodeListenersWired, notifyDirty, onInspect, onNodeInteraction, renamingNodeIds, onDeleteNode)
       } else if (data.type === 'connection') {
         updateConnection(
           area,
@@ -274,6 +281,8 @@ function renderNode(
   notifyDirty: () => void,
   onInspect: (nodeId: string) => void,
   onNodeInteraction: (nodeId: string) => void,
+  renamingNodeIds: Set<string>,
+  onDeleteNode: (nodeId: string) => void,
 ): void {
   element.classList.add('node')
   element.dataset.nodeId = node.id
@@ -285,6 +294,9 @@ function renderNode(
   element.classList.toggle('node--geometry-output', producesGeometry)
   element.dataset.geometryOutput = String(producesGeometry)
 
+  const nodeType = identifyNodeType(node)
+  const iconName = nodeTypeIcon(nodeType)
+
   const inspected = inspect.isInspected(node.id)
   element.classList.toggle('node--inspected', inspected)
   element.classList.toggle('node--inspect-out-of-scope', inspect.id !== null && !inspect.participates(node.id))
@@ -294,6 +306,12 @@ function renderNode(
   // in their declared semantic order; neither has progressive disclosure or
   // collapse presentation. Their Rete port ids and dataflow stay untouched.
   const fixedConditionalInterface = node instanceof ConditionalNode || node instanceof IfNode
+
+  // The definition Inputs/Output interface nodes are protected graph
+  // infrastructure, not ordinary duplicable/deletable nodes (node-style.md
+  // "Inputs interface node"): they never get a header More menu at all.
+  const isDefinitionInterfaceNode = node instanceof ModuleInputsNode || node instanceof ModuleOutputNode
+    || node instanceof FunctionInputsNode || node instanceof FunctionOutputNode
 
   // Separate structural geometry inputs from semantic parameter inputs (number/vector3).
   // Geometry inputs go in the stable `.node-inputs` left column (always visible).
@@ -336,6 +354,7 @@ function renderNode(
   const sourceNameControl = node.outputs.value && node.controls.name instanceof LabeledTextControl
     ? node.controls.name
     : undefined
+  element.dataset.renameable = String(Boolean(sourceNameControl))
   const titleSelectControl = Object.values(node.controls).find(
     (control): control is TitleSelectControl => control instanceof TitleSelectControl,
   )
@@ -410,7 +429,22 @@ function renderNode(
 
   const body = document.createElement('div')
   body.className = 'node-body'
-  body.appendChild(renderHeader(node, presentation, hasCollapsibleContent, inspected, notifyDirty, sourceNameControl, titleSelectControl, element))
+  body.appendChild(renderHeader(
+    node,
+    presentation,
+    hasCollapsibleContent,
+    inspected,
+    notifyDirty,
+    sourceNameControl,
+    titleSelectControl,
+    element,
+    iconName,
+    renamingNodeIds,
+    isDefinitionInterfaceNode,
+    onInspect,
+    onDeleteNode,
+    () => void area.update('node', node.id),
+  ))
   main.appendChild(body)
 
   if (mainOutputs.length > 0) {
@@ -516,9 +550,10 @@ function renderNode(
 }
 
 /**
- * Title plus the explicit collapse header control.
+ * Icon, title, More menu, and the explicit collapse header control - the
+ * shared header anatomy (node-style.md "Header structure and actions").
  * A node with no collapsible content (e.g. Difference) has nothing to
- * collapse/expand, so the control is only rendered "where
+ * collapse/expand, so Collapse itself is only rendered "where
  * relevant" - i.e. when the node actually has something to expand.
  */
 function renderHeader(
@@ -530,26 +565,58 @@ function renderHeader(
   sourceNameControl: LabeledTextControl | undefined,
   titleSelectControl: TitleSelectControl | undefined,
   nodeElement: HTMLElement,
+  iconName: CompactIconName,
+  renamingNodeIds: Set<string>,
+  isDefinitionInterfaceNode: boolean,
+  onInspect: (nodeId: string) => void,
+  onDeleteNode: (nodeId: string) => void,
+  rerender: () => void,
 ): HTMLElement {
   const header = document.createElement('div')
   header.className = 'node-header'
 
-  const title = sourceNameControl ? document.createElement('input') : titleSelectControl ? document.createElement('select') : document.createElement('div')
+  // Decorative only: the header title text immediately after it already
+  // supplies the accessible name (node-style.md "Node icons").
+  const icon = document.createElement('span')
+  icon.className = 'node-header-icon'
+  icon.setAttribute('aria-hidden', 'true')
+  icon.appendChild(compactIconElement(iconName))
+  header.appendChild(icon)
+
+  const renaming = Boolean(sourceNameControl) && renamingNodeIds.has(node.id)
+  const title = renaming ? document.createElement('input') : titleSelectControl ? document.createElement('select') : document.createElement('div')
   title.className = 'node-title'
   if (title instanceof HTMLInputElement) {
     const nameControl = sourceNameControl!
     title.type = 'text'
-    // A blank descriptive name deliberately falls back to the localized
-    // type title. The persisted node type and generated expression remain
-    // independent from this presentation-only string.
     title.value = nameControl.value || node.label
     title.setAttribute('aria-label', `${node.label} ${t('control.name')}`)
     title.addEventListener('pointerdown', (event) => event.stopPropagation())
     title.addEventListener('dblclick', (event) => event.stopPropagation())
-    title.addEventListener('input', () => nameControl.setValue(title.value))
+    let settled = false
+    const finish = (): void => {
+      if (settled) return
+      settled = true
+      renamingNodeIds.delete(node.id)
+      rerender()
+    }
+    const commit = (): void => {
+      const next = title.value.trim()
+      if (next) nameControl.setValue(next)
+      finish()
+    }
+    const cancel = (): void => {
+      finish()
+    }
     title.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') title.blur()
+      if (event.key === 'Enter') { event.preventDefault(); title.blur() }
+      else if (event.key === 'Escape') { event.preventDefault(); cancel() }
     })
+    title.addEventListener('blur', () => commit())
+    // The renderer replaces this header synchronously; defer focus/select
+    // to the next frame so the fresh input is guaranteed to be connected
+    // (same technique the collapse button below uses to restore focus).
+    requestAnimationFrame(() => { title.focus(); title.select() })
   } else if (title instanceof HTMLSelectElement) {
     const operationControl = titleSelectControl!
     title.setAttribute('aria-label', operationControl.accessibleLabel)
@@ -577,7 +644,11 @@ function renderHeader(
       }
     })
   } else {
-    title.textContent = node.label
+    // Normal state: plain, non-editable text - never a permanently visible
+    // text field (node-style.md "Value nodes"). Renaming a Value/Input node
+    // happens through the More menu's Rename action instead.
+    title.textContent = sourceNameControl ? (sourceNameControl.value || node.label) : node.label
+    if (sourceNameControl) title.setAttribute('aria-label', `${node.label} ${t('control.name')}`)
   }
   header.appendChild(title)
 
@@ -592,6 +663,31 @@ function renderHeader(
     badge.title = t('node.inspected')
     badge.setAttribute('aria-label', t('node.inspected'))
     header.appendChild(badge)
+  }
+
+  if (!isDefinitionInterfaceNode) {
+    const actions: MoreMenuAction[] = [
+      { id: 'inspect', icon: 'eye', label: t('menu.inspect'), run: () => onInspect(node.id) },
+    ]
+    if (sourceNameControl) {
+      actions.push({
+        id: 'rename',
+        icon: 'pencil',
+        label: t('menu.rename'),
+        run: () => {
+          renamingNodeIds.add(node.id)
+          rerender()
+        },
+      })
+    }
+    actions.push({
+      id: 'delete',
+      icon: 'trash',
+      label: t('menu.delete'),
+      destructive: true,
+      run: () => onDeleteNode(node.id),
+    })
+    header.appendChild(renderMoreMenu(actions))
   }
 
   if (hasCollapsibleContent) {
@@ -621,6 +717,60 @@ function renderHeader(
   }
 
   return header
+}
+
+interface MoreMenuAction {
+  id: string
+  icon: CompactIconName
+  label: string
+  run: () => void
+  destructive?: boolean
+}
+
+/**
+ * The shared header More menu (node-style.md "More menu"): a compact
+ * inline-SVG hamburger button opening icon-plus-text actions. Built on a
+ * native `<details>`/`<summary>` disclosure, the same pattern already used
+ * by `ParameterActionsControl`'s nested action menu - it gets baseline
+ * keyboard/focus support for free and needs no separate open/closed state
+ * tracked across re-renders.
+ */
+function renderMoreMenu(actions: readonly MoreMenuAction[]): HTMLElement {
+  const details = document.createElement('details')
+  details.className = 'node-more-menu'
+  // Keeps opening/using the menu from ever reaching the node root's own
+  // pointerdown listener (node selection / Inspect double-click timing).
+  details.addEventListener('pointerdown', (event) => event.stopPropagation())
+
+  const summary = document.createElement('summary')
+  summary.className = 'node-more-summary'
+  summary.setAttribute('role', 'button')
+  summary.setAttribute('aria-label', t('menu.more'))
+  summary.title = t('menu.more')
+  summary.appendChild(compactIconElement('menu'))
+  details.appendChild(summary)
+
+  const options = document.createElement('div')
+  options.className = 'node-more-options'
+  options.setAttribute('role', 'menu')
+  for (const action of actions) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.setAttribute('role', 'menuitem')
+    button.className = action.destructive ? 'node-more-item node-more-item--destructive' : 'node-more-item'
+    button.appendChild(compactIconElement(action.icon))
+    const label = document.createElement('span')
+    label.textContent = action.label
+    button.appendChild(label)
+    button.addEventListener('click', () => {
+      details.open = false
+      action.run()
+    })
+    options.appendChild(button)
+  }
+  details.appendChild(options)
+
+  return details
 }
 
 function renderPort(

@@ -27,6 +27,7 @@ import { ModuleCallNode, type ModuleCallParams } from './nodes/module-call-node'
 import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interface-nodes'
 import { FunctionCallNode, type FunctionCallParams } from './nodes/function-call-node'
 import type { ModuleDefinition, ModuleParameterDefault } from './definitions'
+import type { CompactIconName } from '../components/icons'
 
 /** MIME type used to carry a node-catalog `type` id through native HTML drag-and-drop (see `node-palette.ts`/`node-editor.ts`). */
 export const NODE_DRAG_MIME_TYPE = 'application/x-scadlet-node-type'
@@ -75,6 +76,49 @@ export type NodeTypeId =
   | 'function-inputs'
   | 'function-output'
   | 'function-call'
+
+/**
+ * The node-family icon shown at the far left of a node's header (and
+ * immediately before its palette label) - node-style.md's "coherent
+ * family" requirement. Kept as one small closed lookup table (not a
+ * per-node-class method) so the palette (which only ever has a catalog
+ * entry, never a live node instance) and the live-node renderer (which
+ * resolves a type via `identifyNodeType`) share exactly one mapping.
+ */
+const NODE_TYPE_ICON: Record<NodeTypeId, CompactIconName> = {
+  cube: 'cube',
+  cylinder: 'cylinder',
+  sphere: 'sphere',
+  translate: 'translate',
+  rotate: 'rotate',
+  scale: 'scale',
+  difference: 'difference',
+  union: 'union',
+  intersection: 'intersection',
+  number: 'value',
+  boolean: 'value',
+  vector3: 'value',
+  arithmetic: 'math',
+  trigonometry: 'math',
+  'basic-math': 'math',
+  'exponential-log': 'math',
+  compare: 'compare',
+  conditional: 'conditional',
+  if: 'conditional',
+  'module-inputs': 'input-port',
+  'module-output': 'output-port',
+  'module-call': 'module',
+  'function-inputs': 'input-port',
+  'function-output': 'output-port',
+  'function-call': 'function',
+}
+
+/** Falls back to the neutral value icon for a node the catalog doesn't
+ * recognize (should not happen for a live catalog-created node, but keeps
+ * this total rather than throwing for e.g. a hand-built test node). */
+export function nodeTypeIcon(type: NodeTypeId | undefined): CompactIconName {
+  return type ? NODE_TYPE_ICON[type] : 'value'
+}
 
 export interface NodeCategory {
   readonly id: NodeCategoryId

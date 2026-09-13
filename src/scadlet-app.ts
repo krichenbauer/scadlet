@@ -509,7 +509,13 @@ export class ScadletApp extends LitElement {
           @delete-function=${this._deleteFunction}
         ></node-palette>
         <main style=${styleMap({ '--editor-width': this.editorWidth ? `${this.editorWidth}px` : undefined })}>
-          <node-editor .inert=${this.localInitializing}></node-editor>
+          <node-editor
+            .inert=${this.localInitializing}
+            @edit-module=${this._openRenameModuleDialog}
+            @delete-module=${this._deleteModule}
+            @edit-function=${this._openRenameFunctionDialog}
+            @delete-function=${this._deleteFunction}
+          ></node-editor>
           <layout-splitter orientation="vertical" @splitter-move=${this._onMainSplitterMove}></layout-splitter>
           <div
             class="side"

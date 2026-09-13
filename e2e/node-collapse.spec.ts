@@ -76,8 +76,7 @@ test('explicit node collapse persists without changing wires or wire gestures', 
   // click-wire gesture remains active; the visible Number input then accepts
   // that same gesture without another source pick.
   await dropPaletteNode(page, 'number', { x: 160, y: 420 })
-  const number = page.locator('node-editor .node').filter({ has: page.locator('input.node-title') })
-  await expect(number).toHaveCount(1)
+  const number = await node(page, 'Number')
   const output = number.locator('.node-port--output .node-socket')
   const outputBox = await output.boundingBox()
   if (!outputBox) throw new Error('Expected wire gesture source')

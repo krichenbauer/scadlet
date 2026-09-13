@@ -3,6 +3,7 @@ import type { AreaPlugin } from 'rete-area-plugin'
 import { t } from '../i18n/translate'
 import type { AreaExtra, Schemes } from './schemes'
 import type { DefinitionRegistry } from './definitions'
+import { compactIconElement } from '../components/icons'
 
 const NODE_WIDTH = 160
 const NODE_HEIGHT = 56
@@ -62,6 +63,12 @@ export function attachDefinitionFrames(
 
   const render = (): void => {
     scheduled = false
+    // The layer rebuilds on every area pipe signal (node/socket render,
+    // pan/zoom, etc.), not just definition-registry changes. Without this,
+    // an open frame More menu would close itself the instant anything else
+    // on the canvas re-rendered.
+    const openMoreMenuId = layer.querySelector('.definition-frame-more[open]')
+      ?.closest<HTMLElement>('.definition-frame')?.dataset.definitionId ?? null
     layer.replaceChildren()
     const transform = area.area.transform
     for (const definition of registry.list()) {
@@ -82,12 +89,39 @@ export function attachDefinitionFrames(
       frame.style.height = `${(bounds.maxY - bounds.minY) * transform.k}px`
       const heading = document.createElement('div')
       heading.className = 'definition-frame-title'
-      heading.textContent = definition.kind === 'function' ? `function ${definition.name}(...)` : `module ${definition.name}`
       heading.tabIndex = 0
       heading.setAttribute('role', 'button')
       heading.setAttribute('aria-label', `${frameLabel} ${definition.name}`)
       attachHeaderInteraction(heading, definition.id, area, interactions)
+
+      const icon = document.createElement('span')
+      icon.className = 'definition-frame-icon'
+      icon.setAttribute('aria-hidden', 'true')
+      icon.appendChild(compactIconElement(definition.kind === 'function' ? 'function' : 'module'))
+      heading.appendChild(icon)
+
+      const keyword = document.createElement('span')
+      keyword.className = 'definition-frame-keyword'
+      keyword.textContent = definition.kind === 'function' ? t('definition.functionKeyword') : t('definition.moduleKeyword')
+      heading.appendChild(keyword)
+
+      const separator = document.createElement('span')
+      separator.className = 'definition-frame-separator'
+      separator.setAttribute('aria-hidden', 'true')
+      separator.textContent = '\u00b7'
+      heading.appendChild(separator)
+
+      // The definition name is visually stronger than the keyword
+      // (node-style.md "Module and Function frames").
+      const name = document.createElement('span')
+      name.className = 'definition-frame-name'
+      name.textContent = definition.kind === 'function' ? `${definition.name}(...)` : definition.name
+      heading.appendChild(name)
+
       frame.appendChild(heading)
+      const more = renderDefinitionMoreMenu(definition.id, definition.kind)
+      if (definition.id === openMoreMenuId) more.open = true
+      frame.appendChild(more)
       layer.appendChild(frame)
     }
   }
@@ -152,4 +186,57 @@ function attachHeaderInteraction(
     event.preventDefault()
     event.stopPropagation()
   })
+}
+
+/**
+ * Frames never show Add or Collapse (node-style.md "Module and Function
+ * definition frames"), but do get a More menu for existing definition-level
+ * actions. This dispatches the exact same custom events `node-palette.ts`'s
+ * sidebar row actions already use (`edit-module`/`delete-module`,
+ * `edit-function`/`delete-function`), reusing the identical
+ * rename/delete lifecycle in `scadlet-app.ts` rather than inventing a
+ * second one for the frame header.
+ */
+function renderDefinitionMoreMenu(definitionId: string, kind: 'module' | 'function'): HTMLDetailsElement {
+  const details = document.createElement('details')
+  details.className = 'definition-frame-more'
+  details.addEventListener('pointerdown', (event) => event.stopPropagation())
+  details.addEventListener('dblclick', (event) => event.stopPropagation())
+
+  const summary = document.createElement('summary')
+  summary.setAttribute('role', 'button')
+  summary.setAttribute('aria-label', t('menu.more'))
+  summary.title = t('menu.more')
+  summary.appendChild(compactIconElement('menu'))
+  details.appendChild(summary)
+
+  const options = document.createElement('div')
+  options.className = 'definition-frame-more-options'
+  options.setAttribute('role', 'menu')
+
+  const dispatch = (type: string): void => {
+    details.open = false
+    details.dispatchEvent(new CustomEvent(type, { detail: { definitionId }, bubbles: true, composed: true }))
+  }
+
+  const rename = document.createElement('button')
+  rename.type = 'button'
+  rename.setAttribute('role', 'menuitem')
+  rename.className = 'node-more-item'
+  rename.appendChild(compactIconElement('pencil'))
+  rename.append(t('menu.rename'))
+  rename.addEventListener('click', () => dispatch(kind === 'function' ? 'edit-function' : 'edit-module'))
+  options.appendChild(rename)
+
+  const remove = document.createElement('button')
+  remove.type = 'button'
+  remove.setAttribute('role', 'menuitem')
+  remove.className = 'node-more-item node-more-item--destructive'
+  remove.appendChild(compactIconElement('trash'))
+  remove.append(t('menu.delete'))
+  remove.addEventListener('click', () => dispatch(kind === 'function' ? 'delete-function' : 'delete-module'))
+  options.appendChild(remove)
+
+  details.appendChild(options)
+  return details
 }

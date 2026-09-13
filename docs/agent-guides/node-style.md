@@ -123,8 +123,12 @@ For applicable ordinary nodes, the menu contains:
 
 - **Inspect** where that node type can be inspected;
 - **Rename** where the node has a user-editable name;
-- **Duplicate**;
+- **Duplicate** where an existing duplication lifecycle already supports it;
 - a separated destructive **Delete** action.
+
+No current ordinary node has a working Duplicate lifecycle yet, so today's
+menus omit it rather than call an invented/placeholder action; it appears once
+a real duplication lifecycle exists for that node kind.
 
 The menu may grow later with copy/paste-related actions, but it must not become
 a substitute for direct parameter controls or the Add menu.

@@ -93,7 +93,10 @@ export class NodeEditorElement extends LitElement {
       position: absolute;
       top: -11px;
       left: 12px;
-      padding: 1px 6px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 1px 8px;
       border-radius: 3px;
       background: #202020;
       font-weight: 600;
@@ -103,6 +106,99 @@ export class NodeEditorElement extends LitElement {
 
     .definition-frame-title:active {
       cursor: grabbing;
+    }
+
+    .definition-frame-icon {
+      display: inline-flex;
+      flex: none;
+      width: 14px;
+      height: 14px;
+      opacity: 0.9;
+    }
+
+    .definition-frame-icon svg {
+      width: 100%;
+      height: 100%;
+      fill: none;
+      stroke: currentcolor;
+      stroke-width: 1.7;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* The keyword reads as secondary context; the definition's own name is
+       the visually stronger part of the header (node-style.md "Module and
+       Function frames"). */
+    .definition-frame-keyword {
+      font-weight: 500;
+      opacity: 0.75;
+    }
+
+    .definition-frame-separator {
+      opacity: 0.6;
+    }
+
+    .definition-frame-name {
+      font-weight: 700;
+    }
+
+    /* A frame's own More menu, at the opposite top corner from its draggable
+       title pill - Rename/Delete only, and it never grows Add/Collapse
+       controls. */
+    .definition-frame-more {
+      position: absolute;
+      top: -11px;
+      right: 12px;
+      pointer-events: auto;
+    }
+
+    .definition-frame-more > summary {
+      display: grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      list-style: none;
+      border-radius: 3px;
+      background: #202020;
+      color: #b9dcff;
+      cursor: pointer;
+    }
+
+    .definition-frame-more > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .definition-frame-more > summary:hover,
+    .definition-frame-more > summary:focus-visible {
+      background: #2c2c2c;
+      outline: 2px solid rgb(122 192 255 / 0.45);
+      outline-offset: 1px;
+    }
+
+    .definition-frame-more > summary svg {
+      width: 14px;
+      height: 14px;
+      fill: none;
+      stroke: currentcolor;
+      stroke-width: 1.7;
+    }
+
+    .definition-frame-more-options {
+      position: absolute;
+      z-index: 40;
+      top: calc(100% + 4px);
+      right: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 140px;
+      padding: 4px;
+      border: 1px solid #666;
+      border-radius: 6px;
+      background: #242424;
+      color: #eee;
+      font: 13px system-ui, sans-serif;
+      box-shadow: 0 4px 12px rgb(0 0 0 / 0.5);
     }
 
     .definition-frame--scope-valid {
@@ -160,9 +256,12 @@ export class NodeEditorElement extends LitElement {
     }
 
     .node--geometry-output {
-      /* A complete thin border makes Geometry flow scannable without
-         changing node dimensions, border-radius clipping, or socket anchors. */
-      border-color: var(--geometry-socket-color);
+      /* A subtle tinted background carries Geometry identity now (node-style.md
+         "Node families and colour") instead of the previous blue outline, which
+         used to collide visually with selection/focus. Border stays the shared
+         neutral node border in every state, so selection/Inspect/error treatments
+         (below) remain the only things that ever change it. */
+      background: #2c3540;
     }
 
     .node--selected {
@@ -219,9 +318,40 @@ export class NodeEditorElement extends LitElement {
       min-width: 0;
     }
 
+    /* Decorative - the title text right after it already supplies the
+       accessible name (node-style.md "Node icons"). */
+    .node-header-icon {
+      display: inline-flex;
+      flex: none;
+      width: 15px;
+      height: 15px;
+      opacity: 0.85;
+    }
+
+    .node-header-icon svg {
+      width: 100%;
+      height: 100%;
+      fill: none;
+      stroke: currentcolor;
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
     .node-title {
+      flex: 1 1 auto;
+      min-width: 0;
       font-weight: 600;
       overflow-wrap: anywhere;
+    }
+
+    /* The normal, non-editable title state (node-style.md "Value nodes"):
+       plain text, never a permanently visible text field. Renaming a
+       Value/Input node instead goes through the More menu's Rename action. */
+    div.node-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     input.node-title {
@@ -312,6 +442,113 @@ export class NodeEditorElement extends LitElement {
       stroke-width: 2;
       stroke-linecap: round;
       stroke-linejoin: round;
+    }
+
+    /* The header More menu (node-style.md "More menu"): a compact hamburger
+       button opening icon-plus-text actions. Positioned immediately before
+       Collapse, matching the shared header action order. */
+    .node-more-menu {
+      position: relative;
+      flex: none;
+    }
+
+    .node-more-summary {
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      margin: -6px 0;
+      padding: 0;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      opacity: 0.8;
+      list-style: none;
+    }
+
+    .node-more-summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .node-more-summary:hover {
+      opacity: 1;
+      background: rgb(122 192 255 / 0.16);
+    }
+
+    .node-more-summary:focus-visible {
+      opacity: 1;
+      border-color: #7ac0ff;
+      outline: 2px solid rgb(122 192 255 / 0.45);
+      outline-offset: 1px;
+    }
+
+    .node-more-summary svg {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentcolor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .node-more-options {
+      position: absolute;
+      z-index: 40;
+      top: calc(100% + 4px);
+      right: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 140px;
+      padding: 4px;
+      border: 1px solid #666;
+      border-radius: 6px;
+      background: #242424;
+      box-shadow: 0 4px 12px rgb(0 0 0 / 0.5);
+    }
+
+    .node-more-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 32px;
+      padding: 4px 8px;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .node-more-item:hover,
+    .node-more-item:focus-visible {
+      background: rgb(122 192 255 / 0.16);
+      outline: none;
+    }
+
+    .node-more-item svg {
+      flex: none;
+      width: 15px;
+      height: 15px;
+      fill: none;
+      stroke: currentcolor;
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* Destructive actions stay visually separated from ordinary ones
+       (node-style.md "More menu"). */
+    .node-more-item--destructive {
+      margin-top: 3px;
+      border-top: 1px solid #444;
+      padding-top: 6px;
+      color: #ff8f8f;
     }
 
     /* Rendered as a full-width block below .node-main (see .node's comment above) - its own padding replaces the spacing .node-body's padding used to provide when controls were nested inside it. */

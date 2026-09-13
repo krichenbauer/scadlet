@@ -106,7 +106,7 @@ test('Reset 3D view frames a real OpenSCAD-WASM mesh and preserves source, inspe
   await page.getByRole('button', { name: 'Render', exact: true }).click()
   await expect(await fileAction(page, 'Download .stl')).toBeEnabled({ timeout: 15_000 })
   const cube = page.locator('node-editor .node[data-node-id="cube"]')
-  await cube.locator('.node-header').dblclick()
+  await cube.locator('.node-title').dblclick()
   await expect(cube).toHaveClass(/node--inspected/, { timeout: 15_000 })
   const reset = page.getByRole('button', { name: 'Reset 3D view', exact: true })
   await expect(reset).toBeEnabled()
