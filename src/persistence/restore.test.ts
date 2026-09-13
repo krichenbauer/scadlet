@@ -137,7 +137,7 @@ describe('restoreProject', () => {
     expect(source).toBe('union() {\n    cube(10);\n    sphere(r=5);\n}')
   })
 
-  it('restores pin state via setPinned only for pinned nodes', async () => {
+  it('restores collapse state via setCollapsed only for collapsed nodes', async () => {
     const { editor } = createGraph()
     const project = parseScadletProject({
       format: 'scadlet',
@@ -145,7 +145,7 @@ describe('restoreProject', () => {
       metadata: { name: 'X' },
       graph: {
         nodes: [
-          { id: 'a', type: 'cube', position: { x: 0, y: 0 }, parameters: { sizeX: 1, sizeY: 1, sizeZ: 1, center: false }, pinned: true },
+          { id: 'a', type: 'cube', position: { x: 0, y: 0 }, parameters: { sizeX: 1, sizeY: 1, sizeZ: 1, center: false }, collapsed: true },
           { id: 'b', type: 'cube', position: { x: 0, y: 0 }, parameters: { sizeX: 1, sizeY: 1, sizeZ: 1, center: false } },
         ],
         connections: [],
@@ -154,10 +154,10 @@ describe('restoreProject', () => {
       viewer: { camera: { position: [0, 0, 0], target: [0, 0, 0] } },
     })
 
-    const setPinned = vi.fn()
-    await restoreProject(project, { editor, creationContext: noopContext, setNodePosition: () => {}, setPinned })
+    const setCollapsed = vi.fn()
+    await restoreProject(project, { editor, creationContext: noopContext, setNodePosition: () => {}, setCollapsed })
 
-    expect(setPinned).toHaveBeenCalledExactlyOnceWith('a', true)
+    expect(setCollapsed).toHaveBeenCalledExactlyOnceWith('a', true)
   })
 
   it('restores viewport and viewer camera via the injected setters', async () => {

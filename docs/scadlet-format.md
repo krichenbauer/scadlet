@@ -12,8 +12,8 @@ Version 6 replaces the v5 `add`, `subtract`, `multiply`, and `divide` node
 types with one canonical `arithmetic` type. The migration maps them to the
 canonical operation identifiers `addition`, `subtraction`, `multiplication`,
 and `division`. Their `a`/`b` inputs and `value` output are unchanged, so node
-IDs, positions, scope membership, connection IDs, endpoints, pinned state,
-and generated OpenSCAD semantics are preserved. The migration runs across
+IDs, positions, scope membership, connection IDs, endpoints, and generated
+OpenSCAD semantics are preserved. The migration runs across
 Main and every Module/Function definition graph.
 
 v6 also adds the canonical `trigonometry`, `basic-math`, and
@@ -196,10 +196,10 @@ subtree, as a pragmatic choice rather than an architectural ideal:
 - **Semantic state** (defines the OpenSCAD model): each node's `type` and
   `parameters`, and all `connections`.
 - **Visual/editor state** (defines how the graph looks in the editor):
-  each node's `position`, and its optional `pinned` flag.
+  each node's `position`, and its optional `collapsed` flag.
 
 If a future refactor separates these more strictly (e.g. moving
-`position`/`pinned` into `editor`), that would be a structural format
+`position`/`collapsed` into `editor`), that would be a structural format
 change requiring a new version - see "Versioning and migrations".
 
 ### Node record (`ScadletNodeDTO`)
@@ -210,7 +210,7 @@ change requiring a new version - see "Versioning and migrations".
   "type": "sphere",
   "position": { "x": 270.65, "y": 313.2 },
   "parameters": { "mode": "radius", "r": 5, "d": 10 },
-  "pinned": true
+  "collapsed": true
 }
 ```
 
@@ -220,7 +220,7 @@ change requiring a new version - see "Versioning and migrations".
 | `type`       | string                 | Yes      | Stable, language-independent node-type id. Must match a known catalog type (see below) - never a translated UI label, class name, or DOM id. |
 | `position`   | `{ x: number, y: number }` | Yes  | The node's top-left origin in the editor's infinite-canvas graph coordinate space (the same space `AreaPlugin.translate(id, position)` uses) - editor layout, not OpenSCAD semantics. Both fields must be finite numbers. |
 | `parameters` | object                 | Yes*     | This node type's full semantic state - see "Per-node parameter schemas". `*` May be omitted, in which case it defaults to `{}` before validation; this only actually succeeds for the three parameterless Boolean-operation node types (any node type with required fields will fail validation against an empty object). |
-| `pinned`     | boolean                | No       | Explicit user "pin node open" presentation state. Omission means "not pinned" (`false`). See below. |
+| `collapsed`  | boolean                | No       | Explicit node compact presentation state. Omission means expanded (`false`). See below. |
 
 #### `id`
 
@@ -281,21 +281,21 @@ node type's own validator (`NodeCatalogEntry.validateParams`) - never a
 raw dump of Rete `ClassicPreset.Control` instances. See the per-node
 sections below for exact shapes.
 
-#### `pinned`
+#### `collapsed`
 
-- Optional; **omitting the key means "not pinned"** (matches
-  `NodePresentationManager`'s own default). When present, it must be a
-  literal boolean.
+- Optional; **omitting the key means expanded** (the
+  `NodePresentationManager` default). When present, it must be a literal
+  boolean.
 - This is deliberately *presentation* state, not a graph/OpenSCAD
-  parameter: a pinned node's controls are shown expanded in the editor,
-  which has no effect on generated OpenSCAD.
-- Explicit pinning is persisted because it is a deliberate user action.
-  Hover-triggered temporary expansion and touch/selection-driven temporary
-  expansion are **not** persisted - see "Persisted vs. transient state".
-- The writer (`serializeProject` in `src/persistence/serialize.ts`)
-  omits `pinned` entirely for an unpinned node rather than writing
-  `"pinned": false` - both forms mean the same thing on read, but only
-  the omitted form is what SCADlet itself currently produces.
+  parameter: a collapsed node renders its compact editor body without
+  changing generated OpenSCAD.
+- Explicit collapse is persisted because it is a deliberate user action.
+  Hover, selection, and transient compatible-port disclosure during a held
+  wire gesture do not change this field.
+- The writer (`serializeProject` in `src/persistence/serialize.ts`) omits
+  `collapsed` for an expanded node rather than writing `"collapsed": false`.
+  This optional default lets old v6 records lacking the field restore normally
+  expanded without a schema bump.
 
 ## `definitions`
 
@@ -844,9 +844,9 @@ Both arrays must have exactly 3 finite numbers each (`Invalid viewer.camera.posi
 | Node positions                      | Yes        | Editor layout. |
 | Canvas viewport (pan/zoom)          | Yes        | Editor layout. |
 | Viewer camera position/target       | Yes        | User's 3D view. |
-| Explicit pin state                  | Yes        | Deliberate user presentation state. |
-| Hover-triggered temporary expansion  | No         | Transient interaction state. |
-| Touch/selection-driven expansion     | No         | Transient interaction state. |
+| Explicit collapse state              | Yes        | Deliberate user presentation state; omission means expanded. |
+| Hover/selection-driven expansion     | No         | These interactions do not expand nodes. |
+| Wire-gesture port disclosure         | No         | Reveals compatible existing targets without changing collapse state. |
 | Node/marquee selection               | No         | Transient interaction state. |
 | Marquee drag rectangle               | No         | Transient interaction state. |
 | Inspect Node preview root             | No         | Temporary preview state, not part of the model. |
@@ -877,7 +877,7 @@ in roughly this order:
    catalog entry; a `position` with two finite numbers; and `parameters`
    that pass that type's own validator (errors are prefixed with the
    node id and type, e.g. `Invalid parameters for node "n1" (sphere):
-   Invalid Sphere parameter "r": expected a finite number`); `pinned`, if
+   Invalid Sphere parameter "r": expected a finite number`); `collapsed`, if
    present, is a boolean.
 8. Every connection has a unique, non-empty `id`; `source`/`target`
    referencing existing node ids; `sourceOutput`/`targetInput` that are
@@ -1097,7 +1097,7 @@ Sphere ───┘
 ```
 
 [`docs/examples/cube-sphere-union-translate.scadlet`](examples/cube-sphere-union-translate.scadlet),
-including non-trivial positions, a pinned node, a panned/zoomed viewport,
+including non-trivial positions, a collapsed node, a panned/zoomed viewport,
 and a non-default camera:
 
 ```json
@@ -1114,7 +1114,7 @@ and a non-default camera:
       { "id": "cube-1", "type": "cube", "position": { "x": -200, "y": 0 }, "parameters": { "sizeX": 10, "sizeY": 10, "sizeZ": 10, "center": false } },
       { "id": "sphere-1", "type": "sphere", "position": { "x": -200, "y": 150 }, "parameters": { "mode": "radius", "r": 5, "d": 10 } },
       { "id": "union-1", "type": "union", "position": { "x": 0, "y": 75 }, "parameters": {} },
-      { "id": "translate-1", "type": "translate", "position": { "x": 200, "y": 75 }, "parameters": { "x": 10, "y": 0, "z": 0 }, "pinned": true }
+      { "id": "translate-1", "type": "translate", "position": { "x": 200, "y": 75 }, "parameters": { "x": 10, "y": 0, "z": 0 }, "collapsed": true }
     ],
     "connections": [
       { "id": "c1", "source": "cube-1", "sourceOutput": "geometry", "target": "union-1", "targetInput": "a" },

@@ -90,6 +90,15 @@ render the newly current stale graph immediately through that same lifecycle.
 The freshly created empty-project fallback remains idle. Live is never
 serialized or project-specific.
 
+Normally collapsible nodes start expanded and use their always-visible `^` /
+`v` control for explicit, persistent per-node collapse. This presentation-only
+`collapsed` state is saved with a project; omitted state in v6 records means
+expanded. Value Conditional and Geometry If retain their fixed compact
+interfaces and have no collapse control. Hover, selection, and a held wire
+gesture never expand a node; a collapsed node may still reveal compatible
+existing ports during the gesture and its `v` control can expand it without
+ending that gesture.
+
 ## Decision order
 
 When alternatives are viable, prefer: educational clarity; browser-only/static

@@ -122,7 +122,6 @@ test('an emptied numeric literal keeps its last valid value and never becomes Na
   await seedActiveProject(page, transformProject(), 'numeric-literals')
 
   const translate = page.locator('node-editor .node[data-node-id="translate"]')
-  await translate.locator('.node-pin').click()
   const x = translate.locator('[data-param-key="x"] input')
   await expect(x).toHaveValue('0')
   await x.fill('12')
@@ -134,7 +133,6 @@ test('an emptied numeric literal keeps its last valid value and never becomes Na
   // literal that a node also keeps as its own representation state.
   const value = page.locator('node-editor .node[data-node-id="rise"] .node-control input[type="number"]')
   const cube = page.locator('node-editor .node[data-node-id="cube"]')
-  await cube.locator('.node-pin').click()
   const size = cube.locator('[data-param-key="size"] input')
   await x.fill('')
   await value.fill('')
@@ -175,7 +173,6 @@ test('an emptied Vector3 component of a Call argument keeps the stored vector', 
   await seedActiveProject(page, vectorParameterProject(), 'vector-literals')
 
   const call = page.locator('node-editor .node[data-node-id="call"]')
-  await call.locator('.node-pin').click()
   const components = call.locator('[data-param-key="parameter:offset"] input')
   await expect(components).toHaveCount(3)
   expect(await generatedSource(page)).toContain('shifted(offset = [1, 2, 3]);')

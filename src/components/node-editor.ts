@@ -275,28 +275,32 @@ export class NodeEditorElement extends LitElement {
       outline: none;
     }
 
-    .node-pin {
+    .node-collapse {
       flex: none;
-      width: 20px;
-      height: 20px;
+      width: 32px;
+      height: 32px;
+      margin: -6px -6px -6px 0;
       padding: 0;
-      border: none;
+      border: 1px solid transparent;
       border-radius: 4px;
       background: transparent;
       color: inherit;
-      font-size: 12px;
-      line-height: 20px;
+      font-size: 14px;
+      line-height: 30px;
       cursor: pointer;
-      opacity: 0.6;
+      opacity: 0.8;
     }
 
-    .node-pin:hover {
+    .node-collapse:hover {
       opacity: 1;
+      background: rgb(122 192 255 / 0.16);
     }
 
-    .node-pin--active {
+    .node-collapse:focus-visible {
       opacity: 1;
-      background: rgb(122 192 255 / 0.25);
+      border-color: #7ac0ff;
+      outline: 2px solid rgb(122 192 255 / 0.45);
+      outline-offset: 1px;
     }
 
     /* Rendered as a full-width block below .node-main (see .node's comment above) - its own padding replaces the spacing .node-body's padding used to provide when controls were nested inside it. */
@@ -729,7 +733,7 @@ export class NodeEditorElement extends LitElement {
    * The underlying editor instance, once initialized (`undefined` before
    * `firstUpdated` resolves). An escape hatch for project persistence
    * (`scadlet-app.ts`), which needs lower-level Rete/`AreaPlugin` access
-   * (node positions, viewport, pin state, dirty notifications) beyond
+   * (node positions, viewport, collapse state, dirty notifications) beyond
    * this element's small set of thin wrapper methods above.
    */
   getEditorInstance(): SCADletEditor | undefined {

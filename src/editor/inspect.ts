@@ -12,7 +12,7 @@ export interface InspectManagerOptions {
  * Owns the "Inspect Node" feature's single piece of state - which node
  * (if any) produced the currently displayed Inspect result - entirely outside
  * Rete's own graph model, the same architectural pattern
- * `NodePresentationManager` uses for collapsed/expanded/pinned state.
+ * `NodePresentationManager` uses for collapsed/expanded state.
  *
  * This is presentation/editor state only: it never touches node data,
  * connections, or node identity beyond storing an id, and it holds at

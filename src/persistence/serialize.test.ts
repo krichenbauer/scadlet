@@ -62,7 +62,7 @@ describe('serializeProject', () => {
     ])
   })
 
-  it('omits "pinned" for an unpinned node and includes it (true) for a pinned one', async () => {
+  it('omits "collapsed" for an expanded node and includes it (true) for a collapsed one', async () => {
     const editor = new NodeEditor<Schemes>()
     const a = new CubeNode()
     const b = new SphereNode()
@@ -73,15 +73,15 @@ describe('serializeProject', () => {
       editor,
       metadata: { name: 'X' },
       getNodePosition: () => ({ x: 0, y: 0 }),
-      isPinned: (id) => id === b.id,
+      isCollapsed: (id) => id === b.id,
       viewport: { x: 0, y: 0, k: 1 },
       viewerCamera: { position: [0, 0, 0], target: [0, 0, 0] },
     })
 
     const dtoA = project.graph.nodes.find((n) => n.id === a.id)!
     const dtoB = project.graph.nodes.find((n) => n.id === b.id)!
-    expect(dtoA.pinned).toBeUndefined()
-    expect(dtoB.pinned).toBe(true)
+    expect(dtoA.collapsed).toBeUndefined()
+    expect(dtoB.collapsed).toBe(true)
   })
 
   it('serializes connections with concrete source/target ports', async () => {

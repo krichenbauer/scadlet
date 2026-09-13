@@ -372,7 +372,7 @@ export class ScadletApp extends LitElement {
   @state()
   private projectMetadata: ScadletProjectMetadata = { name: UNTITLED_PROJECT_NAME }
 
-  /** Unsaved-changes indicator. Covers node/connection add/remove/move, pin state, and project-name edits (see `editor/editor.ts`'s `onDirty` for what it does and does not cover). */
+  /** Unsaved-changes indicator. Covers node/connection add/remove/move, collapse state, and project-name edits (see `editor/editor.ts`'s `onDirty` for what it does and does not cover). */
   @state()
   private dirty = false
 
@@ -822,7 +822,7 @@ export class ScadletApp extends LitElement {
         setNodePosition: async (id, position) => {
           await instance.area.translate(id, position)
         },
-        setPinned: (id, pinned) => instance.setPinned(id, pinned),
+        setCollapsed: (id, collapsed) => instance.setCollapsed(id, collapsed),
         setViewport: async ({ x, y, k }) => {
           await instance.setPersistedViewport({ x, y, k })
         },
@@ -1230,7 +1230,7 @@ export class ScadletApp extends LitElement {
       editor: instance.editor,
       metadata: this.projectMetadata,
       getNodePosition: (id) => instance.area.nodeViews.get(id)?.position ?? { x: 0, y: 0 },
-      isPinned: (id) => instance.isPinned(id),
+      isCollapsed: (id) => instance.isCollapsed(id),
       viewport: instance.getPersistedViewport(),
       viewerCamera: this.viewer.getPersistedCameraState(),
       definitions: instance.getDefinitions(),

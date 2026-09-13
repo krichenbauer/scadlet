@@ -145,13 +145,12 @@ test('renders a restrained Geometry accent for live Geometry outputs and matchin
   await expect(cube).toHaveClass(/node--selected/)
   await expectGeometryCue(cube, true)
   await expect.poll(() => cube.evaluate((element) => getComputedStyle(element).boxShadow)).toContain('0px 0px 0px 2px')
-  await cube.locator('.node-pin').click()
   await cube.getByText('+ Size', { exact: true }).click()
   await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
   const focusedSize = cube.locator('[data-param-key="size"] input')
   await focusedSize.focus()
   await expect(focusedSize).toBeFocused()
-  await expect(cube.locator('.node-pin')).toHaveClass(/node-pin--active/)
+  await expect(cube.getByRole('button', { name: 'Collapse node' })).toHaveText('^')
   await expectGeometryCue(cube, true)
 
   await page.getByRole('button', { name: '+ New module', exact: true }).click()
@@ -216,8 +215,8 @@ test('keeps Value Conditional and Geometry If as fixed, parallel interfaces thro
   const sphere = await nodeWithModelLabel(page, 'Sphere')
   const ifNode = await nodeWithModelLabel(page, 'If')
 
-  await expect(conditional.locator('.node-pin')).toHaveCount(0)
-  await expect(ifNode.locator('.node-pin')).toHaveCount(0)
+  await expect(conditional.locator('.node-collapse')).toHaveCount(0)
+  await expect(ifNode.locator('.node-collapse')).toHaveCount(0)
   await expect(conditional.locator('.node-param-rows, .node-controls')).toHaveCount(0)
   await expect(ifNode.locator('.node-param-rows, .node-controls')).toHaveCount(0)
   await expect(visibleInputPorts(conditional)).resolves.toEqual([
@@ -254,7 +253,6 @@ test('keeps Value Conditional and Geometry If as fixed, parallel interfaces thro
   // dense graph setup below.
   await connectSockets(page, cube.locator('.node-socket[data-socket-side="output"]'), ifNode.locator('.node-socket[data-socket-key="then"]'))
   await connectSockets(page, sphere.locator('.node-socket[data-socket-side="output"]'), ifNode.locator('.node-socket[data-socket-key="else"]'))
-  await cube.locator('.node-pin').click()
   await cube.getByText('+ Size', { exact: true }).click()
   await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
   const ids = {
@@ -335,8 +333,8 @@ test('keeps nodes draggable from free surfaces without visible grab handles or c
   await expect(boolean.locator('.node-controls--primary input[type="checkbox"]')).toBeChecked()
   await expectUnmoved(boolean, booleanBeforeCheckbox)
 
-  const pinBefore = await position(arithmetic)
-  await arithmetic.locator('.node-pin').click()
-  await expect(arithmetic.locator('.node-pin')).toHaveClass(/node-pin--active/)
-  await expectUnmoved(arithmetic, pinBefore)
+  const collapseBefore = await position(arithmetic)
+  await arithmetic.getByRole('button', { name: 'Collapse node' }).click()
+  await expect(arithmetic.getByRole('button', { name: 'Expand node' })).toHaveText('v')
+  await expectUnmoved(arithmetic, collapseBefore)
 })

@@ -22,8 +22,8 @@ export interface RestoreProjectDeps {
   creationContext: NodeCreationContext
   /** Applies a restored node's persisted position (e.g. `area.translate(id, position)`). */
   setNodePosition: (nodeId: string, position: Position) => void | Promise<void>
-  /** Applies a restored node's persisted pin state (editor presentation, not graph semantics) - see `editor/presentation.ts`. Omit if pin state isn't wired up (e.g. in a DOM-free test). */
-  setPinned?: (nodeId: string, pinned: boolean) => void
+  /** Applies restored explicit compact state without touching graph semantics. */
+  setCollapsed?: (nodeId: string, collapsed: boolean) => void
   /** Restores the canvas pan/zoom transform. Omit in a DOM-free test. */
   setViewport?: (viewport: { x: number; y: number; k: number }) => void | Promise<void>
   /** Restores the viewer camera. Omit if no viewer is present (e.g. in a DOM-free test). */
@@ -171,7 +171,7 @@ async function applyRestorePlan(plan: RestorePlan, deps: RestoreProjectDeps): Pr
   }
   for (const item of plan.nodes) {
     await deps.setNodePosition(item.node.id, item.dto.position)
-    if (item.dto.pinned) deps.setPinned?.(item.node.id, true)
+    if (item.dto.collapsed && item.dto.type !== 'conditional' && item.dto.type !== 'if') deps.setCollapsed?.(item.node.id, true)
   }
 
   if (deps.setViewport) {

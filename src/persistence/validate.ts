@@ -282,9 +282,9 @@ function validateNode(raw: unknown, index: number, seenIds: Set<string>, graphKi
   }
 
   const node: ScadletNodeDTO = { id: raw.id, type: entry.type, position, parameters }
-  if (raw.pinned !== undefined) {
-    if (typeof raw.pinned !== 'boolean') throw new ScadletProjectError(`Node "${raw.id}" has an invalid "pinned" value.`)
-    node.pinned = raw.pinned
+  if (raw.collapsed !== undefined) {
+    if (typeof raw.collapsed !== 'boolean') throw new ScadletProjectError(`Node "${raw.id}" has an invalid "collapsed" value.`)
+    node.collapsed = raw.collapsed
   }
   return node
 }

@@ -14,7 +14,6 @@ import { isEditableTarget } from './deletion'
 import { t } from '../i18n/translate'
 import type { InspectManager } from './inspect'
 import { BooleanOpNode } from './nodes/boolean-op-node'
-import { bringNodeToFront } from './order'
 import { isRedundantTypeLabel } from './ports'
 import type { NodePresentationManager } from './presentation'
 import type { AreaExtra, Schemes } from './schemes'
@@ -368,12 +367,11 @@ function renderNode(
   const inspected = inspect.isInspected(node.id)
   element.classList.toggle('node--inspected', inspected)
   element.classList.toggle('node--inspect-out-of-scope', inspect.id !== null && !inspect.participates(node.id))
-  presentation.syncSelection(node.id, Boolean(node.selected))
 
   // The two OpenSCAD conditional forms deliberately share a small, fixed
   // interface. Their differently typed inputs remain visible side-by-side
   // in their declared semantic order; neither has progressive disclosure or
-  // pinning presentation. Their Rete port ids and dataflow stay untouched.
+  // collapse presentation. Their Rete port ids and dataflow stay untouched.
   const fixedConditionalInterface = node instanceof ConditionalNode || node instanceof IfNode
 
   // Separate structural geometry inputs from semantic parameter inputs (number/vector3).
@@ -395,7 +393,7 @@ function renderNode(
     }
     // Function Output's single `result` port is never geometry-typed, but
     // (like Module Output's `geometry` input) is structural interface
-    // infrastructure that must stay visible regardless of hover/pin state,
+    // infrastructure that must stay visible regardless of compact state,
     // not a collapsible parameter row.
     if (input.socket.name === 'geometry' || (node instanceof FunctionOutputNode && key === 'result')) {
       geometryInputs.push([key, input])
@@ -428,7 +426,7 @@ function renderNode(
     ([key, ctrl]) => ctrl && !paramInputKeys.has(key) && !(ctrl instanceof RepresentationSelectControl) && !(ctrl instanceof TitleSelectControl) && !(sourceNameControl && key === 'name'),
   )
   // Literal value sources have no inputs, so their primary control is part
-  // of the compact node rather than hidden behind hover/pinning. Other
+  // of the compact node rather than hidden behind explicit collapse. Other
   // standalone controls retain the normal progressive-disclosure behavior.
   const alwaysVisibleControls = standaloneControls.filter(
     ([key, control]) => (Boolean(sourceNameControl) && key === 'value' && parameterInputs.length === 0) || control instanceof ModuleParameterAddControl || control instanceof ModuleGeometryInputAddControl || (control instanceof ModuleParameterEditControl && control.open) || (control instanceof ModuleGeometryInputEditControl && control.open),
@@ -436,7 +434,8 @@ function renderNode(
   const expandableStandaloneControls = standaloneControls.filter(([key]) => !alwaysVisibleControls.some(([primary]) => primary === key))
 
   // A node has collapsible content if it has parameter inputs (whose rows can be shown/hidden)
-  // or standalone controls (shown only when expanded). This drives pin-button visibility.
+  // or standalone controls (shown only when expanded). This drives the
+  // explicit collapse-button visibility.
   const hasCollapsibleContent = !fixedConditionalInterface && (parameterInputs.length > 0 || parameterOutputs.length > 0 || geometryOutputs.length > 0 || expandableStandaloneControls.length > 0 || representationControls.length > 0)
   // Rete remains authoritative for the semantic endpoint. Presentation keeps
   // compact expansion state, while this direct read ensures a freshly
@@ -449,27 +448,14 @@ function renderNode(
       .map((connection) => connection.targetInput),
   ])
   const disclosedInputKeys = presentation.getDisclosedInputKeys(node.id)
-  // Hover/pin expansion: shows ALL parameter rows and standalone controls.
-  // Distinguished from connection-forced expansion (which only shows specific connected rows)
+  // Explicit expansion shows ALL parameter rows and standalone controls.
+  // It is distinct from connection disclosure, which only shows specific rows
   // so that an unconnected Translate with Z connected doesn't show X/Y/Vector rows.
   const expanded = hasCollapsibleContent && presentation.isInteractivelyExpanded(node.id)
   element.classList.toggle('node--expanded', !fixedConditionalInterface && presentation.isExpanded(node.id))
 
   if (!nodeListenersWired.has(element)) {
     nodeListenersWired.add(element)
-    element.addEventListener('pointerenter', () => {
-      bringNodeToFront(area, node.id)
-      presentation.handlePointerEnter(node.id)
-    })
-    element.addEventListener('pointerleave', () => {
-      presentation.handlePointerLeave(node.id)
-    })
-    element.addEventListener('focusin', () => presentation.handleFocusEnter(node.id))
-    element.addEventListener('focusout', () => {
-      queueMicrotask(() => {
-        if (!element.contains(document.activeElement)) presentation.handleFocusLeave(node.id)
-      })
-    })
     element.addEventListener('pointerdown', (event) => {
       if (isEditableTarget(event.target)) return
       if (event.target instanceof Element && event.target.closest('button')) return
@@ -488,7 +474,7 @@ function renderNode(
 
   element.replaceChildren()
 
-  // `.node-main`: stable header row - geometry sockets + title/pin + geometry output.
+  // `.node-main`: stable header row - geometry sockets + title/collapse + geometry output.
   // Height depends only on geometry port count and title; never on parameter rows below.
   const main = document.createElement('div')
   main.className = 'node-main'
@@ -505,7 +491,7 @@ function renderNode(
 
   const body = document.createElement('div')
   body.className = 'node-body'
-  body.appendChild(renderHeader(node, presentation, hasCollapsibleContent, inspected, notifyDirty, sourceNameControl, titleSelectControl))
+  body.appendChild(renderHeader(node, presentation, hasCollapsibleContent, inspected, notifyDirty, sourceNameControl, titleSelectControl, element))
   main.appendChild(body)
 
   if (mainOutputs.length > 0) {
@@ -530,7 +516,7 @@ function renderNode(
 
   // Parameter input rows: socket + label + inline value control, rendered below `.node-main`.
   // A connection keeps its row visible while compact, but rendering always
-  // follows the active node-defined input order. Expanded/pinned/focused and
+  // follows the active node-defined input order. Expanded and
   // disclosed views therefore retain semantic X/Y/Z, A/B, etc. ordering.
   if (parameterInputs.length > 0) {
     const inputsByKey = new Map(parameterInputs)
@@ -612,9 +598,9 @@ function renderNode(
 }
 
 /**
- * Title plus the pin/expand header control (AGENTS.md sections 2, 6, 7).
+ * Title plus the explicit collapse header control.
  * A node with no collapsible content (e.g. Difference) has nothing to
- * collapse/expand, so the pin affordance is only rendered "where
+ * collapse/expand, so the control is only rendered "where
  * relevant" - i.e. when the node actually has something to expand.
  */
 function renderHeader(
@@ -625,6 +611,7 @@ function renderHeader(
   notifyDirty: () => void,
   sourceNameControl: LabeledTextControl | undefined,
   titleSelectControl: TitleSelectControl | undefined,
+  nodeElement: HTMLElement,
 ): HTMLElement {
   const header = document.createElement('div')
   header.className = 'node-header'
@@ -690,30 +677,28 @@ function renderHeader(
   }
 
   if (hasCollapsibleContent) {
-    const pinned = presentation.isPinned(node.id)
-
-    const pin = document.createElement('button')
-    pin.type = 'button'
-    pin.className = 'node-pin'
-    pin.classList.toggle('node-pin--active', pinned)
-    pin.setAttribute('aria-pressed', String(pinned))
-    pin.setAttribute('aria-label', pinned ? t('node.unpin') : t('node.pin'))
-    pin.textContent = '📌'
-    // Prevent the node-drag handler from starting when interacting with the
-    // pin button, mirroring the same pattern used for control inputs below.
-    // Clicking the pin toggles pinning (which also expands/collapses the
-    // node - see `NodePresentationManager.togglePin`); it never selects the
-    // node or picks a socket. Explicit pinning is persisted state (unlike
-    // hover/selection-driven expansion), so it must also mark the project
-    // dirty - `presentation.togglePin` itself has no notion of dirty
-    // tracking (its `onChange` also fires for non-persisted hover/select
-    // expansion), so this is called alongside it rather than folded in.
-    pin.addEventListener('pointerdown', (event) => event.stopPropagation())
-    pin.addEventListener('click', () => {
-      presentation.togglePin(node.id)
+    const collapsed = presentation.isCollapsed(node.id)
+    const collapse = document.createElement('button')
+    collapse.type = 'button'
+    collapse.className = 'node-collapse'
+    collapse.setAttribute('aria-label', collapsed ? t('node.expand') : t('node.collapse'))
+    collapse.title = collapsed ? t('node.expand') : t('node.collapse')
+    collapse.textContent = collapsed ? 'v' : '^'
+    // These direct interaction handlers deliberately keep a collapse toggle
+    // out of Rete's node-drag and connection lifecycle. In particular, a
+    // visible `v` can be activated while a wire is held without cancelling
+    // or completing that wire gesture.
+    collapse.addEventListener('pointerdown', (event) => event.stopPropagation())
+    collapse.addEventListener('pointerup', (event) => event.stopPropagation())
+    collapse.addEventListener('click', (event) => {
+      event.stopPropagation()
+      presentation.toggleCollapsed(node.id)
       notifyDirty()
+      // Rete's progressive renderer replaces this header. Restore focus onto
+      // its fresh control so keyboard users retain a visible focus target.
+      requestAnimationFrame(() => nodeElement.querySelector<HTMLButtonElement>('.node-collapse')?.focus())
     })
-    header.appendChild(pin)
+    header.appendChild(collapse)
   }
 
   return header

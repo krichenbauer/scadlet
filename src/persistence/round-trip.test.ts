@@ -47,7 +47,7 @@ interface FakePositions {
  * it into a fresh `target` editor.
  */
 async function roundTrip(
-  source: { editor: NodeEditor<Schemes>; positions: FakePositions; pinned?: Set<string> },
+  source: { editor: NodeEditor<Schemes>; positions: FakePositions; collapsed?: Set<string> },
   target: NodeEditor<Schemes>,
   extra?: { viewport?: { x: number; y: number; k: number }; camera?: { position: [number, number, number]; target: [number, number, number] } },
 ) {
@@ -55,7 +55,7 @@ async function roundTrip(
     editor: source.editor,
     metadata: { name: 'Round Trip' },
     getNodePosition: (id) => source.positions[id] ?? { x: 0, y: 0 },
-    isPinned: (id) => source.pinned?.has(id) ?? false,
+    isCollapsed: (id) => source.collapsed?.has(id) ?? false,
     viewport: extra?.viewport ?? { x: 0, y: 0, k: 1 },
     viewerCamera: extra?.camera ?? { position: [0, 0, 0], target: [0, 0, 0] },
   })
@@ -64,19 +64,19 @@ async function roundTrip(
   const reparsed = parseScadletProject(JSON.parse(text))
 
   const restoredPositions: FakePositions = {}
-  const restoredPinned = new Set<string>()
+  const restoredCollapsed = new Set<string>()
   await restoreProject(reparsed, {
     editor: target,
     creationContext: noopContext,
     setNodePosition: (id, position) => {
       restoredPositions[id] = position
     },
-    setPinned: (id, pinned) => {
-      if (pinned) restoredPinned.add(id)
+    setCollapsed: (id, collapsed) => {
+      if (collapsed) restoredCollapsed.add(id)
     },
   })
 
-  return { project: reparsed, restoredPositions, restoredPinned }
+  return { project: reparsed, restoredPositions, restoredCollapsed }
 }
 
 describe('per-node semantic round trip (serialize -> restore -> evaluate)', () => {
@@ -289,7 +289,7 @@ describe('per-node semantic round trip (serialize -> restore -> evaluate)', () =
     expect(await evaluateOpenSCAD(dst, engine)).toBe('intersection() {\n    cube(10);\n    sphere(r=5);\n}')
   })
 
-  it('retains a pinned Geometry If and its stable condition/then/else ports', async () => {
+  it('keeps Geometry If fixed even when a presentation source reports it collapsed', async () => {
     const { editor: src } = createGraph()
     const condition = new BooleanNode({ value: true })
     const whenThen = new CubeNode()
@@ -301,12 +301,13 @@ describe('per-node semantic round trip (serialize -> restore -> evaluate)', () =
     await src.addConnection(connect(whenElse, 'geometry', node, 'else'))
 
     const { editor: dst, engine } = createGraph()
-    const { project, restoredPinned, restoredPositions } = await roundTrip(
-      { editor: src, positions: { [node.id]: { x: 42, y: -17 } }, pinned: new Set([node.id]) }, dst,
+    const { project, restoredCollapsed, restoredPositions } = await roundTrip(
+      { editor: src, positions: { [node.id]: { x: 42, y: -17 } }, collapsed: new Set([node.id]) }, dst,
     )
-    expect(project.graph.nodes.find((item) => item.id === node.id)).toMatchObject({ type: 'if', position: { x: 42, y: -17 }, parameters: {}, pinned: true })
+    expect(project.graph.nodes.find((item) => item.id === node.id)).toMatchObject({ type: 'if', position: { x: 42, y: -17 }, parameters: {} })
+    expect(project.graph.nodes.find((item) => item.id === node.id)?.collapsed).toBeUndefined()
     expect(project.graph.connections.filter((item) => item.target === node.id).map((item) => item.targetInput).sort()).toEqual(['condition', 'else', 'then'])
-    expect(restoredPinned.has(node.id)).toBe(true)
+    expect(restoredCollapsed.has(node.id)).toBe(false)
     expect(restoredPositions[node.id]).toEqual({ x: 42, y: -17 })
     expect(await evaluateOpenSCAD(dst, engine)).toBe('if (true) {\n  cube(10);\n} else {\n  sphere(r=5);\n}')
   })
@@ -624,7 +625,7 @@ describe('viewer camera persistence', () => {
 })
 
 describe('presentation-state persistence', () => {
-  it('round-trips an unpinned node with no "pinned" key at all', async () => {
+  it('round-trips an expanded node with no "collapsed" key at all', async () => {
     const { editor: src } = createGraph()
     const cube = new CubeNode()
     await src.addNode(cube)
@@ -633,24 +634,24 @@ describe('presentation-state persistence', () => {
       editor: src,
       metadata: { name: 'X' },
       getNodePosition: () => ({ x: 0, y: 0 }),
-      isPinned: () => false,
+      isCollapsed: () => false,
       viewport: { x: 0, y: 0, k: 1 },
       viewerCamera: { position: [0, 0, 0], target: [0, 0, 0] },
     })
 
-    expect(project.graph.nodes[0].pinned).toBeUndefined()
-    expect(JSON.stringify(project)).not.toContain('"pinned"')
+    expect(project.graph.nodes[0].collapsed).toBeUndefined()
+    expect(JSON.stringify(project)).not.toContain('"collapsed"')
   })
 
-  it('round-trips a pinned node, restoring pinned=true via setPinned', async () => {
+  it('round-trips a collapsed node, restoring collapsed=true via setCollapsed', async () => {
     const { editor: src } = createGraph()
     const cube = new CubeNode()
     await src.addNode(cube)
 
     const { editor: dst } = createGraph()
-    const { restoredPinned } = await roundTrip({ editor: src, positions: {}, pinned: new Set([cube.id]) }, dst)
+    const { restoredCollapsed } = await roundTrip({ editor: src, positions: {}, collapsed: new Set([cube.id]) }, dst)
 
-    expect(restoredPinned.has(cube.id)).toBe(true)
+    expect(restoredCollapsed.has(cube.id)).toBe(true)
   })
 
   it('never includes selection, marquee, hover, or inspect state in the serialized project', async () => {

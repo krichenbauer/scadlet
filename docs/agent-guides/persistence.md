@@ -10,8 +10,9 @@ the browser project library.
 DOM, or Three.js objects. It preserves semantic graph state (stable node/type
 IDs, parameters, definitions, and explicit stable-port connections), editor
 positions/viewport, and minimal reproducible viewer state. It excludes
-transient selection, marquee, hover, temporary expansion, drag, and Inspect;
-explicit user pinning is persistent presentation state.
+transient selection, marquee, hover, drag, and Inspect; explicit per-node
+collapse is persistent presentation state. Omitted `collapsed` state in a v6
+record restores expanded, preserving compatibility with older v6 files.
 
 The specification is the detailed authoritative schema. Current format is v6.
 Runtime render state, including the default-on Live render preference, pending
