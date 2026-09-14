@@ -21,6 +21,9 @@ Implemented and stable:
   copies only when selected from the Projects menu;
 - dark, compact node presentation with explicit fixed Conditional/If interfaces,
   Geometry recognition, semantic Inspect provenance, and standard selection;
+- the focused UI refinement pass: compact, touch-aware node controls and
+  palette guidance; clear Inspect exit and normal-preview resumption; and
+  responsive live-preview rendering with bounded cached results;
 - transient view recovery: Fit graph for the canvas and Reset 3D view for a
   nonempty preview mesh.
 
@@ -35,51 +38,28 @@ evaluation errors; disconnected drafts do not create fake `undef` semantics.
 Implement later work in this order unless a concrete defect warrants a small,
 independent repair first.
 
-1. **Focused fixes and UI refinement.** Keep resolving concrete lifecycle,
-   rendering, palette, canvas, and view usability problems as they arise.
-   The following UX work is intentionally collected here for separate design
-   discussions and small, well-bounded implementation tasks:
-
-   - simplify the top toolbar and move rendering controls next to the 3D view;
-     decide separately which project/file actions belong in an overflow menu;
-   - default-on live rendering with visible in-progress state and a safe
-     complexity cutoff: if a render exceeds 300 ms, disable live rendering and
-     explain why;
-   - make Inspect/preview mode clearer: dim nodes outside the inspected
-     subgraph and provide an unambiguous way to leave the preview;
-   - replace hover-driven node collapsing with explicit, default-expanded
-     `^` / `v` controls while retaining visible connections; make normal node
-     layouts compact enough that collapsing is rarely necessary;
-   - establish a consistent node visual language: Geometry nodes should use a
-     restrained background tint rather than a border that competes with
-     selection, and node layout/naming should be harmonized;
-   - give every node a compact contextual menu suitable for touch, covering at
-     least Delete and Duplicate. Move optional parameter additions there, while
-     direct parameter removal stays adjacent to the parameter. Add useful node
-     icons for recognition and palette scanning;
-   Broader diagnostic interpretation, cached hover previews,
-   collision-avoidance while moving nodes, and automatic layout are
-   deliberately low priority.
-2. **Iteration / visual OpenSCAD `for`.** Start with Geometry iteration in Main
-   and Module scopes and a loop-local binding. Its UI and exact range/list
-   model must be settled before implementation; it does not imply general
-   user-defined variables.
-3. **Copy and paste.** Support copying and pasting selected nodes and their
+1. **SCAD settings.** Add one scope-level Settings node in Main and Module
+   scopes. It should expose a small curated set of Geometry-quality settings
+   (`$fn`, `$fa`, `$fs`) as optional rows, rather than arbitrary `$` variables.
+2. **Named values and references.** Let uniquely named Value nodes act as
+   bindings. Their compact reference nodes must remain stable through renames,
+   validate scope usage, and generate readable OpenSCAD bindings.
+3. **Iteration / visual OpenSCAD `for`.** Add Geometry iteration in Main and
+   Module scopes using a fixed Header/Result pair with a structural wire and a
+   loop-local binding, built on the named-value/scope model.
+4. **Copy and paste.** Support copying and pasting selected nodes and their
    internal connections within the current semantic scope. Define clipboard,
    placement, protected-interface-node, and cross-scope behavior explicitly
    when this work begins.
-4. **Missing basic value nodes.** Add useful arithmetic, mathematical, and
+5. **Missing basic value nodes.** Add useful arithmetic, mathematical, and
    logical operators selectively, preserving the current typed value model and
    Function-scope rules.
-5. **Missing simple Geometry nodes.** Prioritize ordinary transformations such
+6. **Missing simple Geometry nodes.** Prioritize ordinary transformations such
    as Mirror and Resize, with the same scope, persistence, and effective-output
    rules as the existing Geometry catalog.
-6. **2D Geometry and extrusion.** Treat 2D primitives, 2D Boolean operations,
+7. **2D Geometry and extrusion.** Treat 2D primitives, 2D Boolean operations,
    and linear/rotational extrusion as one coherent extension rather than
    isolated nodes.
-7. **General variables and special variables.** Design local bindings / `let`
-   and `$`-variable scoping explicitly after iteration; do not infer their
-   semantics from the loop-local binding alone.
 8. **Remaining larger extensions.** A secondary geometry-oriented OpenSCAD
    code node with explicit parameter and possibly Geometry inputs, import of
    existing `.scad`, dedicated definition canvases, collaboration/sync, and
