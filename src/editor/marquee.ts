@@ -67,7 +67,8 @@ function clientRectOf(element: HTMLElement): Rect {
  * top of the same `NodeSelectionApi`/Rete selection state click-based
  * selection uses (`selection.ts`) - there is no separate, SCADlet-owned
  * selected-node collection, and marquee-selected nodes participate in
- * group movement exactly the same way click/Ctrl-click-selected nodes do.
+ * group movement exactly the same way click/Shift/Ctrl/Cmd-click-selected
+ * nodes do.
  *
  * The marquee rectangle and every node's hit-test rectangle are both
  * measured in client/viewport space (`getBoundingClientRect()`), so no

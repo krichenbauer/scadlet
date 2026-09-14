@@ -45,9 +45,11 @@ interaction. Palette configuration selects are native controls and never begin
 a drag; dragging any other part creates the selected operation through the
 shared creation path.
 
-Rete remains selection authority: click selects, Ctrl/Cmd-click toggles,
+Rete remains selection authority: a plain interaction with an unselected node
+replaces the selection, Shift/Ctrl/Cmd-click toggles selection membership,
 Shift-drag empty canvas creates a marquee, and dragging a selected member moves
-the selection. Delete/Backspace removes selected nodes/connections only while
+the complete explicit selection. Connections never implicitly select their
+other endpoint. Delete/Backspace removes selected nodes/connections only while
 the canvas has focus, never while editing a control. One selected connection
 may be deleted before node deletion. No selection/hover/gesture state changes
 program semantics or persistence.

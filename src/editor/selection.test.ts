@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { shouldAccumulateOnPick, shouldToggleOffOnPick } from './selection'
+import { shouldAccumulateOnPick, shouldToggleOffAfterPick } from './selection'
 
 describe('shouldAccumulateOnPick', () => {
-  it('accumulates when Ctrl/Cmd is held, regardless of prior selection', () => {
+  it('accumulates when Shift/Ctrl/Cmd is held, regardless of prior selection', () => {
     expect(shouldAccumulateOnPick(true, false)).toBe(true)
     expect(shouldAccumulateOnPick(true, true)).toBe(true)
   })
@@ -17,16 +17,20 @@ describe('shouldAccumulateOnPick', () => {
   })
 })
 
-describe('shouldToggleOffOnPick', () => {
-  it('toggles off only when Ctrl/Cmd is held AND the node was already selected', () => {
-    expect(shouldToggleOffOnPick(true, true)).toBe(true)
+describe('shouldToggleOffAfterPick', () => {
+  it('toggles off only when a modifier is held, the node was already selected, and the gesture stayed a click', () => {
+    expect(shouldToggleOffAfterPick(true, true, false)).toBe(true)
   })
 
   it('does not toggle off without a modifier', () => {
-    expect(shouldToggleOffOnPick(false, true)).toBe(false)
+    expect(shouldToggleOffAfterPick(false, true, false)).toBe(false)
   })
 
   it('does not toggle off a node that was not already selected', () => {
-    expect(shouldToggleOffOnPick(true, false)).toBe(false)
+    expect(shouldToggleOffAfterPick(true, false, false)).toBe(false)
+  })
+
+  it('does not toggle off when the pointer gesture became a drag', () => {
+    expect(shouldToggleOffAfterPick(true, true, true)).toBe(false)
   })
 })

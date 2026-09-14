@@ -18,8 +18,8 @@ export interface NodeSelectionApi {
 /**
  * Decides the effective "accumulate" flag passed into Rete's own
  * `Selector.add()` for a freshly-picked node. Rete's stock wiring
- * (accumulate = Ctrl/Cmd held) would otherwise wipe an existing
- * multi-selection down to just the picked node whenever it's picked
+ * (accumulate = Ctrl/Cmd held) does not support Shift and would otherwise
+ * wipe an existing multi-selection down to just the picked node whenever it is picked
  * *without* the modifier - including when that node is already part of
  * the current selection, which would destroy a multi-selection the
  * instant a group-drag gesture starts. Forcing accumulate=true whenever
@@ -27,20 +27,22 @@ export interface NodeSelectionApi {
  * intact regardless of the modifier key, while a plain click on a node
  * that ISN'T already selected still replaces the selection as usual.
  */
-export function shouldAccumulateOnPick(ctrlOrCmdHeld: boolean, alreadySelected: boolean): boolean {
-  return ctrlOrCmdHeld || alreadySelected
+export function shouldAccumulateOnPick(selectionModifierHeld: boolean, alreadySelected: boolean): boolean {
+  return selectionModifierHeld || alreadySelected
 }
 
 /**
- * Decides whether a Ctrl/Cmd-click on an already-selected node should
- * toggle it back OFF (deselect just that node, leaving the rest of the
- * selection untouched). Rete's own `Selector.add()` has no toggle
- * concept - re-adding an already-selected entity with accumulate=true is
- * simply a no-op - so this is applied as a follow-up step after Rete's
- * own selection bookkeeping has already run for the pick.
+ * Decides whether a modifier-click on an already-selected node should toggle
+ * it back OFF. Toggle-off is deferred until pointerup so a drag beginning on
+ * a selected member preserves and moves the complete selection rather than
+ * flickering that member out of the group on pointerdown.
  */
-export function shouldToggleOffOnPick(ctrlOrCmdHeld: boolean, wasAlreadySelected: boolean): boolean {
-  return ctrlOrCmdHeld && wasAlreadySelected
+export function shouldToggleOffAfterPick(
+  selectionModifierHeld: boolean,
+  wasAlreadySelected: boolean,
+  moved: boolean,
+): boolean {
+  return selectionModifierHeld && wasAlreadySelected && !moved
 }
 
 /**
@@ -51,16 +53,17 @@ export function shouldToggleOffOnPick(ctrlOrCmdHeld: boolean, wasAlreadySelected
  * remains the one flag the renderer and deletion logic already read.
  *
  * The stock extension only supports "replace" (plain click) and
- * "additive" (Ctrl/Cmd-click) selection out of the box. Two small
- * behaviors are layered on top of it here, both driven by the pure
- * decisions above:
+ * "additive" (Ctrl/Cmd-click) selection out of the box. SCADlet derives
+ * Shift/Ctrl/Cmd from the initiating pointer event and layers two small
+ * behaviors on top of it here, both driven by the pure decisions above:
  *
  *  - a plain click/drag-start on an already-selected node no longer
  *    wipes the rest of a multi-selection, so dragging one member of a
  *    multi-selection moves the whole group instead of collapsing it to
  *    just that node;
- *  - a genuine Ctrl/Cmd-click on an already-selected node toggles it
- *    back off instead of being a no-op.
+ *  - a genuine Shift/Ctrl/Cmd-click on an already-selected node toggles it
+ *    back off instead of being a no-op. That removal waits for pointerup and
+ *    only happens when the gesture did not become a drag.
  *
  * Also cleans up the shared `Selector`'s bookkeeping when a node is
  * removed from the graph - Rete's own extension only listens for
@@ -73,38 +76,91 @@ export function attachNodeSelection(
   area: AreaPlugin<Schemes, AreaExtra>,
 ): NodeSelectionApi {
   const selector = AreaExtensions.selector()
-  const realAccumulating = AreaExtensions.accumulateOnCtrl()
+
+  interface PickGesture {
+    nodeId: string
+    pointerId: number
+    startX: number
+    startY: number
+    modifierHeld: boolean
+    moved: boolean
+    picked: boolean
+    wasSelected: boolean
+  }
+
+  let gesture: PickGesture | null = null
+  const nodeFromPointerEvent = (event: PointerEvent): HTMLElement | undefined => event.composedPath().find(
+    (item): item is HTMLElement => item instanceof HTMLElement && item.classList.contains('node'),
+  )
+  const onPointerDown = (event: PointerEvent): void => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    const nodeId = nodeFromPointerEvent(event)?.dataset.nodeId
+    if (!nodeId) return
+    gesture = {
+      nodeId,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      modifierHeld: event.shiftKey || event.ctrlKey || event.metaKey,
+      moved: false,
+      picked: false,
+      wasSelected: false,
+    }
+  }
+  const onPointerMove = (event: PointerEvent): void => {
+    if (!gesture || event.pointerId !== gesture.pointerId || gesture.moved) return
+    const dx = event.clientX - gesture.startX
+    const dy = event.clientY - gesture.startY
+    // Ignore sub-pixel pointer noise from an ordinary click while still
+    // settling the selection before Rete applies any meaningful movement.
+    gesture.moved = dx * dx + dy * dy >= 9
+  }
+  const finishGesture = (event: PointerEvent, cancelled: boolean): void => {
+    if (!gesture || event.pointerId !== gesture.pointerId) return
+    const finished = gesture
+    gesture = null
+    if (!cancelled && finished.picked && shouldToggleOffAfterPick(
+      finished.modifierHeld,
+      finished.wasSelected,
+      finished.moved,
+    )) {
+      void nodeSelection.unselect(finished.nodeId)
+    }
+  }
+  const onPointerUp = (event: PointerEvent): void => finishGesture(event, false)
+  const onPointerCancel = (event: PointerEvent): void => finishGesture(event, true)
+
+  // Capture runs before Rete's node-root pointerdown handler stops
+  // propagation and emits `nodepicked`, giving the selection pipe the exact
+  // modifiers for this pointer session rather than global key state that can
+  // become stale when the window loses focus.
+  area.container.addEventListener('pointerdown', onPointerDown, { capture: true })
+  window.addEventListener('pointermove', onPointerMove, { capture: true })
+  window.addEventListener('pointerup', onPointerUp, { capture: true })
+  window.addEventListener('pointercancel', onPointerCancel, { capture: true })
 
   // Captured by the "before" pipe below for whichever single 'nodepicked'
-  // event is currently being handled, then read both by the wrapped
-  // `accumulating` passed into `selectableNodes` (still being evaluated
-  // while that same event is processed) and by the "after" pipe.
-  let ctrlHeldForPick = false
+  // event is currently being handled, then read by the wrapped `accumulating`
+  // passed into `selectableNodes` while that same event is processed.
+  let modifierHeldForPick = false
   let wasSelectedForPick = false
 
   area.addPipe((context) => {
     if (context.type === 'nodepicked') {
-      ctrlHeldForPick = realAccumulating.active()
+      modifierHeldForPick = gesture?.nodeId === context.data.id ? gesture.modifierHeld : false
       wasSelectedForPick = selector.isSelected({ id: context.data.id, label: 'node' })
+      if (gesture?.nodeId === context.data.id) {
+        gesture.picked = true
+        gesture.wasSelected = wasSelectedForPick
+      }
     }
     return context
   })
 
   const nodeSelection = AreaExtensions.selectableNodes(area, selector, {
     accumulating: {
-      active: () => shouldAccumulateOnPick(ctrlHeldForPick, wasSelectedForPick),
+      active: () => shouldAccumulateOnPick(modifierHeldForPick, wasSelectedForPick),
     },
-  })
-
-  // Runs after `selectableNodes`'s own pipe (registered afterwards, so it
-  // observes the selection state that pipe already produced): undoes the
-  // reselection for a genuine toggle-off, since `add()` with
-  // accumulate=true just re-adds an already-selected entity as a no-op.
-  area.addPipe((context) => {
-    if (context.type === 'nodepicked' && shouldToggleOffOnPick(ctrlHeldForPick, wasSelectedForPick)) {
-      void nodeSelection.unselect(context.data.id)
-    }
-    return context
   })
 
   editor.addPipe((context) => {
@@ -118,6 +174,11 @@ export function attachNodeSelection(
     select: (nodeId, accumulate = false) => nodeSelection.select(nodeId, accumulate),
     unselect: (nodeId) => nodeSelection.unselect(nodeId),
     translate: (dx, dy) => selector.translate(dx, dy),
-    destroy: () => realAccumulating.destroy(),
+    destroy: () => {
+      area.container.removeEventListener('pointerdown', onPointerDown, { capture: true })
+      window.removeEventListener('pointermove', onPointerMove, { capture: true })
+      window.removeEventListener('pointerup', onPointerUp, { capture: true })
+      window.removeEventListener('pointercancel', onPointerCancel, { capture: true })
+    },
   }
 }
