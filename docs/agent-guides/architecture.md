@@ -60,9 +60,13 @@ one debounced main-graph render while Live is enabled. A newer semantic change
 cancels a running Live request, uses the existing worker termination and
 execution-generation guards, and may only apply the result for its current
 graph revision. Manual Render cancels a pending Live or Inspect-exit delay and
-renders immediately; Stop suppresses retry for that unchanged revision. A
-non-cancelled Live worker run over two seconds completes
-normally, then disables Live and reports accessible performance feedback.
+renders immediately and always executes OpenSCAD rather than reading cached
+output; a successful manual render may refresh the automatic-preview cache.
+Stop suppresses retry for that unchanged revision. Each automatic cache miss
+has a fresh 15-second worker-execution budget. Reaching it terminates that job,
+turns off Live, and reports accessible performance feedback; cancellation for
+a newer revision clears the old timer before the replacement receives its own
+full budget.
 Enabling Live and replacing the active local project cancel pending work and
 immediately render a stale current graph through the same controller. After a
 successful startup restore of an existing local project, that same activation
@@ -70,6 +74,14 @@ path immediately renders once when Live is on; the brand-new empty-library
 fallback does not render. Replacing a project invalidates/terminates old work
 before restore so it cannot settle into the new preview. Live is not serialized
 or scoped to a project.
+
+Successful current-revision main-preview results are held in a session-only
+LRU cache keyed by the exact generated source plus the OpenSCAD backend and
+export format. The cache retains binary STL (or the explicit valid-empty
+result), preserving STL as the viewer boundary, and is bounded by both entry
+count and retained source/STL bytes. Errors, cancellations, stale revisions,
+partial output, and Inspect-scoped results are never admitted. Inspect never
+reads this cache, even when its generated source happens to equal a main graph.
 
 Generated source must be valid and readable. Preview, `.scad`, and `.stl` use
 the same source; no JSCAD/replicad/other preview semantics. Imported `.scad`

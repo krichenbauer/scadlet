@@ -89,7 +89,10 @@ state never schedule a render. Enabling Live, activating a different local
 project, and successfully restoring an existing local project at startup
 render the newly current stale graph immediately through that same lifecycle.
 The freshly created empty-project fallback remains idle. Live is never
-serialized or project-specific.
+serialized or project-specific. Successful main-preview results may be reused
+from a bounded session-memory cache keyed by exact OpenSCAD source and render
+options; manual Render always executes OpenSCAD freshly. Each automatic cache
+miss has its own 15-second execution limit.
 
 Normally collapsible nodes start expanded and use their always-visible chevron
 control for explicit, persistent per-node collapse. This presentation-only

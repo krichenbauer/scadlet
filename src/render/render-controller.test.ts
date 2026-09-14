@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { RenderController, type WorkerLike } from './render-controller'
+import { RenderController, RenderTimeoutError, type WorkerLike } from './render-controller'
+import { GEOMETRY_RENDER_OPTIONS } from './render-options'
 
 /** A fake `Worker` that records posted messages and lets tests drive responses. */
 class FakeWorker implements WorkerLike {
@@ -26,7 +27,11 @@ describe('RenderController', () => {
     const controller = new RenderController(() => worker)
 
     const promise = controller.render('cube([1,1,1]);')
-    expect(worker.postMessage).toHaveBeenCalledWith({ type: 'render', source: 'cube([1,1,1]);' })
+    expect(worker.postMessage).toHaveBeenCalledWith({
+      type: 'render',
+      source: 'cube([1,1,1]);',
+      options: GEOMETRY_RENDER_OPTIONS,
+    })
 
     const stl = new ArrayBuffer(8)
     worker.onmessage?.(messageEvent({ type: 'result', stl }))
@@ -126,6 +131,48 @@ describe('RenderController', () => {
     expect(created).toBe(2)
     workers[1].onmessage?.(messageEvent({ type: 'result', stl: new ArrayBuffer(1) }))
     await expect(promise).resolves.toEqual({ kind: 'stl', stl: expect.any(ArrayBuffer) })
+  })
+
+  it('terminates an automatic render at its execution budget and clears the timer after success', async () => {
+    vi.useFakeTimers()
+    const worker = new FakeWorker()
+    const controller = new RenderController(() => worker)
+    const timedOut = controller.render('cube(1);', { timeoutMs: 15_000 })
+    vi.advanceTimersByTime(14_999)
+    expect(worker.terminate).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    await expect(timedOut).rejects.toBeInstanceOf(RenderTimeoutError)
+    expect(worker.terminate).toHaveBeenCalledOnce()
+
+    const nextWorker = new FakeWorker()
+    const successful = new RenderController(() => nextWorker)
+    const completed = successful.render('sphere(1);', { timeoutMs: 15_000 })
+    nextWorker.onmessage?.(messageEvent({ type: 'empty-result' }))
+    await expect(completed).resolves.toEqual({ kind: 'empty' })
+    vi.advanceTimersByTime(15_000)
+    expect(nextWorker.terminate).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('gives a replacement render a fresh full budget after cancellation', async () => {
+    vi.useFakeTimers()
+    const workers = [new FakeWorker(), new FakeWorker()]
+    let created = 0
+    const controller = new RenderController(() => workers[created++])
+    const stale = controller.render('cube(1);', { timeoutMs: 15_000 })
+    stale.catch(() => {})
+    vi.advanceTimersByTime(10_000)
+    controller.stop()
+
+    const current = controller.render('sphere(1);', { timeoutMs: 15_000 })
+    vi.advanceTimersByTime(5_000)
+    expect(workers[1].terminate).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(9_999)
+    expect(workers[1].terminate).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    await expect(current).rejects.toBeInstanceOf(RenderTimeoutError)
+    expect(workers[1].terminate).toHaveBeenCalledOnce()
+    vi.useRealTimers()
   })
 
   it('ignores a late result from a terminated worker after a newer render starts', async () => {

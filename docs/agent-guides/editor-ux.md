@@ -129,13 +129,14 @@ Live toggle. Live is an accessible, session-only switch: semantic graph edits
 start one background render after 400 ms of quiet, whereas selection, dragging,
 canvas/preview navigation, Inspect, menus, and autosave do not. Manual Render
 flushes a pending delay; Stop works for manual and Live runs, appearing after
-200 ms with the same upper-left spinner. Live automatically turns off after a
-completed Live run exceeds two seconds and announces why through the preview's
-accessible status. Turning Live on, switching to another local project while
-Live is on, or successfully restoring an existing local project on page load
-renders the current graph immediately rather than waiting for the edit debounce.
-The first empty project created for an empty library remains idle. Its checked
-state is never persisted in a project.
+200 ms with the same upper-left spinner. Each uncached automatic Preview has a
+fresh 15-second execution limit; reaching it stops that attempt, turns off Live,
+and announces why through the preview's accessible status. Cached automatic
+results do not start that timer. Turning Live on, switching to another local
+project while Live is on, or successfully restoring an existing local project
+on page load renders the current graph immediately rather than waiting for the
+edit debounce. The first empty project created for an empty library remains
+idle. Its checked state and preview cache are never persisted in a project.
 
 Compact shell actions use the small local inline-SVG vocabulary rather than an
 external icon library. Icon-only controls retain a localized accessible name,

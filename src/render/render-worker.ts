@@ -70,7 +70,7 @@ function toErrorMessage(error: unknown, stderrLines: string[]): string {
   return String(error)
 }
 
-async function render(source: string): Promise<RenderResponse> {
+async function render(source: string, options: Extract<WorkerRequest, { type: 'render' }>['options']): Promise<RenderResponse> {
   const stderrLines: string[] = []
   const tStart = performance.now()
 
@@ -86,7 +86,13 @@ async function render(source: string): Promise<RenderResponse> {
 
     instance.FS.writeFile('/input.scad', source)
     try {
-      instance.callMain(['/input.scad', '--backend=Manifold', '--export-format=binstl', '-o', '/output.stl'])
+      instance.callMain([
+        '/input.scad',
+        `--backend=${options.backend}`,
+        `--export-format=${options.exportFormat}`,
+        '-o',
+        '/output.stl',
+      ])
       const tGeometry = performance.now()
       let bytes: Uint8Array
       try {
@@ -156,7 +162,7 @@ scope.onmessage = (event: { data: unknown }) => {
   const message = event.data as WorkerRequest
   if (message.type !== 'render' && message.type !== 'inspect-value') return
 
-  void (message.type === 'render' ? render(message.source) : inspectValue(message.source)).then((response) => {
+  void (message.type === 'render' ? render(message.source, message.options) : inspectValue(message.source)).then((response) => {
     if (response.type === 'result') {
       scope.postMessage(response, [response.stl])
     } else {

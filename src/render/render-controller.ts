@@ -1,4 +1,5 @@
 import { isRenderResponse, type RenderRequest, type WorkerRequest } from './protocol'
+import { GEOMETRY_RENDER_OPTIONS, type GeometryRenderOptions } from './render-options'
 
 export type GeometryRenderResult =
   | { kind: 'stl'; stl: ArrayBuffer }
@@ -17,6 +18,23 @@ export interface WorkerLike {
 
 export type WorkerFactory = () => WorkerLike
 
+export const AUTOMATIC_RENDER_TIMEOUT_MS = 15_000
+
+export interface RenderExecutionOptions {
+  renderOptions?: GeometryRenderOptions
+  timeoutMs?: number
+}
+
+export class RenderTimeoutError extends Error {
+  readonly timeoutMs: number
+
+  constructor(timeoutMs: number) {
+    super(`Automatic render exceeded its ${timeoutMs}ms time budget`)
+    this.name = 'RenderTimeoutError'
+    this.timeoutMs = timeoutMs
+  }
+}
+
 function createRenderWorker(): WorkerLike {
   return new Worker(new URL('./render-worker.ts', import.meta.url), { type: 'module' })
 }
@@ -30,7 +48,12 @@ function createRenderWorker(): WorkerLike {
  */
 export class RenderController {
   private worker: WorkerLike | null = null
-  private pending: { kind: 'render' | 'value'; resolve: (result: GeometryRenderResult | string) => void; reject: (error: Error) => void } | null = null
+  private pending: {
+    kind: 'render' | 'value'
+    resolve: (result: GeometryRenderResult | string) => void
+    reject: (error: Error) => void
+    timeout?: ReturnType<typeof setTimeout>
+  } | null = null
   private readonly createWorker: WorkerFactory
   /** `performance.now()` timestamp of the most recent `postMessage`, used only to log round-trip timing. */
   private renderStartedAt = 0
@@ -43,7 +66,7 @@ export class RenderController {
     return this.pending !== null
   }
 
-  render(source: string): Promise<GeometryRenderResult> {
+  render(source: string, execution: RenderExecutionOptions = {}): Promise<GeometryRenderResult> {
     if (this.pending) {
       return Promise.reject(new Error('A render is already in progress'))
     }
@@ -62,9 +85,25 @@ export class RenderController {
       this.worker = worker
       this.attachHandlers(worker)
 
-      const request: RenderRequest = { type: 'render', source }
+      const request: RenderRequest = {
+        type: 'render',
+        source,
+        options: execution.renderOptions ?? GEOMETRY_RENDER_OPTIONS,
+      }
       this.renderStartedAt = performance.now()
       worker.postMessage(request)
+      if (execution.timeoutMs !== undefined) {
+        const timeoutMs = execution.timeoutMs
+        const pending = this.pending
+        pending.timeout = setTimeout(() => {
+          if (this.pending !== pending) return
+          if (this.worker === worker) {
+            worker.terminate()
+            this.worker = null
+          }
+          this.rejectPending(new RenderTimeoutError(timeoutMs))
+        }, timeoutMs)
+      }
     })
   }
 
@@ -113,6 +152,7 @@ export class RenderController {
       const pending = this.pending
       this.pending = null
       if (!pending) return
+      if (pending.timeout !== undefined) clearTimeout(pending.timeout)
       if (data.type === 'result' && pending.kind === 'render') {
         console.log(`[render-controller] round-trip=${(performance.now() - this.renderStartedAt).toFixed(1)}ms`)
         pending.resolve({ kind: 'stl', stl: data.stl })
@@ -135,6 +175,7 @@ export class RenderController {
   private rejectPending(error: Error): void {
     const pending = this.pending
     this.pending = null
+    if (pending?.timeout !== undefined) clearTimeout(pending.timeout)
     pending?.reject(error)
   }
 }

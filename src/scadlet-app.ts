@@ -24,9 +24,11 @@ import { createEmptyProject, UNTITLED_PROJECT_NAME, type ScadletProjectMetadata,
 import { LocalProjectEvents, type LocalProjectEvent } from './persistence/project-events'
 import { restoreProject } from './persistence/restore'
 import { serializeProject } from './persistence/serialize'
-import { RenderController } from './render/render-controller'
+import { AUTOMATIC_RENDER_TIMEOUT_MS, RenderController, RenderTimeoutError } from './render/render-controller'
 import { ExecutionGeneration } from './render/execution-generation'
 import { LiveRenderScheduler } from './render/live-render-scheduler'
+import { PreviewRenderCache } from './render/preview-cache'
+import { GEOMETRY_RENDER_OPTIONS } from './render/render-options'
 import { scadBlob, stlBlob, triggerDownload } from './render/download'
 import { t } from './i18n/translate'
 import type { ModuleDefinition } from './editor/definitions'
@@ -338,6 +340,7 @@ export class ScadletApp extends LitElement {
   private sideEl!: HTMLElement
 
   private readonly renderController = new RenderController()
+  private readonly previewCache = new PreviewRenderCache()
   private readonly executionGeneration = new ExecutionGeneration()
   private activeExecution: 'render' | 'inspect' | null = null
   /** The origin only affects scheduling/cancellation policy, never project data. */
@@ -1408,7 +1411,6 @@ export class ScadletApp extends LitElement {
     const generation = this._beginExecution('render', origin)
     this.renderInfo = null
     const tStart = performance.now()
-    let renderStartedAt: number | null = null
     try {
       // Toolbar Render always evaluates the complete project. A temporary
       // Inspect root never changes normal preview or `.scad` export scope.
@@ -1419,8 +1421,13 @@ export class ScadletApp extends LitElement {
         this.renderError = 'Nothing to render - add at least one node.'
         return
       }
-      renderStartedAt = performance.now()
-      const result = await this.renderController.render(source)
+      const cachedResult = origin === 'live' && inspectTarget === null
+        ? this.previewCache.get(source, GEOMETRY_RENDER_OPTIONS)
+        : undefined
+      const result = cachedResult ?? await this.renderController.render(source, {
+        renderOptions: GEOMETRY_RENDER_OPTIONS,
+        ...(origin === 'live' ? { timeoutMs: AUTOMATIC_RENDER_TIMEOUT_MS } : {}),
+      })
       if (!this._isCurrentRender(generation, revision, inspectTarget)) return
       if (result.kind === 'empty') {
         this.stl = null
@@ -1430,16 +1437,22 @@ export class ScadletApp extends LitElement {
         this.stl = result.stl
         this.viewer.showSTL(result.stl)
       }
-      this.liveScheduler.markSuccessful(revision)
-      if (origin === 'live' && performance.now() - renderStartedAt > 2000) this._disableSlowLiveRender()
+      // Manual Render deliberately bypasses reads but refreshes the same
+      // session cache. Inspect-scoped results skip it, and stale results have
+      // already returned through the generation/revision guard above.
+      if (inspectTarget === null) {
+        if (cachedResult === undefined) this.previewCache.set(source, GEOMETRY_RENDER_OPTIONS, result)
+        this.liveScheduler.markSuccessful(revision)
+      }
       console.log(`[scadlet-app] render total=${(performance.now() - tStart).toFixed(1)}ms`)
     } catch (error) {
       if (!this._isCurrentRender(generation, revision, inspectTarget)) return
       const message = error instanceof Error ? error.message : String(error)
-      if (message !== 'Render stopped') {
+      if (origin === 'live' && error instanceof RenderTimeoutError) {
+        this._disableTimedOutAutomaticRender()
+      } else if (message !== 'Render stopped') {
         this.renderInfo = null
         this.renderError = message
-        if (origin === 'live' && renderStartedAt !== null && performance.now() - renderStartedAt > 2000) this._disableSlowLiveRender()
       }
     } finally {
       this._finishExecution(generation)
@@ -1451,8 +1464,9 @@ export class ScadletApp extends LitElement {
       && (inspectTarget === null || this.editorInstance?.getInspectedNodeId() === inspectTarget)
   }
 
-  private _disableSlowLiveRender(): void {
-    // This is feedback about the Live policy, not an OpenSCAD/WASM failure.
+  private _disableTimedOutAutomaticRender(): void {
+    // Reaching the automatic-only budget is Live-policy feedback, not an
+    // OpenSCAD compiler error. Manual Render remains available without it.
     this.live = false
     this.liveScheduler.setLive(false)
     this.renderInfo = t('render.liveDisabledSlow')
@@ -1567,6 +1581,7 @@ export class ScadletApp extends LitElement {
     this.localEvents?.close()
     this.autosave?.destroy()
     this.liveScheduler.destroy()
+    this.previewCache.clear()
     this.renderController.destroy()
     if (this.renderStopTimer) clearTimeout(this.renderStopTimer)
     this.mainResizeObserver?.disconnect()

@@ -1,3 +1,5 @@
+import type { GeometryRenderOptions } from './render-options'
+
 /**
  * Message shapes exchanged between the main thread and the OpenSCAD
  * render worker (`render-worker.ts`). Kept intentionally small and
@@ -7,6 +9,7 @@
 export interface RenderRequest {
   type: 'render'
   source: string
+  options: GeometryRenderOptions
 }
 
 export interface InspectValueRequest {
