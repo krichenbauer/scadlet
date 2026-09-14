@@ -117,6 +117,24 @@ language switcher merely in anticipation of another language.
 
 ## Application shell
 
+SCADlet treats genuinely small touch layouts as an explicit unsupported
+presentation state. When the primary pointer is coarse and the viewport is at
+most 700px wide or at most 500px high, hide the full application shell and show
+the non-dismissible larger-screen notice. The 700px boundary matches the
+existing narrow-layout cutoff: below it, the 200px palette plus the editor's
+280px and preview's 240px minimum widths cannot form the intended workspace.
+The 500px height guard also catches phone landscape, where the header plus the
+160px viewer, 60px output, splitter, and a meaningful node-canvas area do not
+fit comfortably. A 768×1024 or 1024×768 coarse-pointer tablet remains
+supported.
+
+Use a live media-query listener so resize and rotation switch the presentation
+immediately. Keep the editor/application mounted underneath the notice: this
+boundary is presentation only and must not reset graph state, project
+persistence, rendering, or editor interaction when the viewport becomes usable
+again. Fine-pointer desktop windows do not show the notice merely because they
+are narrow.
+
 The header contains SCADlet, the directly editable active-project name, a
 Projects popover, File menu, and the GitHub icon. Enter and focus loss commit
 the project name through the normal dirty/autosave lifecycle. Projects manages

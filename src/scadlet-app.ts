@@ -33,6 +33,7 @@ import { GEOMETRY_RENDER_OPTIONS } from './render/render-options'
 import { scadBlob, stlBlob, triggerDownload } from './render/download'
 import { t } from './i18n/translate'
 import type { ModuleDefinition } from './editor/definitions'
+import { UNSUPPORTED_SMALL_TOUCH_MEDIA_QUERY } from './layout/small-screen'
 
 /** Pane size limits for the resizable workspace layout, in pixels. */
 const MIN_EDITOR_WIDTH = 280
@@ -63,6 +64,79 @@ export class ScadletApp extends LitElement {
       color-scheme: dark;
       user-select: none;
       -webkit-user-select: none;
+    }
+
+    [hidden] { display: none !important; }
+    .application-shell { display: contents; }
+
+    .small-screen-notice {
+      grid-row: 1 / -1;
+      min-width: 0;
+      min-height: 100%;
+      box-sizing: border-box;
+      display: grid;
+      place-items: center;
+      overflow: auto;
+      padding: clamp(24px, 8vw, 56px);
+      background:
+        radial-gradient(circle at 15% 12%, rgb(72 119 148 / 0.3), transparent 42%),
+        radial-gradient(circle at 88% 90%, rgb(44 74 98 / 0.28), transparent 46%),
+        #181c20;
+      text-align: center;
+    }
+
+    .small-screen-notice-card {
+      width: min(100%, 31rem);
+      box-sizing: border-box;
+      padding: clamp(24px, 7vw, 38px);
+      border: 1px solid #526776;
+      border-radius: 16px;
+      background: rgb(35 42 48 / 0.96);
+      box-shadow: 0 18px 50px rgb(0 0 0 / 0.38);
+    }
+
+    .small-screen-notice-brand {
+      margin: 0 0 12px;
+      color: #9ed7f5;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .small-screen-notice h1 {
+      margin: 0;
+      color: #f4f8fb;
+      font-size: clamp(25px, 8vw, 34px);
+      line-height: 1.12;
+    }
+
+    .small-screen-notice-description {
+      margin: 18px auto 24px;
+      color: #ced8df;
+      font-size: 16px;
+      line-height: 1.55;
+    }
+
+    .small-screen-notice-link {
+      display: inline-flex;
+      min-height: 46px;
+      box-sizing: border-box;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 18px;
+      border: 1px solid #8bc8e8;
+      border-radius: 7px;
+      background: #276080;
+      color: #fff;
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    .small-screen-notice-link:hover { background: #327394; }
+    .small-screen-notice-link:focus-visible {
+      outline: 3px solid #b8e3fa;
+      outline-offset: 3px;
     }
 
     header {
@@ -253,9 +327,8 @@ export class ScadletApp extends LitElement {
       min-width: 0;
     }
 
-    /* At narrow widths, fall back to a simple stacked layout instead of
-       trying to keep the side-by-side split usable (AGENTS.md: desktop
-       is the primary target, narrow widths just need to avoid breaking). */
+    /* Fine-pointer windows may still use the narrow stacked fallback. A
+       coarse-pointer phone shows the dedicated supported-state notice. */
     @media (max-width: 700px) {
       .workspace {
         display: flex !important;
@@ -408,6 +481,11 @@ export class ScadletApp extends LitElement {
   private localInitializing = true
 
   @state()
+  private smallScreenUnsupported = false
+
+  private smallScreenMedia?: MediaQueryList
+
+  @state()
   private autosaveStatus: AutosaveStatus = 'idle'
 
   @state()
@@ -478,6 +556,7 @@ export class ScadletApp extends LitElement {
 
   render() {
     return html`
+      <div class="application-shell" ?hidden=${this.smallScreenUnsupported}>
       <header>
         <div class="menu-anchor">
           <button class="compact-menu-button" type="button" aria-expanded=${String(this.fileMenuOpen)} @click=${this._toggleFileMenu}>${t('toolbar.file')} ⌄</button>
@@ -581,6 +660,27 @@ export class ScadletApp extends LitElement {
           </form>
         </div>
       ` : nothing}
+      </div>
+      <main
+        class="small-screen-notice"
+        ?hidden=${!this.smallScreenUnsupported}
+        aria-labelledby="small-screen-notice-title"
+        aria-describedby="small-screen-notice-description"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <section class="small-screen-notice-card">
+          <p class="small-screen-notice-brand">SCADlet</p>
+          <h1 id="small-screen-notice-title">${t('smallScreen.title')}</h1>
+          <p id="small-screen-notice-description" class="small-screen-notice-description">${t('smallScreen.description')}</p>
+          <a
+            class="small-screen-notice-link"
+            href="https://github.com/krichenbauer/scadlet"
+            target="_blank"
+            rel="noopener noreferrer"
+          >${t('smallScreen.github')}</a>
+        </section>
+      </main>
     `
   }
 
@@ -1059,6 +1159,13 @@ export class ScadletApp extends LitElement {
   connectedCallback(): void {
     super.connectedCallback()
     window.addEventListener('keydown', this._onKeyDown)
+    this.smallScreenMedia = window.matchMedia(UNSUPPORTED_SMALL_TOUCH_MEDIA_QUERY)
+    this.smallScreenUnsupported = this.smallScreenMedia.matches
+    this.smallScreenMedia.addEventListener('change', this._onSmallScreenMediaChange)
+  }
+
+  private readonly _onSmallScreenMediaChange = (event: MediaQueryListEvent): void => {
+    this.smallScreenUnsupported = event.matches
   }
 
   private _clampEditorWidth(): void {
@@ -1610,6 +1717,8 @@ export class ScadletApp extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback()
     window.removeEventListener('keydown', this._onKeyDown)
+    this.smallScreenMedia?.removeEventListener('change', this._onSmallScreenMediaChange)
+    this.smallScreenMedia = undefined
     this.unsubscribeDirty?.()
     this.unsubscribeSemantic?.()
     this.unsubscribeInspect?.()

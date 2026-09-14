@@ -53,6 +53,10 @@ without an explicit product decision.
   presentation actions. They must never change semantic graph data, generated
   source, dirty/autosave state, Inspect provenance, or persisted project view
   state.
+- On coarse-pointer viewports at most 700px wide or 500px high, keep the live
+  application mounted but replace it visually and accessibly with the
+  non-dismissible larger-screen notice. Crossing that boundary must update
+  immediately without resetting editor or project state.
 
 ## Read the relevant reference before changing its area
 

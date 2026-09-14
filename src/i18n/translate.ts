@@ -231,6 +231,9 @@ const dictionaries: Record<LocaleId, Record<string, string>> = {
     'viewer.liveRender': 'Live render',
     'viewer.rendering': 'Rendering',
     'viewer.renderControls': 'Preview render controls',
+    'smallScreen.title': 'A larger screen is required',
+    'smallScreen.description': 'SCADlet is designed for a larger display. Open it on a desktop or suitably large tablet.',
+    'smallScreen.github': 'View SCADlet on GitHub',
   },
 }
 
