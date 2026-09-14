@@ -55,7 +55,12 @@ type colours. Use familiar, simple metaphors and keep them visually consistent
 with the existing local icon set. Examples include cube/sphere for primitives,
 arrows for transforms, overlapping shapes for booleans, calculator/comparison
 marks for value operations, and distinct module/function symbols for
-definitions.
+definitions. Boolean icons use two overlapping filled primitives: the bright
+area is the Boolean result, while non-result input areas are subdued. Union
+shows both shapes brightly; Intersection highlights only the shared lens; and
+Difference highlights only the retained part of its first input. Result and
+subdued areas use explicit opaque local monochrome SVG colours so they remain
+legible at the palette's compact size.
 
 The left-hand node overview/palette uses the same icon immediately before every
 node-type name. This makes scanning and finding an entry consistent with the

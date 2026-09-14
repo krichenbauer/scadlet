@@ -94,14 +94,14 @@ export class NodePaletteElement extends LitElement {
     .node-item-icon {
       display: inline-flex;
       flex: none;
-      width: 15px;
-      height: 15px;
-      margin-right: 6px;
-      vertical-align: -3px;
+      width: 18px;
+      height: 18px;
+      margin-right: 7px;
+      vertical-align: -4px;
       opacity: 0.85;
     }
 
-    .node-item-icon svg {
+    .node-item-icon svg:not(.boolean-operation-icon) {
       width: 100%;
       height: 100%;
       fill: none;
@@ -110,6 +110,10 @@ export class NodePaletteElement extends LitElement {
       stroke-linecap: round;
       stroke-linejoin: round;
     }
+
+    .node-item-icon .boolean-operation-icon__input { fill: #8f8f8f !important; stroke: none !important; opacity: 1; }
+    .node-item-icon .boolean-operation-icon__result { fill: #f2f2f2 !important; stroke: none !important; opacity: 1; }
+
 
     /* The same narrow inset edge used on Geometry-producing canvas nodes.
        It adds no layout width, so palette scanning and drag targets stay

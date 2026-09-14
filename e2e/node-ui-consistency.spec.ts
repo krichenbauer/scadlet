@@ -238,6 +238,37 @@ test('palette entries show a matching icon immediately before every readable nod
   const cubeIconPath = await palette.locator('.node-item[data-node-type="cube"] .node-item-icon svg path').getAttribute('d')
   const numberIconPath = await palette.locator('.node-item[data-node-type="number"] .node-item-icon svg path').getAttribute('d')
   expect(cubeIconPath).not.toBe(numberIconPath)
+
+  // Boolean glyphs use bright filled result areas; Intersection and Difference
+  // retain two visibly subdued input shapes behind their specific result.
+  for (const type of ['union', 'intersection', 'difference']) {
+    const icon = palette.locator(`.node-item[data-node-type="${type}"] .boolean-operation-icon`)
+    await expect(icon).toHaveClass(new RegExp(`boolean-operation-icon--${type}`))
+    await expect(icon.locator('.boolean-operation-icon__result')).toHaveCount(type === 'union' ? 2 : 1)
+    await expect(icon.locator('.boolean-operation-icon__input')).toHaveCount(type === 'union' ? 0 : 2)
+  }
+  await expect(palette.locator('.boolean-operation-icon__input').first()).toHaveAttribute('fill', '#8f8f8f')
+  await expect(palette.locator('.boolean-operation-icon__result').first()).toHaveAttribute('fill', '#f2f2f2')
+  await expect(palette.locator('.boolean-operation-icon__input').first()).toHaveCSS('fill', 'rgb(143, 143, 143)')
+  await expect(palette.locator('.boolean-operation-icon__result').first()).toHaveCSS('fill', 'rgb(242, 242, 242)')
+  const paintGeometry = await palette.locator('.boolean-operation-icon').evaluateAll((icons) => icons.flatMap((icon) =>
+    Array.from(icon.children).map((part) => ({
+      namespace: part.namespaceURI,
+      width: part.getBoundingClientRect().width,
+      height: part.getBoundingClientRect().height,
+    })),
+  ))
+  expect(paintGeometry.every((part) => part.namespace === 'http://www.w3.org/2000/svg')).toBe(true)
+  expect(paintGeometry.every((part) => part.width > 0 && part.height > 0)).toBe(true)
+  await palette.screenshot({ path: 'test-results/boolean-palette-after.png' })
+
+  for (const type of ['cube', 'union', 'number']) {
+    const iconSize = await palette.locator(`.node-item[data-node-type="${type}"] .node-item-icon`).evaluate((icon) => {
+      const style = getComputedStyle(icon)
+      return { width: style.width, height: style.height }
+    })
+    expect(iconSize).toEqual({ width: '18px', height: '18px' })
+  }
 })
 
 test('Module and Function frames use the shared icon/keyword/name hierarchy, never show Add or Collapse, and rename/delete through their own More menu', async ({ page }) => {

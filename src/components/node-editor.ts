@@ -341,7 +341,7 @@ export class NodeEditorElement extends LitElement {
       opacity: 0.85;
     }
 
-    .node-header-icon svg {
+    .node-header-icon svg:not(.boolean-operation-icon) {
       width: 100%;
       height: 100%;
       fill: none;
@@ -350,6 +350,10 @@ export class NodeEditorElement extends LitElement {
       stroke-linecap: round;
       stroke-linejoin: round;
     }
+
+    .node-header-icon .boolean-operation-icon__input { fill: #8f8f8f !important; stroke: none !important; opacity: 1; }
+    .node-header-icon .boolean-operation-icon__result { fill: #f2f2f2 !important; stroke: none !important; opacity: 1; }
+
 
     .node-title {
       flex: 1 1 auto;

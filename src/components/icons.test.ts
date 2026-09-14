@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { compactIconPath } from './icons'
+import { booleanOperationIconParts, compactIconPath } from './icons'
 
 describe('compact collapse icons', () => {
   it('provides a local upward chevron path for the collapse action', () => {
@@ -17,5 +17,29 @@ describe('compact collapse icons', () => {
 
   it('keeps the existing icon vocabulary available', () => {
     expect(compactIconPath('plus')).toBe('M12 5v14M5 12h14')
+  })
+
+  it('defines filled Boolean result areas and subdued operands where needed', () => {
+    const partClasses = (name: 'union' | 'intersection' | 'difference') =>
+      booleanOperationIconParts(name).map((part) => part.className)
+
+    expect(partClasses('union')).toEqual([
+      'boolean-operation-icon__result',
+      'boolean-operation-icon__result',
+    ])
+    expect(partClasses('intersection')).toEqual([
+      'boolean-operation-icon__input',
+      'boolean-operation-icon__input',
+      'boolean-operation-icon__result',
+    ])
+    expect(partClasses('difference')).toEqual([
+      'boolean-operation-icon__input',
+      'boolean-operation-icon__input',
+      'boolean-operation-icon__result',
+    ])
+    expect(booleanOperationIconParts('union').every((part) => part.fill === '#f2f2f2')).toBe(true)
+    expect(booleanOperationIconParts('intersection').slice(0, 2).every((part) => part.fill === '#8f8f8f')).toBe(true)
+
+    expect(compactIconPath('intersection')).not.toBe(compactIconPath('difference'))
   })
 })

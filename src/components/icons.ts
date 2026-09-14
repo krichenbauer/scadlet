@@ -1,4 +1,4 @@
-import { html, type TemplateResult } from 'lit'
+import { html, svg, type TemplateResult } from 'lit'
 
 /** Small local SVG vocabulary for compact shell controls. Keeping these inline
  * avoids an icon dependency and ships no external assets. */
@@ -26,9 +26,11 @@ const paths: Record<CompactIconName, string> = {
   translate: 'M12 2v20M2 12h20M12 2l-3 4M12 2l3 4M12 22l-3-4M12 22l3-4M2 12l4-3M2 12l4 3M22 12l-4-3M22 12l-4 3',
   rotate: 'M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5',
   scale: 'M4 20l6-6M4 20v-5M4 20h5M20 4l-6 6M20 4v5M20 4h-5',
-  union: 'M4 12a5 5 0 1 0 10 0a5 5 0 1 0-10 0M10 12a5 5 0 1 0 10 0a5 5 0 1 0-10 0',
-  difference: 'M5 12a6 6 0 1 0 12 0a6 6 0 1 0-12 0M13 8a4 4 0 1 1 0 8a4 4 0 1 1 0-8',
-  intersection: 'M4 12a5 5 0 1 0 10 0a5 5 0 1 0-10 0M10 12a5 5 0 1 0 10 0a5 5 0 1 0-10 0M12 12h.01',
+  // The Boolean operations render through BOOLEAN_OPERATION_ICON_PARTS below.
+  // These result outlines retain compactIconPath()'s total lookup contract.
+  union: 'M3 12a6 6 0 1 0 12 0a6 6 0 1 0-12 0M9 12a6 6 0 1 0 12 0a6 6 0 1 0-12 0',
+  difference: 'M12 6.804A6 6 0 1 0 12 17.196A6 6 0 0 1 12 6.804Z',
+  intersection: 'M12 6.804A6 6 0 0 1 12 17.196A6 6 0 0 1 12 6.804Z',
   value: 'M9 4l-2 16M17 4l-2 16M4 9h16M3 15h16',
   compare: 'M9 5l-5 7 5 7M15 5l5 7-5 7',
   math: 'M5 3h14v18H5ZM8 7h8M8 11h2M12 11h2M16 11h2M8 15h2M12 15h2M16 15h2',
@@ -42,11 +44,54 @@ const paths: Record<CompactIconName, string> = {
   eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7ZM12 9a3 3 0 1 0 0.01 0',
 }
 
+type BooleanOperationIconName = Extract<CompactIconName, 'union' | 'difference' | 'intersection'>
+type BooleanOperationIconPart =
+  | { readonly tag: 'circle'; readonly className: 'boolean-operation-icon__input' | 'boolean-operation-icon__result'; readonly fill: '#8f8f8f' | '#f2f2f2'; readonly cx: number; readonly cy: number; readonly r: number }
+  | { readonly tag: 'path'; readonly className: 'boolean-operation-icon__result'; readonly fill: '#f2f2f2'; readonly d: string }
+
+/**
+ * The Boolean icons show their operands as subdued circles and overlay the
+ * Boolean result brightly. Keeping this as data lets Lit and the Rete DOM
+ * renderer produce the identical local SVG structure.
+ */
+const BOOLEAN_OPERATION_ICON_PARTS: Readonly<Record<BooleanOperationIconName, readonly BooleanOperationIconPart[]>> = {
+  union: [
+    { tag: 'circle', className: 'boolean-operation-icon__result', fill: '#f2f2f2', cx: 9, cy: 12, r: 6 },
+    { tag: 'circle', className: 'boolean-operation-icon__result', fill: '#f2f2f2', cx: 15, cy: 12, r: 6 },
+  ],
+  intersection: [
+    { tag: 'circle', className: 'boolean-operation-icon__input', fill: '#8f8f8f', cx: 9, cy: 12, r: 6 },
+    { tag: 'circle', className: 'boolean-operation-icon__input', fill: '#8f8f8f', cx: 15, cy: 12, r: 6 },
+    { tag: 'path', className: 'boolean-operation-icon__result', fill: '#f2f2f2', d: paths.intersection },
+  ],
+  difference: [
+    { tag: 'circle', className: 'boolean-operation-icon__input', fill: '#8f8f8f', cx: 9, cy: 12, r: 6 },
+    { tag: 'circle', className: 'boolean-operation-icon__input', fill: '#8f8f8f', cx: 15, cy: 12, r: 6 },
+    { tag: 'path', className: 'boolean-operation-icon__result', fill: '#f2f2f2', d: paths.difference },
+  ],
+}
+
+function isBooleanOperationIcon(name: CompactIconName): name is BooleanOperationIconName {
+  return name === 'union' || name === 'intersection' || name === 'difference'
+}
+
+/** Testable icon data for the filled Boolean-result visual contract. */
+export function booleanOperationIconParts(name: BooleanOperationIconName): readonly BooleanOperationIconPart[] {
+  return BOOLEAN_OPERATION_ICON_PARTS[name]
+}
+
 export function compactIconPath(name: CompactIconName): string {
   return paths[name]
 }
 
 export function compactIcon(name: CompactIconName): TemplateResult {
+  if (isBooleanOperationIcon(name)) {
+    return html`<svg class="boolean-operation-icon boolean-operation-icon--${name}" viewBox="0 0 24 24" aria-hidden="true">
+      ${BOOLEAN_OPERATION_ICON_PARTS[name].map((part) => part.tag === 'circle'
+        ? svg`<circle class=${part.className} fill=${part.fill} style="fill: ${part.fill}; stroke: none" cx=${part.cx} cy=${part.cy} r=${part.r} />`
+        : svg`<path class=${part.className} fill=${part.fill} style="fill: ${part.fill}; stroke: none" d=${part.d} />`)}
+    </svg>`
+  }
   return html`<svg viewBox="0 0 24 24" aria-hidden="true"><path d=${paths[name]} /></svg>`
 }
 
@@ -55,6 +100,25 @@ export function compactIconElement(name: CompactIconName): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('viewBox', '0 0 24 24')
   svg.setAttribute('aria-hidden', 'true')
+  if (isBooleanOperationIcon(name)) {
+    svg.classList.add('boolean-operation-icon', `boolean-operation-icon--${name}`)
+    for (const part of BOOLEAN_OPERATION_ICON_PARTS[name]) {
+      const shape = document.createElementNS('http://www.w3.org/2000/svg', part.tag)
+      shape.setAttribute('class', part.className)
+      shape.setAttribute('fill', part.fill)
+      shape.style.setProperty('fill', part.fill)
+      shape.style.setProperty('stroke', 'none')
+      if (part.tag === 'circle') {
+        shape.setAttribute('cx', String(part.cx))
+        shape.setAttribute('cy', String(part.cy))
+        shape.setAttribute('r', String(part.r))
+      } else {
+        shape.setAttribute('d', part.d)
+      }
+      svg.appendChild(shape)
+    }
+    return svg
+  }
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
   path.setAttribute('d', paths[name])
   svg.appendChild(path)
