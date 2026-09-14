@@ -2171,7 +2171,7 @@ test('Geometry Inspect renders the selected subtree immediately and Render retur
   await cube.locator('.node-title').dblclick()
   await expect(cube).toHaveClass(/node--inspected/, { timeout: 15_000 })
   await dropPaletteNode(page, 'cylinder')
-  await expect(page.locator('node-editor .node.node--inspected')).toHaveCount(1)
+  await expect(page.locator('node-editor .node.node--inspected')).toHaveCount(0)
 })
 
 test('Boolean and Vector3 use renameable source titles without redundant body labels', async ({ page }) => {

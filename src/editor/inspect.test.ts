@@ -1,6 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { InspectManager } from './inspect'
+import { exceedsCanvasClickTolerance, InspectManager } from './inspect'
+
+describe('exceedsCanvasClickTolerance', () => {
+  it('treats an unchanged pointer and small input noise as a click', () => {
+    expect(exceedsCanvasClickTolerance({ x: 10, y: 20 }, { x: 10, y: 20 })).toBe(false)
+    expect(exceedsCanvasClickTolerance({ x: 10, y: 20 }, { x: 13, y: 20 })).toBe(false)
+  })
+
+  it('distinguishes a canvas pan or marquee from a plain click', () => {
+    expect(exceedsCanvasClickTolerance({ x: 10, y: 20 }, { x: 14, y: 20 })).toBe(true)
+    expect(exceedsCanvasClickTolerance({ x: 10, y: 20 }, { x: 7, y: 16 })).toBe(true)
+  })
+})
 
 describe('InspectManager', () => {
   it('starts with no node inspected', () => {

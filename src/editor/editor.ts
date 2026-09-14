@@ -8,7 +8,7 @@ import { canvasContentBounds, fitCanvasBounds, type CanvasContentItem } from './
 import { evaluateInspectNode, evaluateOpenSCAD, type InspectEvaluation } from './evaluate'
 import { isEditableTarget, removeNodeWithConnections } from './deletion'
 import { isDirtyAreaSignal, isDirtyEditorSignal } from './dirty'
-import { InspectManager } from './inspect'
+import { exceedsCanvasClickTolerance, InspectManager } from './inspect'
 import { attachMarqueeSelection } from './marquee'
 import { findCatalogEntry, FUNCTION_GRAPH_ALLOWED_NODE_TYPES, type NodeCreationContext, type NodeTypeId } from './node-catalog'
 import { NodePresentationManager } from './presentation'
@@ -135,6 +135,8 @@ export interface SCADletEditor {
   onSemanticChange(callback: () => void): () => void
   /** Subscribes to one-shot Inspect actions initiated by node double-clicks. */
   onInspect(callback: (nodeId: string) => void): () => void
+  /** Subscribes to explicit editor interactions that end the active Inspect. */
+  onInspectEnd(callback: () => void): () => void
   /** Fits the visible nodes and definition frames without changing persisted viewport state. */
   fitVisibleContent(): Promise<boolean>
   /** The viewport to serialize; transient recovery transforms are deliberately excluded. */
@@ -459,6 +461,46 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     onChange: (id) => void area.update('node', id),
     onScopeChange: () => { for (const node of editor.getNodes()) void area.update('node', node.id) },
   })
+  const inspectEndListeners = new Set<() => void>()
+  const endInspect = (): void => {
+    if (inspect.id === null) return
+    inspect.clear()
+    for (const listener of inspectEndListeners) listener()
+  }
+  let blankCanvasPress: {
+    pointerId: number
+    start: Position
+    moved: boolean
+  } | null = null
+  area.addPipe((context) => {
+    if (context.type === 'pointerdown') {
+      const event = context.data.event
+      blankCanvasPress = event.pointerType === 'mouse' && event.button !== 0
+        ? null
+        : {
+            pointerId: event.pointerId,
+            start: { x: event.clientX, y: event.clientY },
+            moved: false,
+          }
+    } else if (context.type === 'pointermove' && blankCanvasPress?.pointerId === context.data.event.pointerId) {
+      blankCanvasPress.moved ||= exceedsCanvasClickTolerance(blankCanvasPress.start, {
+        x: context.data.event.clientX,
+        y: context.data.event.clientY,
+      })
+    } else if (context.type === 'pointerup' && blankCanvasPress?.pointerId === context.data.event.pointerId) {
+      const wasClick = !blankCanvasPress.moved && !exceedsCanvasClickTolerance(blankCanvasPress.start, {
+        x: context.data.event.clientX,
+        y: context.data.event.clientY,
+      })
+      blankCanvasPress = null
+      if (wasClick) endInspect()
+    }
+    return context
+  })
+  const cancelBlankCanvasPress = (event: PointerEvent): void => {
+    if (blankCanvasPress?.pointerId === event.pointerId) blankCanvasPress = null
+  }
+  window.addEventListener('pointercancel', cancelBlankCanvasPress)
   const unsubscribeConnectionSelection = connectionSelection.subscribe((previous, current) => {
     if (previous) void area.update('connection', previous)
     if (current) void area.update('connection', current)
@@ -574,7 +616,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     notifyDirty,
     (nodeId) => {
       if (inspect.id === nodeId) {
-        inspect.clear()
+        endInspect()
         return
       }
       inspect.activate(nodeId, inspectParticipatingNodeIds(editor, nodeId))
@@ -582,7 +624,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     },
     (nodeId) => {
       connectionSelection.clear()
-      if (inspect.id !== null && !inspect.participates(nodeId)) inspect.clear()
+      if (inspect.id !== null && !inspect.participates(nodeId)) endInspect()
     },
     selectConnection,
     (nodeId) => { void removeNodeWithConnections(editor, nodeId, canDeleteNode) },
@@ -1486,7 +1528,11 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     try { validatedParams = params === undefined ? undefined : entry.validateParams(params) } catch { return }
     const node = entry.create(creationContext, validatedParams)
     if (owner !== null) definitions.assignNode(owner, node.id)
-    await editor.addNode(node)
+    if (!await editor.addNode(node)) return
+    // Palette creation replaces the inspected subtree context. Clear only
+    // after Rete accepted the new node, so malformed or rejected drops leave
+    // the active Inspect result untouched.
+    endInspect()
 
     const rect = area.container.getBoundingClientRect()
     const position = clientToGraphPosition(clientPosition, rect, area.area.transform)
@@ -1499,7 +1545,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const entry = findCatalogEntry('module-call')!
     const node = entry.create(creationContext, { definitionId })
     if (owner !== null) definitions.assignNode(owner, node.id)
-    await editor.addNode(node)
+    if (!await editor.addNode(node)) return false
+    endInspect()
     const rect = area.container.getBoundingClientRect()
     await area.translate(node.id, clientToGraphPosition(clientPosition, rect, area.area.transform))
     return true
@@ -1611,7 +1658,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const entry = findCatalogEntry('function-call')!
     const node = entry.create(creationContext, { definitionId })
     if (owner !== null) definitions.assignNode(owner, node.id)
-    await editor.addNode(node)
+    if (!await editor.addNode(node)) return false
+    endInspect()
     const rect = area.container.getBoundingClientRect()
     await area.translate(node.id, clientToGraphPosition(clientPosition, rect, area.area.transform))
     return true
@@ -1805,6 +1853,10 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       inspectListeners.add(callback)
       return () => inspectListeners.delete(callback)
     },
+    onInspectEnd: (callback: () => void) => {
+      inspectEndListeners.add(callback)
+      return () => inspectEndListeners.delete(callback)
+    },
     fitVisibleContent,
     getPersistedViewport: () => ({ ...persistedViewport }),
     setPersistedViewport,
@@ -1819,6 +1871,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     destroy: () => {
       detachMarquee()
       nodeSelection.destroy()
+      window.removeEventListener('pointercancel', cancelBlankCanvasPress)
       unsubscribeConnectionSelection()
       container.removeEventListener('pointerdown', clearConnectionOnBlankCanvas, { capture: true })
       window.removeEventListener('pointerdown', selectConnectionOnPointerDown, { capture: true })

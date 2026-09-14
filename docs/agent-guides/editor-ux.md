@@ -93,8 +93,12 @@ Transformations, and Boolean operations rather than CSG jargon.
 Double-clicking a geometry output performs one-shot upstream Geometry Inspect;
 double-clicking a value output runs OpenSCAD headlessly and displays the value.
 Inspect is presentation state: it never rewires, copies, or changes graph
-semantics. Its Geometry marker is provenance: it means the currently displayed
-mesh was successfully produced by Inspecting that node. A confirmed valid
+semantics. A plain empty-canvas click ends the active Inspect alongside normal
+selection clearing; node/control/connection interaction, panning, and marquee
+gestures do not. Successfully dropping a new palette node also ends Inspect;
+merely starting or cancelling a palette drag does not. Its Geometry marker is
+provenance: it means the currently displayed mesh was successfully produced by
+Inspecting that node. A confirmed valid
 empty Geometry Inspect clears the preview and does not create or retain that
 marker; its restrained localized preview status is not an error. Normal Render
 clears the marker immediately and always renders the full project, including if

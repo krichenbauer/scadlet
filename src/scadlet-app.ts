@@ -357,6 +357,7 @@ export class ScadletApp extends LitElement {
   private unsubscribeDirty?: () => void
   private unsubscribeSemantic?: () => void
   private unsubscribeInspect?: () => void
+  private unsubscribeInspectEnd?: () => void
   private unsubscribeCameraDirty?: () => void
   private unsubscribeDefinitions?: () => void
   private localStore: LocalProjectStore | null = null
@@ -709,6 +710,7 @@ export class ScadletApp extends LitElement {
       this.unsubscribeDirty = instance.onDirty(() => this._markDirty())
       this.unsubscribeSemantic = instance.onSemanticChange(() => this._handleSemanticChange())
       this.unsubscribeInspect = instance.onInspect((nodeId) => void this._inspect(nodeId))
+      this.unsubscribeInspectEnd = instance.onInspectEnd(() => this._handleInspectEnd())
       this.unsubscribeCameraDirty = this.viewer.onCameraChange(() => this._markDirty())
       this.localInitializing = false
     }
@@ -1365,6 +1367,22 @@ export class ScadletApp extends LitElement {
     this.liveScheduler.semanticChange()
   }
 
+  /** Prevents a completed async Inspect from restoring provenance after the
+   * user explicitly ended it in the editor. The last valid preview remains
+   * visible, matching `InspectManager.clear()`; only the in-flight work and
+  * its ability to commit are cancelled. */
+  private _handleInspectEnd(): void {
+    if (this.activeExecution !== 'inspect' && this.activeRenderOrigin !== 'live') return
+    this.executionGeneration.invalidate()
+    if (this.renderStopTimer) clearTimeout(this.renderStopTimer)
+    this.renderStopTimer = undefined
+    this.activeExecution = null
+    this.activeRenderOrigin = null
+    this.rendering = false
+    this.showRenderStop = false
+    this.renderController.stop()
+  }
+
   private async _render() {
     // A direct Render action wins over a quiet-period request and prevents a
     // later duplicate automatic run for the same revision.
@@ -1539,6 +1557,7 @@ export class ScadletApp extends LitElement {
     this.unsubscribeDirty?.()
     this.unsubscribeSemantic?.()
     this.unsubscribeInspect?.()
+    this.unsubscribeInspectEnd?.()
     this.unsubscribeCameraDirty?.()
     this.unsubscribeDefinitions?.()
     this.unsubscribeLocalEvents?.()

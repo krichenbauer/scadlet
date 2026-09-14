@@ -8,6 +8,23 @@ export interface InspectManagerOptions {
   now?: () => number
 }
 
+export interface PointerPosition {
+  x: number
+  y: number
+}
+
+/** A small tolerance keeps ordinary pointer noise a click while ensuring a
+ * real canvas pan or marquee never dismisses Inspect when the gesture ends. */
+export function exceedsCanvasClickTolerance(
+  start: PointerPosition,
+  current: PointerPosition,
+  tolerancePx = 3,
+): boolean {
+  const dx = current.x - start.x
+  const dy = current.y - start.y
+  return dx * dx + dy * dy > tolerancePx * tolerancePx
+}
+
 /**
  * Owns the "Inspect Node" feature's single piece of state - which node
  * (if any) produced the currently displayed Inspect result - entirely outside
