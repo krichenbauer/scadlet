@@ -8,6 +8,8 @@ import { CheckboxControl, LabeledNumberControl, LabeledTextControl, ModuleGeomet
 import { ModuleInputsNode } from './nodes/module-interface-nodes'
 import { ModuleOutputNode } from './nodes/module-interface-nodes'
 import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interface-nodes'
+import { ModuleCallNode } from './nodes/module-call-node'
+import { FunctionCallNode } from './nodes/function-call-node'
 import { IfNode } from './nodes/if-node'
 import { ConditionalNode } from './nodes/value-nodes'
 import { isEditableTarget } from './deletion'
@@ -618,6 +620,14 @@ function renderHeader(
   const renaming = Boolean(sourceNameControl) && renamingNodeIds.has(node.id)
   const title = renaming ? document.createElement('input') : titleSelectControl ? document.createElement('select') : document.createElement('div')
   title.className = 'node-title'
+  // Calls use the definition name as their concise visible title. Unlike
+  // ordinary nodes, that name alone does not say whether it invokes a Module
+  // or a Function, so retain that distinction for assistive technology and
+  // the native hover tooltip without rendering a redundant keyword.
+  const callType = node instanceof ModuleCallNode ? t('node.moduleCall')
+    : node instanceof FunctionCallNode ? t('node.functionCall')
+      : undefined
+  const callTitle = callType ? `${callType}: ${node.label}` : undefined
   if (title instanceof HTMLInputElement) {
     const nameControl = sourceNameControl!
     title.type = 'text'
@@ -681,6 +691,11 @@ function renderHeader(
     // happens through the More menu's Rename action instead.
     title.textContent = sourceNameControl ? (sourceNameControl.value || node.label) : node.label
     if (sourceNameControl) title.setAttribute('aria-label', `${node.label} ${t('control.name')}`)
+    else if (callTitle) {
+      title.setAttribute('role', 'heading')
+      title.setAttribute('aria-label', callTitle)
+      title.title = callTitle
+    }
   }
   header.appendChild(title)
 
@@ -1195,7 +1210,7 @@ function renderControl(key: string, control: ClassicPreset.Control, hideLabel = 
 }
 
 function renderModuleGeometryInputAddControl(control: ModuleGeometryInputAddControl): HTMLElement {
-  const wrapper = document.createElement('div'); wrapper.className = 'node-control node-control--module-parameter'
+  const wrapper = document.createElement('div'); wrapper.className = 'node-control node-control--module-parameter'; wrapper.setAttribute('role', 'group'); wrapper.setAttribute('aria-label', t('definition.addGeometryInput'))
   const name = document.createElement('input'); name.type = 'text'; name.value = control.name; name.setAttribute('aria-label', t('definition.geometryInputName')); name.addEventListener('pointerdown', (event) => event.stopPropagation()); name.addEventListener('input', () => { control.name = name.value })
   const submit = document.createElement('button'); submit.type = 'button'; submit.textContent = t('definition.add'); submit.addEventListener('pointerdown', (event) => event.stopPropagation()); submit.addEventListener('click', () => { void Promise.resolve(control.onSubmit(control.name)).then((saved) => { if (saved !== false) control.hide() }).catch((error: unknown) => { control.error = error instanceof Error ? error.message : String(error); control.onChange() }) })
   const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = t('definition.cancel'); cancel.addEventListener('pointerdown', (event) => event.stopPropagation()); cancel.addEventListener('click', () => control.hide())

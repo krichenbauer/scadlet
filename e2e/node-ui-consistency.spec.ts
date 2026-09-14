@@ -30,6 +30,44 @@ async function dropPaletteNode(page: Page, type: string, position?: { x: number;
   }, { type, ...point })
 }
 
+async function definitionInputs(page: Page, definitionId: string): Promise<Locator> {
+  const inputsNodeId = await page.locator('node-editor').evaluate((element, id) => {
+    const editor = (element as unknown as { getEditorInstance(): { getDefinitions(): { id: string; inputsNodeId: string }[] } }).getEditorInstance()
+    return editor.getDefinitions().find((definition) => definition.id === id)?.inputsNodeId
+  }, definitionId)
+  if (!inputsNodeId) throw new Error('Expected definition Inputs node id')
+  return page.locator(`node-editor .node[data-node-id="${inputsNodeId}"]`)
+}
+
+async function addNumberParameter(inputs: Locator, name: string): Promise<void> {
+  await inputs.locator('.node-add-summary').click()
+  await inputs.getByRole('button', { name: 'Parameter', exact: true }).click()
+  const popover = inputs.locator('.node-parameter-popover')
+  await popover.getByLabel('Name', { exact: true }).fill(name)
+  await popover.getByRole('button', { name: 'Add', exact: true }).click()
+}
+
+async function dropDefinitionCall(page: Page, type: 'module' | 'function', definitionId: string, point: { x: number; y: number }): Promise<void> {
+  await page.locator('node-editor').evaluate((element, input) => {
+    const canvas = element.shadowRoot?.querySelector('#canvas')
+    if (!canvas) throw new Error('Expected node-editor canvas')
+    const dataTransfer = new DataTransfer()
+    dataTransfer.setData(input.type === 'module' ? 'application/x-scadlet-module-call' : 'application/x-scadlet-function-call', input.definitionId)
+    canvas.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientX: input.x, clientY: input.y, dataTransfer }))
+    canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX: input.x, clientY: input.y, dataTransfer }))
+  }, { type, definitionId, ...point })
+}
+
+async function connect(page: Page, source: Locator, target: Locator): Promise<void> {
+  const start = await source.boundingBox()
+  const end = await target.boundingBox()
+  if (!start || !end) throw new Error('Expected socket bounds')
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 8 })
+  await page.mouse.up()
+}
+
 test.beforeEach(async ({ context }) => {
   await context.addInitScript(() => {
     Object.defineProperty(window, 'showOpenFilePicker', { value: undefined, configurable: true })
@@ -66,6 +104,70 @@ test('shared header exposes icon, title, More, and Collapse in order with access
   await expect(translate.locator('.node-more-summary')).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(translate.getByRole('button', { name: 'Collapse node' })).toBeFocused()
+})
+
+test('Module and Function Calls show only their definition names while retaining distinct accessible call types and header actions', async ({ page }) => {
+  await waitForLocalLibrary(page)
+  const canvas = await page.locator('node-editor').boundingBox()
+  if (!canvas) throw new Error('Expected node-editor canvas')
+
+  const createDefinition = async (kind: 'module' | 'function', name: string) => {
+    await page.getByRole('button', { name: `+ New ${kind}`, exact: true }).click()
+    const dialog = page.getByRole('form', { name: `Create ${kind}` })
+    await dialog.getByLabel(`${kind === 'module' ? 'Module' : 'Function'} name`).fill(name)
+    await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+    const frame = page.locator('node-editor .definition-frame').filter({ hasText: name })
+    const definitionId = await frame.getAttribute('data-definition-id')
+    if (!definitionId) throw new Error(`Expected ${kind} definition id`)
+    return { frame, definitionId }
+  }
+
+  const module = await createDefinition('module', 'housing')
+  await addNumberParameter(await definitionInputs(page, module.definitionId), 'wall')
+  await dropDefinitionCall(page, 'module', module.definitionId, { x: canvas.x + 100, y: canvas.y + canvas.height - 100 })
+  const moduleCall = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'housing' }) })
+  await expect(moduleCall).toHaveCount(1)
+
+  const functionDefinition = await createDefinition('function', 'taper')
+  await addNumberParameter(await definitionInputs(page, functionDefinition.definitionId), 'ratio')
+  const functionFrameBox = await functionDefinition.frame.boundingBox()
+  if (!functionFrameBox) throw new Error('Expected Function definition frame')
+  await dropPaletteNode(page, 'number', { x: functionFrameBox.x + functionFrameBox.width / 2, y: functionFrameBox.y + functionFrameBox.height / 2 })
+  const functionValue = page.locator('node-editor .node').filter({ has: page.locator('.node-title[aria-label="Number Name"]') })
+  const outputNodeId = await page.locator('node-editor').evaluate((element, id) => {
+    const editor = (element as unknown as { getEditorInstance(): { getDefinitions(): { id: string; outputNodeId: string }[] } }).getEditorInstance()
+    return editor.getDefinitions().find((definition) => definition.id === id)?.outputNodeId
+  }, functionDefinition.definitionId)
+  if (!outputNodeId) throw new Error('Expected Function Output node id')
+  await connect(page, functionValue.locator('.node-port--output .node-socket'), page.locator(`node-editor .node[data-node-id="${outputNodeId}"] .node-port--input .node-socket`))
+  await dropDefinitionCall(page, 'function', functionDefinition.definitionId, { x: canvas.x + 330, y: canvas.y + canvas.height - 100 })
+  const functionCall = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'taper' }) })
+  await expect(functionCall).toHaveCount(1)
+
+  for (const [call, type, name] of [[moduleCall, 'Module call', 'housing'], [functionCall, 'Function call', 'taper']] as const) {
+    const title = call.locator('.node-title')
+    await expect(title).toHaveText(name)
+    await expect(title).toHaveAttribute('role', 'heading')
+    await expect(title).toHaveAttribute('aria-label', `${type}: ${name}`)
+    await expect(title).toHaveAttribute('title', `${type}: ${name}`)
+    const order = await call.locator('.node-header').evaluate((header) => Array.from(header.children).map((child) => child.className))
+    expect(order).toEqual(['node-header-icon', 'node-title', 'node-more-menu', 'node-collapse'])
+    await expect(call.locator('.node-header-icon svg')).toHaveCount(1)
+    await expect(call.locator('.node-more-summary')).toHaveAttribute('aria-label', 'More actions')
+    await expect(call.getByRole('button', { name: 'Collapse node' })).toHaveAttribute('aria-expanded', 'true')
+    // The output socket overlays this compact fixture at its deliberately
+    // tight canvas position. Invoke the already-rendered header control
+    // directly here; pointer delivery for Collapse is covered separately.
+    await call.getByRole('button', { name: 'Collapse node' }).evaluate((button: HTMLButtonElement) => button.click())
+    await expect(call.getByRole('button', { name: 'Expand node' })).toHaveAttribute('aria-expanded', 'false')
+    await call.getByRole('button', { name: 'Expand node' }).evaluate((button: HTMLButtonElement) => button.click())
+  }
+
+  const [moduleIcon, functionIcon] = await Promise.all([
+    moduleCall.locator('.node-header-icon path').getAttribute('d'),
+    functionCall.locator('.node-header-icon path').getAttribute('d'),
+  ])
+  expect(moduleIcon).not.toBe(functionIcon)
 })
 
 test('More menu exposes only the actions applicable to each node kind', async ({ page }) => {

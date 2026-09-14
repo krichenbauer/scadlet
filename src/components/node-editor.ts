@@ -329,8 +329,10 @@ export class NodeEditorElement extends LitElement {
       min-width: 0;
     }
 
-    /* Decorative - the title text right after it already supplies the
-       accessible name (node-style.md "Node icons"). */
+    /* Decorative - the title text right after it supplies the accessible
+       name. Module/Function Calls add their call kind to that title's
+       accessible name and tooltip because their visible title is only the
+       called definition name (node-style.md "Node icons"). */
     .node-header-icon {
       display: inline-flex;
       flex: none;

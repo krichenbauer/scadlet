@@ -73,13 +73,31 @@ async function expectGeometryCue(node: Locator, expected: boolean): Promise<void
 }
 
 async function connectSockets(page: Page, source: Locator, target: Locator): Promise<void> {
+  await expect(source, 'Expected source socket to be visible').toBeVisible()
+  await expect(source, 'Expected source socket to be inside the editor viewport').toBeInViewport()
+  await expect(target, 'Expected target socket to be visible').toBeVisible()
+  await expect(target, 'Expected target socket to be inside the editor viewport').toBeInViewport()
   const sourceBox = await source.boundingBox()
   const targetBox = await target.boundingBox()
-  if (!sourceBox || !targetBox) throw new Error('Expected visible sockets')
+  if (!sourceBox || !targetBox) throw new Error(`Expected visible sockets (source: ${Boolean(sourceBox)}, target: ${Boolean(targetBox)})`)
   await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2)
   await page.mouse.down()
   await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, { steps: 8 })
   await page.mouse.up()
+}
+
+async function fitGraph(page: Page, nodes: readonly Locator[]): Promise<void> {
+  await page.getByRole('button', { name: 'Fit graph', exact: true }).click()
+  const viewport = await page.locator('node-editor').boundingBox()
+  if (!viewport) throw new Error('Expected node-editor viewport')
+  await expect.poll(async () => {
+    const boxes = await Promise.all(nodes.map((node) => node.boundingBox()))
+    return boxes.every((box) => box
+      && box.x >= viewport.x
+      && box.y >= viewport.y
+      && box.x + box.width <= viewport.x + viewport.width
+      && box.y + box.height <= viewport.y + viewport.height)
+  }).toBe(true)
 }
 
 /** The visible socket drags above cover interaction; this uses the live
@@ -222,6 +240,12 @@ test('keeps Value Conditional and Geometry If as fixed, parallel interfaces thro
   const cube = await nodeWithModelLabel(page, 'Cube')
   const sphere = await nodeWithModelLabel(page, 'Sphere')
   const ifNode = await nodeWithModelLabel(page, 'If')
+  const graphNodes = [boolean, number, conditional, cube, sphere, ifNode]
+
+  // Synthetic palette drops intentionally preserve the current viewport.
+  // Frame this dense graph through the product's visible recovery control so
+  // every subsequent drag starts on a genuinely visible node surface.
+  await fitGraph(page, graphNodes)
 
   await expect(conditional.locator('.node-collapse')).toHaveCount(0)
   await expect(ifNode.locator('.node-collapse')).toHaveCount(0)
@@ -260,11 +284,16 @@ test('keeps Value Conditional and Geometry If as fixed, parallel interfaces thro
   // Cube's + Size control later in this dense graph.
   await drag(number, -80, 180)
 
+  // The node drags above are part of the interaction regression, but their
+  // pixel deltas must not leave later socket drags dependent on pane width.
+  await fitGraph(page, graphNodes)
+
   // Socket drags stay direct interactions, including Geometry If's optional
   // False branch. They also supply a real Rete connection instance for the
   // dense graph setup below.
   await connectSockets(page, cube.locator('.node-socket[data-socket-side="output"]'), ifNode.locator('.node-socket[data-socket-key="then"]'))
   await connectSockets(page, sphere.locator('.node-socket[data-socket-side="output"]'), ifNode.locator('.node-socket[data-socket-key="else"]'))
+  await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(2)
   await cube.locator('.node-add-summary').click()
   await cube.getByText('Size', { exact: true }).click()
   await cube.getByRole('button', { name: 'Scalar', exact: true }).click()
