@@ -1,0 +1,253 @@
+{
+  "format": "scadlet",
+  "version": 6,
+  "metadata": {
+    "name": "Example: boolean operations",
+    "createdAt": "2026-09-14T05:42:12.124Z",
+    "updatedAt": "2026-09-14T05:46:26.395Z"
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "3d2ca0b61c54b6f4",
+        "type": "sphere",
+        "position": {
+          "x": 134.59203582132096,
+          "y": 132.17092737719358
+        },
+        "parameters": {
+          "mode": "radius",
+          "r": 5,
+          "fn": 30
+        }
+      },
+      {
+        "id": "e22140424aff4b91",
+        "type": "translate",
+        "position": {
+          "x": 542.591783086929,
+          "y": 85.75552557105154
+        },
+        "parameters": {
+          "x": 3,
+          "y": 0,
+          "z": 0,
+          "representation": "xyz"
+        },
+        "collapsed": true
+      },
+      {
+        "id": "0eaf62c6c1cbbabb",
+        "type": "translate",
+        "position": {
+          "x": 543.392189479935,
+          "y": 225.82664434709136
+        },
+        "parameters": {
+          "x": -3,
+          "y": 0,
+          "z": 0,
+          "representation": "xyz"
+        },
+        "collapsed": true
+      },
+      {
+        "id": "635b1cd6e06fdbdd",
+        "type": "union",
+        "position": {
+          "x": 1010.0955358698841,
+          "y": -16.779177944251717
+        },
+        "parameters": {
+          "children": [
+            {
+              "id": "157910df-711c-4f5e-a2b6-9ccc0081cec5"
+            },
+            {
+              "id": "c5096ff5-a101-43ae-99aa-14921567bb85"
+            },
+            {
+              "id": "bece782e-98d7-4840-b24a-127e5f9f06ff"
+            }
+          ]
+        }
+      },
+      {
+        "id": "b307e2bf956eebd9",
+        "type": "translate",
+        "position": {
+          "x": 1394.928299069743,
+          "y": 0.5818432494286156
+        },
+        "parameters": {
+          "x": 0,
+          "y": 0,
+          "z": 20,
+          "representation": "xyz"
+        },
+        "collapsed": true
+      },
+      {
+        "id": "07b3cae04f6da0d6",
+        "type": "difference",
+        "position": {
+          "x": 993.4351229159555,
+          "y": 152.1804325460882
+        },
+        "parameters": {}
+      },
+      {
+        "id": "d01cc0172dad7f7b",
+        "type": "translate",
+        "position": {
+          "x": 1403.607987017969,
+          "y": 155.21222359932074
+        },
+        "parameters": {
+          "x": 0,
+          "y": 0,
+          "z": 10,
+          "representation": "xyz"
+        },
+        "collapsed": true
+      },
+      {
+        "id": "0f6ec8925e42f7af",
+        "type": "intersection",
+        "position": {
+          "x": 1028.4370742230876,
+          "y": 293.80006703227536
+        },
+        "parameters": {
+          "children": [
+            {
+              "id": "fd78f011-cb23-4c3c-b5ba-a69a109e9048"
+            },
+            {
+              "id": "62058282-4cee-41e4-9c7b-189168043791"
+            },
+            {
+              "id": "c7f39479-2176-4aed-93e9-5e373bebe68c"
+            }
+          ]
+        }
+      },
+      {
+        "id": "96ac1ea676733b1c",
+        "type": "translate",
+        "position": {
+          "x": 1413.1813511959278,
+          "y": 311.0048160626246
+        },
+        "parameters": {
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "representation": "xyz"
+        },
+        "collapsed": true
+      }
+    ],
+    "connections": [
+      {
+        "id": "b420905680a344ad",
+        "source": "3d2ca0b61c54b6f4",
+        "sourceOutput": "geometry",
+        "target": "e22140424aff4b91",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "fd2a8df858b90c8f",
+        "source": "3d2ca0b61c54b6f4",
+        "sourceOutput": "geometry",
+        "target": "0eaf62c6c1cbbabb",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "6f36020afd7864e7",
+        "source": "e22140424aff4b91",
+        "sourceOutput": "geometry",
+        "target": "635b1cd6e06fdbdd",
+        "targetInput": "child:157910df-711c-4f5e-a2b6-9ccc0081cec5"
+      },
+      {
+        "id": "ee7b258f92367392",
+        "source": "0eaf62c6c1cbbabb",
+        "sourceOutput": "geometry",
+        "target": "635b1cd6e06fdbdd",
+        "targetInput": "child:c5096ff5-a101-43ae-99aa-14921567bb85"
+      },
+      {
+        "id": "5affb347a2bee57f",
+        "source": "635b1cd6e06fdbdd",
+        "sourceOutput": "geometry",
+        "target": "b307e2bf956eebd9",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "b008124db639433e",
+        "source": "e22140424aff4b91",
+        "sourceOutput": "geometry",
+        "target": "07b3cae04f6da0d6",
+        "targetInput": "base"
+      },
+      {
+        "id": "89c1a9ff5cd363e9",
+        "source": "0eaf62c6c1cbbabb",
+        "sourceOutput": "geometry",
+        "target": "07b3cae04f6da0d6",
+        "targetInput": "subtract"
+      },
+      {
+        "id": "5116468e527af54f",
+        "source": "07b3cae04f6da0d6",
+        "sourceOutput": "geometry",
+        "target": "d01cc0172dad7f7b",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "262468cf6fed75d0",
+        "source": "e22140424aff4b91",
+        "sourceOutput": "geometry",
+        "target": "0f6ec8925e42f7af",
+        "targetInput": "child:fd78f011-cb23-4c3c-b5ba-a69a109e9048"
+      },
+      {
+        "id": "a749ba75b377092c",
+        "source": "0eaf62c6c1cbbabb",
+        "sourceOutput": "geometry",
+        "target": "0f6ec8925e42f7af",
+        "targetInput": "child:62058282-4cee-41e4-9c7b-189168043791"
+      },
+      {
+        "id": "ac4c3ef7a60ff2bf",
+        "source": "0f6ec8925e42f7af",
+        "sourceOutput": "geometry",
+        "target": "96ac1ea676733b1c",
+        "targetInput": "geometry"
+      }
+    ]
+  },
+  "definitions": [],
+  "editor": {
+    "viewport": {
+      "x": 2.8140655517579205,
+      "y": 313.2404262542725,
+      "zoom": 0.6239445717393903
+    }
+  },
+  "viewer": {
+    "camera": {
+      "position": [
+        -2.566799971316946,
+        55.05729178282088,
+        26.564196280154686
+      ],
+      "target": [
+        0,
+        0,
+        0
+      ]
+    }
+  }
+}

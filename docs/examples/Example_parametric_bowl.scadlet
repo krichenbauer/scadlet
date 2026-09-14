@@ -1,0 +1,356 @@
+{
+  "format": "scadlet",
+  "version": 6,
+  "metadata": {
+    "name": "Example: parametric bowl",
+    "createdAt": "2026-09-14T05:47:46.792Z",
+    "updatedAt": "2026-09-14T06:06:37.769Z"
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "d59432d4696a9a77",
+        "type": "sphere",
+        "position": {
+          "x": 759.1974006295446,
+          "y": 37.15403163226499
+        },
+        "parameters": {
+          "mode": "diameter",
+          "d": 10,
+          "fn": 30
+        }
+      },
+      {
+        "id": "b017a2cc04475c19",
+        "type": "number",
+        "position": {
+          "x": -152.80983230951048,
+          "y": 98.14520060571763
+        },
+        "parameters": {
+          "value": 80,
+          "name": "Diameter"
+        }
+      },
+      {
+        "id": "688d204795b24c01",
+        "type": "number",
+        "position": {
+          "x": -156.74402375761986,
+          "y": 899.1901968755965
+        },
+        "parameters": {
+          "value": 30,
+          "name": "Height"
+        }
+      },
+      {
+        "id": "496b7e91efd1ef33",
+        "type": "number",
+        "position": {
+          "x": -149.53452603914755,
+          "y": 334.0461447579219
+        },
+        "parameters": {
+          "value": 3,
+          "name": "Thickness"
+        }
+      },
+      {
+        "id": "1ee8cb186fca5e49",
+        "type": "cylinder",
+        "position": {
+          "x": 754.8222897376543,
+          "y": 165.14679802788626
+        },
+        "parameters": {
+          "fn": 30,
+          "center": true,
+          "h": 10,
+          "mode": "diameter",
+          "d": 10
+        }
+      },
+      {
+        "id": "9ed2fa796b12294e",
+        "type": "arithmetic",
+        "position": {
+          "x": 504.3895333113361,
+          "y": 290.95105067878075
+        },
+        "parameters": {
+          "operation": "division",
+          "a": 0,
+          "b": 2
+        }
+      },
+      {
+        "id": "c2b4362c8b06e480",
+        "type": "union",
+        "position": {
+          "x": 1088.5429514892999,
+          "y": 101.28735299071764
+        },
+        "parameters": {
+          "children": [
+            {
+              "id": "5d64d2d2-05ab-4e36-91ea-57f27aa5c02b"
+            },
+            {
+              "id": "4a093619-1687-41b1-82fa-8a3ab377e7b8"
+            },
+            {
+              "id": "40f21e20-91d1-4cb1-b6c2-9268df3cd2e0"
+            }
+          ]
+        }
+      },
+      {
+        "id": "63f2e7fc3e1f0034",
+        "type": "sphere",
+        "position": {
+          "x": 763.3036557984577,
+          "y": 449.9672425129407
+        },
+        "parameters": {
+          "fn": 30,
+          "mode": "diameter",
+          "d": 10
+        }
+      },
+      {
+        "id": "6979faf645312a5e",
+        "type": "arithmetic",
+        "position": {
+          "x": 507.6238191802812,
+          "y": 509.08911876772186
+        },
+        "parameters": {
+          "operation": "subtraction",
+          "a": 0,
+          "b": 0
+        }
+      },
+      {
+        "id": "46918cba1761c02a",
+        "type": "arithmetic",
+        "position": {
+          "x": 260.2437970892166,
+          "y": 573.2749140720359
+        },
+        "parameters": {
+          "operation": "division",
+          "a": 0,
+          "b": 2
+        }
+      },
+      {
+        "id": "d14c14ec2e1f6117",
+        "type": "cube",
+        "position": {
+          "x": 245.9627555241479,
+          "y": 776.5320513799668
+        },
+        "parameters": {
+          "sizeRepresentation": "scalar",
+          "sizeScalar": 10,
+          "sizeVector": {
+            "x": 10,
+            "y": 10,
+            "z": 10
+          },
+          "size": 10,
+          "center": true
+        }
+      },
+      {
+        "id": "bd2440e363e1c30f",
+        "type": "translate",
+        "position": {
+          "x": 699.426009989589,
+          "y": 809.4962868319923
+        },
+        "parameters": {
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "representation": "xyz"
+        }
+      },
+      {
+        "id": "f5176ef73ed5ec36",
+        "type": "difference",
+        "position": {
+          "x": 1413.7027807803086,
+          "y": 323.621675634765
+        },
+        "parameters": {}
+      },
+      {
+        "id": "0b7ad7ec6e49fde0",
+        "type": "union",
+        "position": {
+          "x": 1092.8488393067412,
+          "y": 598.4288476526524
+        },
+        "parameters": {
+          "children": [
+            {
+              "id": "732e32f3-ff70-46e8-bc52-7b2ec230ef89"
+            },
+            {
+              "id": "413755d4-a13c-4f45-bd3d-4c14505bdc4a"
+            },
+            {
+              "id": "9b302d5d-721e-4062-bf15-4c755d18a01b"
+            }
+          ]
+        }
+      }
+    ],
+    "connections": [
+      {
+        "id": "0e73c254a646c47e",
+        "source": "b017a2cc04475c19",
+        "sourceOutput": "value",
+        "target": "d59432d4696a9a77",
+        "targetInput": "d"
+      },
+      {
+        "id": "58b6a7e6107fc23f",
+        "source": "b017a2cc04475c19",
+        "sourceOutput": "value",
+        "target": "1ee8cb186fca5e49",
+        "targetInput": "h"
+      },
+      {
+        "id": "2aacddf82108007c",
+        "source": "b017a2cc04475c19",
+        "sourceOutput": "value",
+        "target": "9ed2fa796b12294e",
+        "targetInput": "a"
+      },
+      {
+        "id": "9e9957bbf1757ea5",
+        "source": "9ed2fa796b12294e",
+        "sourceOutput": "value",
+        "target": "1ee8cb186fca5e49",
+        "targetInput": "d"
+      },
+      {
+        "id": "0e88903b0a6abee3",
+        "source": "d59432d4696a9a77",
+        "sourceOutput": "geometry",
+        "target": "c2b4362c8b06e480",
+        "targetInput": "child:5d64d2d2-05ab-4e36-91ea-57f27aa5c02b"
+      },
+      {
+        "id": "acf2b031377b556b",
+        "source": "1ee8cb186fca5e49",
+        "sourceOutput": "geometry",
+        "target": "c2b4362c8b06e480",
+        "targetInput": "child:4a093619-1687-41b1-82fa-8a3ab377e7b8"
+      },
+      {
+        "id": "ac1c1819711b6ead",
+        "source": "496b7e91efd1ef33",
+        "sourceOutput": "value",
+        "target": "46918cba1761c02a",
+        "targetInput": "a"
+      },
+      {
+        "id": "a4df83f7abf71734",
+        "source": "46918cba1761c02a",
+        "sourceOutput": "value",
+        "target": "6979faf645312a5e",
+        "targetInput": "b"
+      },
+      {
+        "id": "0f3fa2de3638aa39",
+        "source": "b017a2cc04475c19",
+        "sourceOutput": "value",
+        "target": "6979faf645312a5e",
+        "targetInput": "a"
+      },
+      {
+        "id": "2d76ab278676b28e",
+        "source": "6979faf645312a5e",
+        "sourceOutput": "value",
+        "target": "63f2e7fc3e1f0034",
+        "targetInput": "d"
+      },
+      {
+        "id": "df731fb39e804599",
+        "source": "d14c14ec2e1f6117",
+        "sourceOutput": "geometry",
+        "target": "bd2440e363e1c30f",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "c8f508fbf91a48a0",
+        "source": "688d204795b24c01",
+        "sourceOutput": "value",
+        "target": "bd2440e363e1c30f",
+        "targetInput": "z"
+      },
+      {
+        "id": "f86841152ed1d2d7",
+        "source": "b017a2cc04475c19",
+        "sourceOutput": "value",
+        "target": "d14c14ec2e1f6117",
+        "targetInput": "size"
+      },
+      {
+        "id": "8dc23162625eb33e",
+        "source": "63f2e7fc3e1f0034",
+        "sourceOutput": "geometry",
+        "target": "0b7ad7ec6e49fde0",
+        "targetInput": "child:732e32f3-ff70-46e8-bc52-7b2ec230ef89"
+      },
+      {
+        "id": "3d88049ccf190566",
+        "source": "bd2440e363e1c30f",
+        "sourceOutput": "geometry",
+        "target": "0b7ad7ec6e49fde0",
+        "targetInput": "child:413755d4-a13c-4f45-bd3d-4c14505bdc4a"
+      },
+      {
+        "id": "e26f23cce4b6b4f5",
+        "source": "c2b4362c8b06e480",
+        "sourceOutput": "geometry",
+        "target": "f5176ef73ed5ec36",
+        "targetInput": "base"
+      },
+      {
+        "id": "d1d65c451ad0ab10",
+        "source": "0b7ad7ec6e49fde0",
+        "sourceOutput": "geometry",
+        "target": "f5176ef73ed5ec36",
+        "targetInput": "subtract"
+      }
+    ]
+  },
+  "definitions": [],
+  "editor": {
+    "viewport": {
+      "x": 157.1642250061035,
+      "y": 208.77073764801025,
+      "zoom": 0.5392415722000584
+    }
+  },
+  "viewer": {
+    "camera": {
+      "position": [
+        6.261829519188581,
+        -96.89401904149602,
+        40.31124459511116
+      ],
+      "target": [
+        0,
+        0,
+        0
+      ]
+    }
+  }
+}
