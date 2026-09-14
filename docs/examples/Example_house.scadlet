@@ -1,0 +1,215 @@
+{
+  "format": "scadlet",
+  "version": 6,
+  "metadata": {
+    "name": "Example: house",
+    "createdAt": "2026-09-14T06:33:07.789Z",
+    "updatedAt": "2026-09-14T06:38:18.569Z"
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "8ff3ac2705c1b4eb",
+        "type": "cube",
+        "position": {
+          "x": 299.46302270102774,
+          "y": 215.03240612114072
+        },
+        "parameters": {
+          "sizeRepresentation": "scalar",
+          "sizeScalar": 10,
+          "sizeVector": {
+            "x": 10,
+            "y": 10,
+            "z": 10
+          },
+          "size": 10,
+          "center": true
+        }
+      },
+      {
+        "id": "f31d6c1028e2d9f3",
+        "type": "rotate",
+        "position": {
+          "x": 586.362667036368,
+          "y": 215.72489499309452
+        },
+        "parameters": {
+          "x": 45,
+          "y": 0,
+          "z": 0,
+          "representation": "xyz"
+        }
+      },
+      {
+        "id": "f87f9f6ccd748fc2",
+        "type": "cube",
+        "position": {
+          "x": 296.63960652213086,
+          "y": 370.9326592865914
+        },
+        "parameters": {
+          "sizeRepresentation": "scalar",
+          "sizeScalar": 20,
+          "sizeVector": {
+            "x": 10,
+            "y": 10,
+            "z": 10
+          },
+          "size": 20,
+          "center": true
+        }
+      },
+      {
+        "id": "204fb9f2a8292824",
+        "type": "translate",
+        "position": {
+          "x": 583.5005084008429,
+          "y": 369.75678419638166
+        },
+        "parameters": {
+          "x": 0,
+          "y": 0,
+          "z": -10,
+          "representation": "xyz"
+        }
+      },
+      {
+        "id": "2828908437378409",
+        "type": "difference",
+        "position": {
+          "x": 947.14453125,
+          "y": 325.5625
+        },
+        "parameters": {}
+      },
+      {
+        "id": "a62b9ad6f7de3085",
+        "type": "translate",
+        "position": {
+          "x": 1279.766874858148,
+          "y": 334.0449676990073
+        },
+        "parameters": {
+          "x": 0,
+          "y": 0,
+          "z": 5,
+          "representation": "xyz"
+        }
+      },
+      {
+        "id": "d7dc792b08b6e99e",
+        "type": "cube",
+        "position": {
+          "x": 1317.760953702508,
+          "y": 513.5568577146197
+        },
+        "parameters": {
+          "sizeRepresentation": "scalar",
+          "sizeScalar": 10,
+          "sizeVector": {
+            "x": 10,
+            "y": 10,
+            "z": 10
+          },
+          "size": 10,
+          "center": true
+        }
+      },
+      {
+        "id": "22bb885db5d3ee71",
+        "type": "union",
+        "position": {
+          "x": 1675.449345523026,
+          "y": 431.3001675648525
+        },
+        "parameters": {
+          "children": [
+            {
+              "id": "9e1770fa-004c-4026-84d6-b98bf39478b2"
+            },
+            {
+              "id": "c334ad1d-9012-4b9a-a318-01946d85450d"
+            },
+            {
+              "id": "dfde71a2-3d64-4763-8cf2-621c378d5abf"
+            }
+          ]
+        }
+      }
+    ],
+    "connections": [
+      {
+        "id": "b63a3810c9106117",
+        "source": "8ff3ac2705c1b4eb",
+        "sourceOutput": "geometry",
+        "target": "f31d6c1028e2d9f3",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "f7f0be679be46a39",
+        "source": "f87f9f6ccd748fc2",
+        "sourceOutput": "geometry",
+        "target": "204fb9f2a8292824",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "fa8019710ce7cff2",
+        "source": "f31d6c1028e2d9f3",
+        "sourceOutput": "geometry",
+        "target": "2828908437378409",
+        "targetInput": "base"
+      },
+      {
+        "id": "b3b916e0730849e2",
+        "source": "204fb9f2a8292824",
+        "sourceOutput": "geometry",
+        "target": "2828908437378409",
+        "targetInput": "subtract"
+      },
+      {
+        "id": "61ad3e6dc7a082f6",
+        "source": "2828908437378409",
+        "sourceOutput": "geometry",
+        "target": "a62b9ad6f7de3085",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "0dd1cf8b0d73dbbf",
+        "source": "a62b9ad6f7de3085",
+        "sourceOutput": "geometry",
+        "target": "22bb885db5d3ee71",
+        "targetInput": "child:9e1770fa-004c-4026-84d6-b98bf39478b2"
+      },
+      {
+        "id": "16890f15f8dd3c57",
+        "source": "d7dc792b08b6e99e",
+        "sourceOutput": "geometry",
+        "target": "22bb885db5d3ee71",
+        "targetInput": "child:c334ad1d-9012-4b9a-a318-01946d85450d"
+      }
+    ]
+  },
+  "definitions": [],
+  "editor": {
+    "viewport": {
+      "x": -106.7826690673829,
+      "y": 128.2865043640137,
+      "zoom": 0.6239445717393904
+    }
+  },
+  "viewer": {
+    "camera": {
+      "position": [
+        57.38407469834866,
+        11.695356032733507,
+        28.359289802760628
+      ],
+      "target": [
+        2.1996869424212987e-147,
+        2.960772227309636e-147,
+        1.5689214617927865e-147
+      ]
+    }
+  }
+}
