@@ -169,6 +169,10 @@ export interface NodeCatalogEntry {
   readonly type: NodeTypeId
   readonly category: NodeCategoryId
   readonly labelKey: string
+  /** Localized explanatory copy shown by the non-interactive palette
+   * tooltip. Required for every ordinary palette entry; definition-owned
+   * Call entries provide their dynamic copy in `node-palette.ts`. */
+  readonly paletteDescriptionKey?: string
   /** Interface nodes are persistent definition infrastructure, never normal
    * palette choices. */
   readonly palette?: boolean
@@ -391,7 +395,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     validateParams: validateEmptyParams,
   },
   {
-    type: 'number', category: 'values', labelKey: 'node.number', inputs: [], outputs: ['value'],
+    type: 'number', category: 'values', labelKey: 'node.number', paletteDescriptionKey: 'palette.description.number', inputs: [], outputs: ['value'],
     inputSocketType: () => undefined, outputSocketType: (port) => port === 'value' ? 'number' : undefined,
     create: (_context, params) => new NumberNode(params ? validateNumberParams(params) : undefined),
     matches: (node) => node instanceof NumberNode,
@@ -399,7 +403,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     validateParams: (value) => validateNumberParams(value) as unknown as Record<string, unknown>,
   },
   {
-    type: 'boolean', category: 'values', labelKey: 'node.boolean', inputs: [], outputs: ['value'],
+    type: 'boolean', category: 'values', labelKey: 'node.boolean', paletteDescriptionKey: 'palette.description.boolean', inputs: [], outputs: ['value'],
     inputSocketType: () => undefined, outputSocketType: (port) => port === 'value' ? 'boolean' : undefined,
     create: (_context, params) => new BooleanNode(params ? validateBooleanParams(params) : undefined),
     matches: (node) => node instanceof BooleanNode,
@@ -407,7 +411,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     validateParams: (value) => validateBooleanParams(value) as unknown as Record<string, unknown>,
   },
   {
-    type: 'vector3', category: 'values', labelKey: 'node.vector3', inputs: ['x', 'y', 'z'], outputs: ['value'],
+    type: 'vector3', category: 'values', labelKey: 'node.vector3', paletteDescriptionKey: 'palette.description.vector3', inputs: ['x', 'y', 'z'], outputs: ['value'],
     inputSocketType: (port) => ['x', 'y', 'z'].includes(port) ? 'number' : undefined,
     outputSocketType: (port) => port === 'value' ? 'vector3' : undefined,
     create: (_context, params) => new Vector3Node(params ? validateVector3ValueParams(params) : undefined),
@@ -416,7 +420,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     validateParams: (value) => validateVector3ValueParams(value) as unknown as Record<string, unknown>,
   },
   {
-    type: 'arithmetic', category: 'math', labelKey: 'node.arithmetic', inputs: ['a', 'b'], outputs: ['value'],
+    type: 'arithmetic', category: 'math', labelKey: 'node.arithmetic', paletteDescriptionKey: 'palette.description.arithmetic', inputs: ['a', 'b'], outputs: ['value'],
     paletteOperation: {
       accessibleLabelKey: 'node.arithmeticOperation', defaultValue: 'addition',
       options: [{ value: 'addition', label: '+' }, { value: 'subtraction', label: '−' }, { value: 'multiplication', label: '×' }, { value: 'division', label: '÷' }, { value: 'modulo', label: '%' }, { value: 'power', label: 'pow' }],
@@ -430,7 +434,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     validateParams: (value) => validateArithmeticParams(value) as unknown as Record<string, unknown>,
   },
   {
-    type: 'trigonometry', category: 'math', labelKey: 'node.trigonometry', inputs: ['a'], outputs: ['value'],
+    type: 'trigonometry', category: 'math', labelKey: 'node.trigonometry', paletteDescriptionKey: 'palette.description.trigonometry', inputs: ['a'], outputs: ['value'],
     paletteOperation: {
       accessibleLabelKey: 'node.trigonometryOperation', defaultValue: 'sin',
       options: ['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2'].map((value) => ({ value, label: value })),
@@ -451,7 +455,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     validateParams: (value) => validateTrigonometryParams(value) as unknown as Record<string, unknown>,
   },
   {
-    type: 'basic-math', category: 'math', labelKey: 'node.basicMath', inputs: ['x'], outputs: ['value'],
+    type: 'basic-math', category: 'math', labelKey: 'node.basicMath', paletteDescriptionKey: 'palette.description.basicMath', inputs: ['x'], outputs: ['value'],
     paletteOperation: {
       accessibleLabelKey: 'node.basicMathOperation', defaultValue: 'abs',
       options: ['abs', 'sign', 'sqrt', 'floor', 'ceil', 'round'].map((value) => ({ value, label: value })),
@@ -465,7 +469,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     validateParams: (value) => validateBasicMathParams(value) as unknown as Record<string, unknown>,
   },
   {
-    type: 'exponential-log', category: 'math', labelKey: 'node.exponentialLog', inputs: ['x'], outputs: ['value'],
+    type: 'exponential-log', category: 'math', labelKey: 'node.exponentialLog', paletteDescriptionKey: 'palette.description.exponentialLog', inputs: ['x'], outputs: ['value'],
     paletteOperation: {
       accessibleLabelKey: 'node.exponentialLogOperation', defaultValue: 'exp',
       options: ['exp', 'ln', 'log'].map((value) => ({ value, label: value })),
@@ -479,7 +483,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     validateParams: (value) => validateExponentialLogParams(value) as unknown as Record<string, unknown>,
   },
   {
-    type: 'compare', category: 'math', labelKey: 'node.compare', inputs: ['a', 'b'], outputs: ['value'],
+    type: 'compare', category: 'math', labelKey: 'node.compare', paletteDescriptionKey: 'palette.description.compare', inputs: ['a', 'b'], outputs: ['value'],
     paletteOperation: {
       accessibleLabelKey: 'node.compareOperator', defaultValue: '<',
       options: ['<', '<=', '>', '>=', '==', '!='].map((value) => ({ value, label: value })),
@@ -493,7 +497,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     validateParams: (value) => validateCompareParams(value) as unknown as Record<string, unknown>,
   },
   {
-    type: 'conditional', category: 'math', labelKey: 'node.conditional', inputs: ['condition', 'true', 'false'], outputs: ['result'],
+    type: 'conditional', category: 'math', labelKey: 'node.conditional', paletteDescriptionKey: 'palette.description.conditional', inputs: ['condition', 'true', 'false'], outputs: ['result'],
     inputSocketType: (port, parameters) => port === 'condition' ? 'boolean'
       : (port === 'true' || port === 'false') ? validateConditionalParams(parameters).valueType : undefined,
     outputSocketType: (port, parameters?: Record<string, unknown>) => port === 'result' ? (parameters ? validateConditionalParams(parameters).valueType : undefined) : undefined,
@@ -503,7 +507,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     validateParams: (value) => validateConditionalParams(value) as unknown as Record<string, unknown>,
   },
   {
-    type: 'if', category: 'control-flow', labelKey: 'node.if', inputs: ['condition', 'then', 'else'], outputs: ['geometry'],
+    type: 'if', category: 'control-flow', labelKey: 'node.if', paletteDescriptionKey: 'palette.description.if', inputs: ['condition', 'then', 'else'], outputs: ['geometry'],
     inputSocketType: (port) => port === 'condition' ? 'boolean' : (port === 'then' || port === 'else') ? 'geometry' : undefined,
     outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
     create: () => new IfNode(),
@@ -515,6 +519,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'cube',
     category: 'primitives',
     labelKey: 'node.cube',
+    paletteDescriptionKey: 'palette.description.cube',
     inputs: [],
     outputs: ['geometry'],
     isInputPort: (port, parameters) => {
@@ -543,6 +548,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'cylinder',
     category: 'primitives',
     labelKey: 'node.cylinder',
+    paletteDescriptionKey: 'palette.description.cylinder',
     inputs: [],
     outputs: ['geometry'],
     isInputPort: (port, parameters) => {
@@ -573,6 +579,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'sphere',
     category: 'primitives',
     labelKey: 'node.sphere',
+    paletteDescriptionKey: 'palette.description.sphere',
     inputs: [],
     outputs: ['geometry'],
     isInputPort: (port, parameters) => {
@@ -600,6 +607,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'translate',
     category: 'transformations',
     labelKey: 'node.translate',
+    paletteDescriptionKey: 'palette.description.translate',
     inputs: ['geometry'],
     outputs: ['geometry'],
     isInputPort: (port, parameters) => {
@@ -626,6 +634,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'rotate',
     category: 'transformations',
     labelKey: 'node.rotate',
+    paletteDescriptionKey: 'palette.description.rotate',
     inputs: ['geometry'],
     outputs: ['geometry'],
     isInputPort: (port, parameters) => {
@@ -652,6 +661,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'scale',
     category: 'transformations',
     labelKey: 'node.scale',
+    paletteDescriptionKey: 'palette.description.scale',
     inputs: ['geometry'],
     outputs: ['geometry'],
     isInputPort: (port, parameters) => {
@@ -678,6 +688,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'difference',
     category: 'boolean-operations',
     labelKey: 'node.difference',
+    paletteDescriptionKey: 'palette.description.difference',
     inputs: ['base', 'subtract'],
     outputs: ['geometry'],
     inputSocketType: () => 'geometry',
@@ -691,6 +702,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'union',
     category: 'boolean-operations',
     labelKey: 'node.union',
+    paletteDescriptionKey: 'palette.description.union',
     inputs: [],
     outputs: ['geometry'],
     inputSocketType: (port, params) => (params as unknown as VariadicBooleanParams).children.some((child) => port === `child:${child.id}` || port === child.id) ? 'geometry' : undefined,
@@ -705,6 +717,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'intersection',
     category: 'boolean-operations',
     labelKey: 'node.intersection',
+    paletteDescriptionKey: 'palette.description.intersection',
     inputs: [],
     outputs: ['geometry'],
     inputSocketType: (port, params) => (params as unknown as VariadicBooleanParams).children.some((child) => port === `child:${child.id}` || port === child.id) ? 'geometry' : undefined,

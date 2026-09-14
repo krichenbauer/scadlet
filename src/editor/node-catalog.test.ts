@@ -97,6 +97,31 @@ describe('NODE_CATALOG', () => {
     }
   })
 
+  it('provides localized explanatory copy for every ordinary palette entry', () => {
+    const paletteEntries = NODE_CATALOG.filter((entry) => entry.palette !== false)
+    expect(paletteEntries).toHaveLength(19)
+    for (const entry of paletteEntries) {
+      expect(entry.paletteDescriptionKey).toBeTruthy()
+      const description = t(entry.paletteDescriptionKey!)
+      expect(description).not.toBe('')
+      expect(description).not.toBe(entry.paletteDescriptionKey)
+    }
+
+    expect(t(findCatalogEntry('cube')!.paletteDescriptionKey!)).toBe(
+      'Creates a cuboid. Its size and centering can be set through inputs.',
+    )
+    expect(t(findCatalogEntry('trigonometry')!.paletteDescriptionKey!)).toBe(
+      'Includes sin, cos, tan, asin, acos, atan, and atan2.',
+    )
+  })
+
+  it('names every selectable operation in each Math palette tooltip', () => {
+    for (const entry of NODE_CATALOG.filter((item) => item.category === 'math' && item.paletteOperation)) {
+      const description = t(entry.paletteDescriptionKey!)
+      for (const option of entry.paletteOperation!.options) expect(description).toContain(option.label)
+    }
+  })
+
   it('findCatalogEntry returns undefined for an unknown/untrusted type string', () => {
     expect(findCatalogEntry('not-a-real-type')).toBeUndefined()
   })

@@ -6,14 +6,36 @@ export type LocaleId = 'en'
  * framework (no plural rules, interpolation, or lazy-loaded bundles) -
  * AGENTS.md only asks that user-facing labels (e.g. the node palette) be
  * resolved through stable, language-independent keys instead of scattered
- * hardcoded display strings, so a German dictionary can be added later
- * without touching any call site. `currentLocale` is fixed to `'en'` for
- * now; a language switcher is an explicit non-goal of this step.
+ * hardcoded display strings, so another dictionary can be added later
+ * without touching call sites. `currentLocale` is fixed to `'en'` for now;
+ * a locale switcher remains an explicit non-goal.
  */
 const dictionaries: Record<LocaleId, Record<string, string>> = {
   en: {
     'palette.title': 'Nodes',
     'palette.dragNode': 'Drag {name} node',
+    'palette.description.cube': 'Creates a cuboid. Its size and centering can be set through inputs.',
+    'palette.description.cylinder': 'Creates a cylinder or truncated cone. Its height, radius, or diameter can be adjusted.',
+    'palette.description.sphere': 'Creates a sphere. Its radius or diameter can be adjusted.',
+    'palette.description.translate': 'Moves geometry along the X, Y, and Z axes.',
+    'palette.description.rotate': 'Rotates geometry around the X, Y, and Z axes.',
+    'palette.description.scale': 'Scales geometry along the X, Y, and Z axes.',
+    'palette.description.difference': 'Subtracts the second geometry from the first.',
+    'palette.description.union': 'Combines multiple geometries into one.',
+    'palette.description.intersection': 'Keeps only the shared area of multiple geometries.',
+    'palette.description.if': 'Uses a condition to choose which geometry is output.',
+    'palette.description.number': 'Creates a number value that can be connected to other nodes.',
+    'palette.description.boolean': 'Creates a Boolean value: true or false.',
+    'palette.description.vector3': 'Creates a vector from X, Y, and Z values.',
+    'palette.description.arithmetic': 'Includes addition (+), subtraction (−), multiplication (×), division (÷), modulo (%), and power (pow).',
+    'palette.description.trigonometry': 'Includes sin, cos, tan, asin, acos, atan, and atan2.',
+    'palette.description.basicMath': 'Includes abs, sign, sqrt, floor, ceil, and round.',
+    'palette.description.exponentialLog': 'Includes exp, ln, and log.',
+    'palette.description.compare': 'Includes the comparisons <, <=, >, >=, ==, and !=.',
+    'palette.description.conditional': 'Uses a condition to choose one of two values.',
+    'palette.description.moduleCall': 'Creates a call to the “{name}” Module and outputs its geometry.',
+    'palette.description.functionCall': 'Creates a call to the “{name}” Function and outputs its value.',
+    'palette.description.functionUnavailable': 'The “{name}” Function has no result type yet and cannot be used.',
     'category.primitives': 'Primitives',
     'category.transformations': 'Transformations',
     'category.booleanOperations': 'Boolean operations',

@@ -68,6 +68,24 @@ node header the user sees after adding it. The palette icon is decorative only
 when its adjacent label already supplies the accessible name; it never replaces
 the readable node-type label.
 
+### Palette explanatory tooltips
+
+Every draggable node entry in the left palette provides the same concise
+explanatory tooltip for pointer hover and keyboard focus. Pointer hover uses a
+short delay; keyboard focus shows it immediately. The trigger references the
+non-interactive `role="tooltip"` surface with `aria-describedby`, and Escape,
+focus loss, pointer exit, or starting a drag dismisses it. Scrolling dismisses
+a pointer tooltip; a keyboard-focused tooltip follows its focused entry.
+Tooltips use the browser top layer, flip and clamp to the viewport, and must
+not be clipped by the scrolling palette or cover pointer targets.
+
+The tooltip repeats the node icon at a clearly larger size on the left and
+places its name and localized description on the right. Ordinary palette icons
+remain 18px. Normal descriptions briefly explain the node's result or action;
+Math-family descriptions name every selectable operation in that palette
+entry. New palette node types must add localized explanatory copy alongside
+their catalog entry and visible browser coverage.
+
 ## Node families and colour
 
 - **Geometry nodes** use a subtle blue-grey tinted background. Their Geometry

@@ -1,10 +1,19 @@
 import { LitElement, css, html, nothing } from 'lit'
-import { customElement, property } from 'lit/decorators.js'
+import { customElement, property, state } from 'lit/decorators.js'
 
 import { FUNCTION_CALL_DRAG_MIME_TYPE, MODULE_CALL_DRAG_MIME_TYPE, NODE_CATALOG, NODE_CATEGORIES, NODE_DRAG_MIME_TYPE, NODE_DRAG_PARAMS_MIME_TYPE, nodeTypeIcon, type NodeCatalogEntry, type NodeCategory } from '../editor/node-catalog'
 import { catalogProducesGeometry } from '../editor/geometry-accent'
 import { compactIcon } from './icons'
 import { t } from '../i18n/translate'
+
+const PALETTE_TOOLTIP_ID = 'node-palette-tooltip'
+export const PALETTE_TOOLTIP_DELAY_MS = 450
+
+interface PaletteTooltipContent {
+  readonly label: string
+  readonly description: string
+  readonly icon: ReturnType<typeof nodeTypeIcon>
+}
 
 /**
  * A persistent, always-visible sidebar listing available node types,
@@ -23,6 +32,12 @@ import { t } from '../i18n/translate'
 @customElement('node-palette')
 export class NodePaletteElement extends LitElement {
   private readonly selectedOperations = new Map<string, string>()
+  @state() private tooltipContent: PaletteTooltipContent | null = null
+  private tooltipAnchor: HTMLElement | null = null
+  private hoveredAnchor: HTMLElement | null = null
+  private focusedAnchor: HTMLElement | null = null
+  private suppressedAnchor: HTMLElement | null = null
+  private tooltipTimer: number | undefined
   /** Project-owned definitions deliberately live beside the static catalog.
    * Their entry creates a generic Call node; it is never a static type named
    * after the Module's display name. */
@@ -89,6 +104,11 @@ export class NodePaletteElement extends LitElement {
       cursor: grabbing;
     }
 
+    .node-item:focus-visible {
+      outline: 2px solid rgb(122 192 255 / 0.7);
+      outline-offset: 1px;
+    }
+
     /* Decorative only: the adjacent readable label already supplies the
        accessible name (node-style.md "Icons in nodes and palette"). */
     .node-item-icon {
@@ -101,9 +121,14 @@ export class NodePaletteElement extends LitElement {
       opacity: 0.85;
     }
 
-    .node-item-icon svg:not(.boolean-operation-icon) {
+    .node-item-icon svg,
+    .palette-tooltip-icon svg {
       width: 100%;
       height: 100%;
+    }
+
+    .node-item-icon svg:not(.boolean-operation-icon),
+    .palette-tooltip-icon svg:not(.boolean-operation-icon) {
       fill: none;
       stroke: currentcolor;
       stroke-width: 1.6;
@@ -113,6 +138,45 @@ export class NodePaletteElement extends LitElement {
 
     .node-item-icon .boolean-operation-icon__input { fill: #8f8f8f !important; stroke: none !important; opacity: 1; }
     .node-item-icon .boolean-operation-icon__result { fill: #f2f2f2 !important; stroke: none !important; opacity: 1; }
+
+    .palette-tooltip {
+      position: fixed;
+      inset: auto;
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr);
+      align-items: center;
+      gap: 12px;
+      width: max-content;
+      max-width: min(340px, calc(100vw - 16px));
+      box-sizing: border-box;
+      margin: 0;
+      padding: 11px 13px;
+      border: 1px solid #666;
+      border-radius: 7px;
+      background: #171717;
+      color: #f2f2f2;
+      box-shadow: 0 6px 18px rgb(0 0 0 / 0.48);
+      font: 13px/1.35 system-ui, sans-serif;
+      pointer-events: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .palette-tooltip:not(:popover-open) { display: none; }
+
+    .palette-tooltip-icon {
+      display: inline-flex;
+      width: 44px;
+      height: 44px;
+      color: #f2f2f2;
+      opacity: 0.95;
+    }
+
+    .palette-tooltip-icon .boolean-operation-icon__input { fill: #8f8f8f !important; stroke: none !important; opacity: 1; }
+    .palette-tooltip-icon .boolean-operation-icon__result { fill: #f2f2f2 !important; stroke: none !important; opacity: 1; }
+    .palette-tooltip-copy { min-width: 0; }
+    .palette-tooltip-title { display: block; margin-bottom: 3px; font-size: 14px; line-height: 1.2; }
+    .palette-tooltip-description { display: block; color: #d8d8d8; }
 
 
     /* The same narrow inset edge used on Geometry-producing canvas nodes.
@@ -184,8 +248,13 @@ export class NodePaletteElement extends LitElement {
         <div class="category-title">${t('definition.myModules')}</div>
         ${this.modules.map((module) => html`
           <div class="module-entry" data-definition-id=${module.id}>
-            <div role="listitem" class="node-item module-item node-item--geometry-output" draggable="true"
-              @dragstart=${(event: DragEvent) => this._onModuleDragStart(event, module.id)} aria-label=${module.name}><span class="node-item-icon">${compactIcon('module')}</span>${module.name}</div>
+            <div role="listitem" class="node-item module-item node-item--geometry-output" draggable="true" tabindex="0"
+              aria-describedby=${PALETTE_TOOLTIP_ID}
+              @mouseenter=${(event: MouseEvent) => this._onTooltipMouseEnter(event, this._moduleTooltip(module.name))}
+              @mouseleave=${this._onTooltipMouseLeave}
+              @focusin=${(event: FocusEvent) => this._onTooltipFocusIn(event, this._moduleTooltip(module.name))}
+              @focusout=${this._onTooltipFocusOut}
+              @dragstart=${(event: DragEvent) => { this._hideTooltip(); this._onModuleDragStart(event, module.id) }} aria-label=${module.name}><span class="node-item-icon">${compactIcon('module')}</span>${module.name}</div>
             <button type="button" class="module-action" aria-label=${t('definition.focusModule').replace('{name}', module.name)} @click=${() => this._moduleAction('focus-module', module.id)}>⌖</button>
             <button type="button" class="module-action" aria-label=${t('definition.editModule').replace('{name}', module.name)} @click=${() => this._moduleAction('edit-module', module.id)}>✎</button>
             <button type="button" class="module-action" aria-label=${t('definition.deleteModule').replace('{name}', module.name)} @click=${() => this._moduleAction('delete-module', module.id)}>×</button>
@@ -197,14 +266,28 @@ export class NodePaletteElement extends LitElement {
         <div class="category-title">${t('definition.myFunctions')}</div>
         ${this.functions.map((functionDef) => html`
           <div class="module-entry" data-definition-id=${functionDef.id}>
-            <div role="listitem" class="node-item module-item" draggable=${functionDef.callable} aria-disabled=${!functionDef.callable}
-              @dragstart=${(event: DragEvent) => this._onFunctionDragStart(event, functionDef.id, functionDef.callable)} aria-label=${functionDef.name}><span class="node-item-icon">${compactIcon('function')}</span>${functionDef.name}</div>
+            <div role="listitem" class="node-item module-item" draggable=${functionDef.callable} tabindex="0" aria-disabled=${!functionDef.callable}
+              aria-describedby=${PALETTE_TOOLTIP_ID}
+              @mouseenter=${(event: MouseEvent) => this._onTooltipMouseEnter(event, this._functionTooltip(functionDef.name, functionDef.callable))}
+              @mouseleave=${this._onTooltipMouseLeave}
+              @focusin=${(event: FocusEvent) => this._onTooltipFocusIn(event, this._functionTooltip(functionDef.name, functionDef.callable))}
+              @focusout=${this._onTooltipFocusOut}
+              @dragstart=${(event: DragEvent) => { this._hideTooltip(); this._onFunctionDragStart(event, functionDef.id, functionDef.callable) }} aria-label=${functionDef.name}><span class="node-item-icon">${compactIcon('function')}</span>${functionDef.name}</div>
             <button type="button" class="module-action" aria-label=${t('definition.focusFunction').replace('{name}', functionDef.name)} @click=${() => this._functionAction('focus-function', functionDef.id)}>⌖</button>
             <button type="button" class="module-action" aria-label=${t('definition.editFunction').replace('{name}', functionDef.name)} @click=${() => this._functionAction('edit-function', functionDef.id)}>✎</button>
             <button type="button" class="module-action" aria-label=${t('definition.deleteFunction').replace('{name}', functionDef.name)} @click=${() => this._functionAction('delete-function', functionDef.id)}>×</button>
           </div>
         `)}
         <button type="button" class="node-item" @click=${this._onNewFunction}>${t('definition.newFunction')}</button>
+      </div>
+      <div id=${PALETTE_TOOLTIP_ID} class="palette-tooltip" popover="manual" role="tooltip">
+        ${this.tooltipContent ? html`
+          <span class="palette-tooltip-icon" aria-hidden="true">${compactIcon(this.tooltipContent.icon)}</span>
+          <span class="palette-tooltip-copy">
+            <strong class="palette-tooltip-title">${this.tooltipContent.label}</strong>
+            <span class="palette-tooltip-description">${this.tooltipContent.description}</span>
+          </span>
+        ` : nothing}
       </div>
     `
   }
@@ -222,7 +305,13 @@ export class NodePaletteElement extends LitElement {
               class=${catalogProducesGeometry(entry) ? 'node-item node-item--geometry-output' : 'node-item'}
               data-node-type=${entry.type}
               draggable="true"
-              @dragstart=${(event: DragEvent) => this._onDragStart(event, entry.type)}
+              tabindex="0"
+              aria-describedby=${PALETTE_TOOLTIP_ID}
+              @mouseenter=${(event: MouseEvent) => this._onTooltipMouseEnter(event, this._catalogTooltip(entry))}
+              @mouseleave=${this._onTooltipMouseLeave}
+              @focusin=${(event: FocusEvent) => this._onTooltipFocusIn(event, this._catalogTooltip(entry))}
+              @focusout=${this._onTooltipFocusOut}
+              @dragstart=${(event: DragEvent) => { this._hideTooltip(); this._onDragStart(event, entry.type) }}
               aria-label=${t(entry.labelKey)}
             >
               <span class="node-item-icon">${compactIcon(nodeTypeIcon(entry.type))}</span>${t(entry.labelKey)}
@@ -236,10 +325,15 @@ export class NodePaletteElement extends LitElement {
     const config = entry.paletteOperation!
     const selectedOperation = this.selectedOperations.get(entry.type) ?? config.defaultValue
     return html`
-      <div role="listitem" class=${catalogProducesGeometry(entry) ? 'node-item node-item--operation node-item--geometry-output' : 'node-item node-item--operation'} data-node-type=${entry.type} draggable="true"
-        @dragstart=${(event: DragEvent) => this._onOperationDragStart(event, entry, selectedOperation)} aria-label=${t(entry.labelKey)}>
-        <span class="node-operation-label" title=${t(entry.labelKey)}><span class="node-item-icon">${compactIcon(nodeTypeIcon(entry.type))}</span>${t(entry.labelKey)}</span>
-        <select aria-label=${t(config.accessibleLabelKey)} @pointerdown=${this._stopOperationControlGesture} @dragstart=${this._stopOperationControlGesture} @change=${(event: Event) => {
+      <div role="listitem" class=${catalogProducesGeometry(entry) ? 'node-item node-item--operation node-item--geometry-output' : 'node-item node-item--operation'} data-node-type=${entry.type} draggable="true" tabindex="0"
+        aria-describedby=${PALETTE_TOOLTIP_ID}
+        @mouseenter=${(event: MouseEvent) => this._onTooltipMouseEnter(event, this._catalogTooltip(entry))}
+        @mouseleave=${this._onTooltipMouseLeave}
+        @focusin=${(event: FocusEvent) => this._onTooltipFocusIn(event, this._catalogTooltip(entry))}
+        @focusout=${this._onTooltipFocusOut}
+        @dragstart=${(event: DragEvent) => { this._hideTooltip(); this._onOperationDragStart(event, entry, selectedOperation) }} aria-label=${t(entry.labelKey)}>
+        <span class="node-operation-label"><span class="node-item-icon">${compactIcon(nodeTypeIcon(entry.type))}</span>${t(entry.labelKey)}</span>
+        <select aria-label=${t(config.accessibleLabelKey)} aria-describedby=${PALETTE_TOOLTIP_ID} @pointerdown=${this._stopOperationControlGesture} @dragstart=${this._stopOperationControlGesture} @change=${(event: Event) => {
           const select = event.currentTarget as HTMLSelectElement
           this.selectedOperations.set(entry.type, select.value)
         }}>
@@ -264,6 +358,153 @@ export class NodePaletteElement extends LitElement {
   private _stopOperationControlGesture(event: Event): void {
     event.stopPropagation()
     if (event.type === 'dragstart') event.preventDefault()
+  }
+
+  override connectedCallback(): void {
+    super.connectedCallback()
+    this.addEventListener('keydown', this._onTooltipKeyDown)
+    this.addEventListener('scroll', this._onPaletteScroll)
+    window.addEventListener('resize', this._onViewportResize)
+  }
+
+  override disconnectedCallback(): void {
+    this._clearTooltipTimer()
+    this._hideTooltip()
+    this.removeEventListener('keydown', this._onTooltipKeyDown)
+    this.removeEventListener('scroll', this._onPaletteScroll)
+    window.removeEventListener('resize', this._onViewportResize)
+    super.disconnectedCallback()
+  }
+
+  private _catalogTooltip(entry: NodeCatalogEntry): PaletteTooltipContent {
+    return {
+      label: t(entry.labelKey),
+      description: t(entry.paletteDescriptionKey ?? entry.labelKey),
+      icon: nodeTypeIcon(entry.type),
+    }
+  }
+
+  private _moduleTooltip(name: string): PaletteTooltipContent {
+    return {
+      label: name,
+      description: t('palette.description.moduleCall').replace('{name}', name),
+      icon: 'module',
+    }
+  }
+
+  private _functionTooltip(name: string, callable: boolean): PaletteTooltipContent {
+    return {
+      label: name,
+      description: t(callable ? 'palette.description.functionCall' : 'palette.description.functionUnavailable').replace('{name}', name),
+      icon: 'function',
+    }
+  }
+
+  private _onTooltipMouseEnter(event: MouseEvent, content: PaletteTooltipContent): void {
+    const anchor = event.currentTarget as HTMLElement
+    this.hoveredAnchor = anchor
+    if (this.suppressedAnchor === anchor || (this.focusedAnchor && this.focusedAnchor !== anchor)) return
+    this._clearTooltipTimer()
+    this.tooltipTimer = window.setTimeout(() => {
+      this.tooltipTimer = undefined
+      if (this.hoveredAnchor === anchor) void this._showTooltip(anchor, content)
+    }, PALETTE_TOOLTIP_DELAY_MS)
+  }
+
+  private readonly _onTooltipMouseLeave = (event: MouseEvent): void => {
+    const anchor = event.currentTarget as HTMLElement
+    if (this.hoveredAnchor === anchor) this.hoveredAnchor = null
+    this._clearTooltipTimer()
+    if (this.suppressedAnchor === anchor && this.focusedAnchor !== anchor) this.suppressedAnchor = null
+    if (this.focusedAnchor !== anchor) this._hideTooltip()
+  }
+
+  private _onTooltipFocusIn(event: FocusEvent, content: PaletteTooltipContent): void {
+    const anchor = event.currentTarget as HTMLElement
+    this.focusedAnchor = anchor
+    this._clearTooltipTimer()
+    if (this.suppressedAnchor !== anchor) void this._showTooltip(anchor, content)
+  }
+
+  private readonly _onTooltipFocusOut = (event: FocusEvent): void => {
+    const anchor = event.currentTarget as HTMLElement
+    if (event.relatedTarget instanceof Node && anchor.contains(event.relatedTarget)) return
+    if (this.focusedAnchor === anchor) this.focusedAnchor = null
+    if (this.suppressedAnchor === anchor && this.hoveredAnchor !== anchor) this.suppressedAnchor = null
+    if (this.hoveredAnchor !== anchor) this._hideTooltip()
+  }
+
+  private async _showTooltip(anchor: HTMLElement, content: PaletteTooltipContent): Promise<void> {
+    this.tooltipAnchor = anchor
+    this.tooltipContent = content
+    await this.updateComplete
+    if (this.tooltipAnchor !== anchor || !anchor.isConnected) return
+    const tooltip = this.renderRoot.querySelector<HTMLElement>(`#${PALETTE_TOOLTIP_ID}`)
+    if (!tooltip) return
+    if (!tooltip.matches(':popover-open')) tooltip.showPopover()
+    this._positionTooltip(anchor, tooltip)
+  }
+
+  private _positionTooltip(anchor: HTMLElement, tooltip: HTMLElement): void {
+    const gap = 10
+    const edge = 8
+    const viewport = window.visualViewport
+    const viewportLeft = viewport?.offsetLeft ?? 0
+    const viewportTop = viewport?.offsetTop ?? 0
+    const viewportRight = viewportLeft + (viewport?.width ?? window.innerWidth)
+    const viewportBottom = viewportTop + (viewport?.height ?? window.innerHeight)
+    const anchorBounds = anchor.getBoundingClientRect()
+    const tooltipBounds = tooltip.getBoundingClientRect()
+
+    let left = anchorBounds.right + gap
+    if (left + tooltipBounds.width > viewportRight - edge) left = anchorBounds.left - gap - tooltipBounds.width
+    left = Math.max(viewportLeft + edge, Math.min(left, viewportRight - edge - tooltipBounds.width))
+    const centeredTop = anchorBounds.top + (anchorBounds.height - tooltipBounds.height) / 2
+    const top = Math.max(viewportTop + edge, Math.min(centeredTop, viewportBottom - edge - tooltipBounds.height))
+
+    tooltip.style.left = `${Math.round(left)}px`
+    tooltip.style.top = `${Math.round(top)}px`
+  }
+
+  private _hideTooltip(): void {
+    this._clearTooltipTimer()
+    this.tooltipAnchor = null
+    this.tooltipContent = null
+    const tooltip = this.renderRoot.querySelector<HTMLElement>(`#${PALETTE_TOOLTIP_ID}`)
+    if (tooltip?.matches(':popover-open')) tooltip.hidePopover()
+  }
+
+  private _clearTooltipTimer(): void {
+    if (this.tooltipTimer === undefined) return
+    window.clearTimeout(this.tooltipTimer)
+    this.tooltipTimer = undefined
+  }
+
+  private readonly _onTooltipKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || (!this.tooltipContent && this.tooltipTimer === undefined)) return
+    this.suppressedAnchor = this.tooltipAnchor ?? this.focusedAnchor ?? this.hoveredAnchor
+    this._hideTooltip()
+  }
+
+  private readonly _onPaletteScroll = (): void => {
+    if (this.focusedAnchor) {
+      const anchor = this.focusedAnchor
+      window.requestAnimationFrame(() => {
+        if (this.focusedAnchor !== anchor || !anchor.isConnected) return
+        const tooltip = this.renderRoot.querySelector<HTMLElement>(`#${PALETTE_TOOLTIP_ID}`)
+        if (tooltip?.matches(':popover-open')) this._positionTooltip(anchor, tooltip)
+      })
+      return
+    }
+    this.suppressedAnchor = this.tooltipAnchor ?? this.focusedAnchor ?? this.hoveredAnchor
+    this._hideTooltip()
+  }
+
+  private readonly _onViewportResize = (): void => {
+    if (this.tooltipAnchor && this.tooltipContent) {
+      const tooltip = this.renderRoot.querySelector<HTMLElement>(`#${PALETTE_TOOLTIP_ID}`)
+      if (tooltip?.matches(':popover-open')) this._positionTooltip(this.tooltipAnchor, tooltip)
+    }
   }
 
   private _onDragStart(event: DragEvent, type: string, params?: Record<string, unknown>): void {
