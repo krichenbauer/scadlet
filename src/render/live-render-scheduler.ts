@@ -46,6 +46,19 @@ export class LiveRenderScheduler {
     return this.revisionValue
   }
 
+  /** Inspect may replace the visible preview/source without changing graph
+   * semantics. Mark the current main-graph result stale so leaving Inspect
+   * can restore it through the same Live pipeline and revision guards. */
+  invalidatePreviewForInspect(): void {
+    if (!this.isStale) this.successfulRevision = this.revisionValue - 1
+  }
+
+  /** Resumes the ordinary debounced main-graph preview after Inspect ends.
+   * Repeated callers still collapse to one timer through `scheduleIfNeeded`. */
+  resumeAfterInspect(): void {
+    this.scheduleIfNeeded()
+  }
+
   setLive(live: boolean): void {
     if (this.liveValue === live) return
     this.liveValue = live

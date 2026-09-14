@@ -53,12 +53,15 @@ performance choices. Never silently lower explicit detail such as `$fn`.
 
 The default-on Live control is a session-only scheduling policy over this same
 Render action, not a second pipeline. Relevant semantic graph changes debounce
-for 400 ms; presentation, layout, navigation, inspect state, and autosave do
-not enter that policy. A newer semantic change cancels a running Live request,
-uses the existing worker termination and execution-generation guards, and may
-only apply the result for its current graph revision. Manual Render cancels a
-pending Live delay and renders immediately; Stop suppresses retry for that
-unchanged revision. A non-cancelled Live worker run over two seconds completes
+for 400 ms; presentation, layout, navigation, and autosave do not enter that
+policy. Inspect does not change the semantic revision, but replacing the main
+preview marks that revision visually stale; a non-manual Inspect exit queues
+one debounced main-graph render while Live is enabled. A newer semantic change
+cancels a running Live request, uses the existing worker termination and
+execution-generation guards, and may only apply the result for its current
+graph revision. Manual Render cancels a pending Live or Inspect-exit delay and
+renders immediately; Stop suppresses retry for that unchanged revision. A
+non-cancelled Live worker run over two seconds completes
 normally, then disables Live and reports accessible performance feedback.
 Enabling Live and replacing the active local project cancel pending work and
 immediately render a stale current graph through the same controller. After a

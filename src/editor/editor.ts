@@ -619,6 +619,10 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
         endInspect()
         return
       }
+      // Switching Inspect roots ends the previous preview first. The app's
+      // resume request is immediately superseded by the new Inspect, whose
+      // start cancels that pending debounce.
+      if (inspect.id !== null) endInspect()
       inspect.activate(nodeId, inspectParticipatingNodeIds(editor, nodeId))
       for (const listener of inspectListeners) listener(nodeId)
     },

@@ -69,6 +69,39 @@ async function inspectNode(page: Page, node: Locator): Promise<void> {
   await waitForExecutionIdle(page)
 }
 
+async function trackMainGraphEvaluations(page: Page): Promise<void> {
+  await page.locator('node-editor').evaluate((element) => {
+    const editor = element as unknown as {
+      dataset: DOMStringMap
+      evaluate(rootNodeId?: string): Promise<string>
+    }
+    const evaluate = editor.evaluate.bind(editor)
+    editor.dataset.mainEvaluationCount = '0'
+    editor.evaluate = (rootNodeId?: string): Promise<string> => {
+      if (rootNodeId === undefined) {
+        editor.dataset.mainEvaluationCount = String(Number(editor.dataset.mainEvaluationCount ?? '0') + 1)
+      }
+      return evaluate(rootNodeId)
+    }
+  })
+}
+
+async function mainGraphEvaluationCount(page: Page): Promise<number> {
+  return page.locator('node-editor').evaluate((element) => Number((element as HTMLElement).dataset.mainEvaluationCount ?? '0'))
+}
+
+async function expectMainGraphPreview(page: Page, expectedEvaluationCount: number, extraSource = ''): Promise<void> {
+  await expect.poll(() => mainGraphEvaluationCount(page), { timeout: 15_000 }).toBe(expectedEvaluationCount)
+  const source = page.locator('scadlet-app .scad-output')
+  await expect(source).toContainText('translate(', { timeout: 15_000 })
+  await expect(source).toContainText('sphere(')
+  if (extraSource) await expect(source).toContainText(extraSource)
+  await waitForExecutionIdle(page)
+  await page.waitForTimeout(500)
+  expect(await mainGraphEvaluationCount(page)).toBe(expectedEvaluationCount)
+  await expect(page.locator('node-editor .node.node--inspected')).toHaveCount(0)
+}
+
 async function dragFromTo(page: Page, start: Point, end: Point, modifiers: ('Shift' | 'Control' | 'Meta')[] = []): Promise<void> {
   for (const modifier of modifiers) await page.keyboard.down(modifier)
   await page.mouse.move(start.x, start.y)
@@ -82,17 +115,17 @@ test('a genuine empty-canvas click ends active Inspect and cancels an in-flight 
   const { canvas, translate } = await openConnectedGraph(page)
   await translate.locator('.node-title').dblclick()
   await expect(translate).toHaveClass(/node--inspected/)
+  await trackMainGraphEvaluations(page)
 
   await page.mouse.click(canvas.x + canvas.width - 20, canvas.y + canvas.height - 20)
   await expect(page.locator('node-editor .node.node--inspected')).toHaveCount(0)
-  await waitForExecutionIdle(page)
-  await page.waitForTimeout(500)
-  await expect(page.locator('node-editor .node.node--inspected')).toHaveCount(0)
+  await expectMainGraphPreview(page, 1)
 })
 
 test('node, control, connection, pan, and marquee gestures preserve active Inspect', async ({ page }) => {
   const { canvas, cube, translate } = await openConnectedGraph(page)
   await inspectNode(page, translate)
+  await trackMainGraphEvaluations(page)
 
   await cube.locator('.node-header').click({ position: { x: 20, y: 12 } })
   await expect(translate).toHaveClass(/node--inspected/)
@@ -127,33 +160,49 @@ test('node, control, connection, pan, and marquee gestures preserve active Inspe
     ['Shift'],
   )
   await expect(translate).toHaveClass(/node--inspected/)
+  await page.waitForTimeout(500)
+  expect(await mainGraphEvaluationCount(page)).toBe(0)
+  await expect(page.locator('scadlet-app .scad-output')).not.toContainText('sphere(')
 })
 
-test('existing node, scope, and Render exit paths remain intact', async ({ page }) => {
+test('same-node, switched-target, and out-of-scope exits resume exactly one main preview', async ({ page }) => {
   const { cube, translate, sphere } = await openConnectedGraph(page)
   await inspectNode(page, translate)
+  await trackMainGraphEvaluations(page)
 
   await translate.locator('.node-title').dblclick()
-  await expect(page.locator('node-editor .node.node--inspected')).toHaveCount(0)
+  await expectMainGraphPreview(page, 1)
 
   await inspectNode(page, translate)
   await cube.locator('.node-title').dblclick()
   await expect(cube).toHaveClass(/node--inspected/)
   await waitForExecutionIdle(page)
+  await page.waitForTimeout(500)
+  expect(await mainGraphEvaluationCount(page)).toBe(1)
+  await expect(page.locator('scadlet-app .scad-output')).not.toContainText('sphere(')
 
-  await sphere.locator('.node-header').click({ position: { x: 20, y: 12 } })
-  await expect(page.locator('node-editor .node.node--inspected')).toHaveCount(0)
+  await cube.locator('.node-title').dblclick()
+  await expectMainGraphPreview(page, 2)
 
   await inspectNode(page, translate)
+  await sphere.locator('.node-header').click({ position: { x: 20, y: 12 } })
+  await expectMainGraphPreview(page, 3)
+})
+
+test('explicit Render restores the main graph without a duplicate automatic render', async ({ page }) => {
+  const { translate } = await openConnectedGraph(page)
+  await inspectNode(page, translate)
+  await trackMainGraphEvaluations(page)
   await page.getByRole('button', { name: 'Render', exact: true }).click()
-  await expect(page.locator('node-editor .node.node--inspected')).toHaveCount(0)
+  await expectMainGraphPreview(page, 1)
 })
 
 test('successfully dropping a new palette node ends active Inspect', async ({ page }) => {
   const { canvas, translate } = await openConnectedGraph(page)
   await inspectNode(page, translate)
+  await trackMainGraphEvaluations(page)
 
   await dropPaletteNode(page, 'cylinder', { x: canvas.x + 300, y: canvas.y + 330 })
   await expect(await node(page, 'Cylinder')).toBeVisible()
-  await expect(page.locator('node-editor .node.node--inspected')).toHaveCount(0)
+  await expectMainGraphPreview(page, 1, 'cylinder(')
 })

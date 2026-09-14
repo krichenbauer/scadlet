@@ -102,9 +102,11 @@ Inspecting that node. A confirmed valid
 empty Geometry Inspect clears the preview and does not create or retain that
 marker; its restrained localized preview status is not an error. Normal Render
 clears the marker immediately and always renders the full project, including if
-it later fails. A changed semantic graph clears Inspect provenance (while the
-last valid Geometry mesh may remain visible); presentation-only interactions do
-not. A failed Inspect preserves the previous successful result and its marker.
+it later fails. Every non-manual Inspect exit resumes the normal debounced Live
+pipeline for the main graph; an explicit Render cancels that pending request so
+it cannot render twice. A changed semantic graph clears Inspect provenance
+(while the last valid Geometry mesh may remain visible); presentation-only
+interactions do not. A failed Inspect preserves the previous successful result and its marker.
 Clear Inspect after a committed project replacement and when its node is
 deleted. Keep it inside the existing Rete/dataflow/codegen route.
 

@@ -39,6 +39,44 @@ describe('LiveRenderScheduler', () => {
     vi.useRealTimers()
   })
 
+  it('debounces one main-graph render after Inspect invalidates an otherwise current preview', () => {
+    vi.useFakeTimers()
+    const due = vi.fn()
+    const scheduler = new LiveRenderScheduler({ onDue: due })
+    scheduler.markSuccessful(0)
+
+    scheduler.invalidatePreviewForInspect()
+    scheduler.resumeAfterInspect()
+    scheduler.resumeAfterInspect()
+    vi.advanceTimersByTime(399)
+    expect(due).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(due).toHaveBeenCalledExactlyOnceWith(0)
+    vi.useRealTimers()
+  })
+
+  it('keeps Inspect resumption behind Live and lets explicit Render cancel the pending automatic render', () => {
+    vi.useFakeTimers()
+    const due = vi.fn()
+    const scheduler = new LiveRenderScheduler({ onDue: due })
+    scheduler.markSuccessful(0)
+    scheduler.invalidatePreviewForInspect()
+    scheduler.setLive(false)
+    scheduler.resumeAfterInspect()
+    vi.advanceTimersByTime(400)
+    expect(due).not.toHaveBeenCalled()
+
+    scheduler.setLive(true)
+    expect(due).toHaveBeenCalledExactlyOnceWith(0)
+    scheduler.invalidatePreviewForInspect()
+    scheduler.resumeAfterInspect()
+    scheduler.cancelPending()
+    scheduler.markSuccessful(0)
+    vi.advanceTimersByTime(400)
+    expect(due).toHaveBeenCalledTimes(1)
+    vi.useRealTimers()
+  })
+
   it('enabling Live immediately renders a stale revision, while disabling clears queued edits', () => {
     vi.useFakeTimers()
     const due = vi.fn()

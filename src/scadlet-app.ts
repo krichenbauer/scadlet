@@ -1370,17 +1370,19 @@ export class ScadletApp extends LitElement {
   /** Prevents a completed async Inspect from restoring provenance after the
    * user explicitly ended it in the editor. The last valid preview remains
    * visible, matching `InspectManager.clear()`; only the in-flight work and
-  * its ability to commit are cancelled. */
+   * its ability to commit are cancelled. */
   private _handleInspectEnd(): void {
-    if (this.activeExecution !== 'inspect' && this.activeRenderOrigin !== 'live') return
-    this.executionGeneration.invalidate()
-    if (this.renderStopTimer) clearTimeout(this.renderStopTimer)
-    this.renderStopTimer = undefined
-    this.activeExecution = null
-    this.activeRenderOrigin = null
-    this.rendering = false
-    this.showRenderStop = false
-    this.renderController.stop()
+    if (this.activeExecution === 'inspect' || this.activeRenderOrigin === 'live') {
+      this.executionGeneration.invalidate()
+      if (this.renderStopTimer) clearTimeout(this.renderStopTimer)
+      this.renderStopTimer = undefined
+      this.activeExecution = null
+      this.activeRenderOrigin = null
+      this.rendering = false
+      this.showRenderStop = false
+      this.renderController.stop()
+    }
+    this.liveScheduler.resumeAfterInspect()
   }
 
   private async _render() {
@@ -1468,6 +1470,7 @@ export class ScadletApp extends LitElement {
     // quiet-period deadline. Otherwise that delayed run can begin while the
     // OpenSCAD-backed Inspect is in flight and cancel it before it commits.
     this.liveScheduler.cancelPending()
+    this.liveScheduler.invalidatePreviewForInspect()
     const generation = this._beginExecution('inspect')
     try {
       const inspected = await this.nodeEditor.evaluateInspect(nodeId)
