@@ -1032,6 +1032,11 @@ No changes are needed to the generic persistence pipeline itself.
 
 ## Example files
 
+The built-in project templates shown in the application are maintained
+separately at top-level `examples/example_*.scadlet` and discovered eagerly at
+build time. Selecting one parses the same canonical format described here but
+creates a new local IndexedDB copy; the bundled source is immutable.
+
 Complete, test-validated examples for historical and current formats live under
 [`docs/examples/`](examples/) and are parsed through the real
 `parseScadletProject()` implementation by
@@ -1198,3 +1203,4 @@ still would not directly execute arbitrary JavaScript in the browser.
 | Viewer camera capture/restore         | `src/components/geometry-viewer.ts` |
 | App-level Open/Save/dirty-state wiring | `src/scadlet-app.ts` |
 | Example fixtures + drift-guard test   | `docs/examples/*.scadlet`, `src/persistence/docs-examples.test.ts` |
+| Bundled example templates             | `examples/example_*.scadlet`, `src/persistence/builtin-examples.ts` |

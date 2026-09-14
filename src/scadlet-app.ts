@@ -14,6 +14,7 @@ import { ActiveProjectSession, createBrowserActiveProjectSession, resolveStartup
 import { AutosaveController, type AutosaveStatus } from './persistence/autosave'
 import { sanitizeFilename, toScadletFilename } from './persistence/filename'
 import { createBrowserFileSystemCapability, pickFileWithInput, ProjectFileService } from './persistence/file-service'
+import { BUILTIN_EXAMPLES, createBuiltinExampleCopy } from './persistence/builtin-examples'
 import {
   IndexedDBLocalProjectStore,
   type LocalProjectStore,
@@ -122,12 +123,15 @@ export class ScadletApp extends LitElement {
     .project-menu-sort { display: flex; align-items: center; gap: 6px; margin: 8px 0; font-size: 12px; }
     .sort-icon { display: grid; width: 26px; height: 27px; place-items: center; color: #b8d8eb; }
     .project-menu-sort select { min-height: 27px; padding: 3px; border: 1px solid #666; border-radius: 4px; background: #242424; color: #eee; }
-    .project-menu-list { display: grid; gap: 2px; max-height: min(50vh, 360px); overflow: auto; border-top: 1px solid #555; padding-top: 7px; }
-    .project-row, .file-action {
+    .project-menu-list { display: grid; gap: 10px; max-height: min(50vh, 360px); overflow: auto; border-top: 1px solid #555; padding-top: 7px; }
+    .project-menu-section { display: grid; gap: 2px; }
+    .project-menu-section + .project-menu-section { border-top: 1px solid #555; padding-top: 8px; }
+    .project-menu-heading { margin: 0 7px 4px; color: #b8d8eb; font-size: 11px; font-weight: 650; letter-spacing: 0.05em; text-transform: uppercase; }
+    .project-row, .example-row, .file-action {
       width: 100%; min-height: 32px; padding: 5px 7px; border: 1px solid transparent; border-radius: 4px;
       background: transparent; color: #eee; text-align: left; font: inherit;
     }
-    .project-row:hover, .file-action:hover { background: #393939; border-color: #555; }
+    .project-row:hover, .example-row:hover, .file-action:hover { background: #393939; border-color: #555; }
     .project-row--active { background: #253b49; color: #e0f3ff; }
     .active-check { display: inline-block; width: 18px; }
     .project-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -602,9 +606,18 @@ export class ScadletApp extends LitElement {
         </select>
       </label>
       <div class="project-menu-list">
-        ${ordered.map((project) => html`<button type="button" class="project-row ${project.id === this.activeProjectId ? 'project-row--active' : ''}" @click=${() => this._selectProjectRow(project.id)}>
-          <span class="active-check" aria-hidden="true">${project.id === this.activeProjectId ? '✓' : ''}</span><span class="project-row-name">${project.name}</span>
-        </button>`)}
+        <section class="project-menu-section project-menu-section--local" aria-labelledby="local-projects-heading">
+          <h2 id="local-projects-heading" class="project-menu-heading">${t('toolbar.localProjects')}</h2>
+          ${ordered.map((project) => html`<button type="button" class="project-row ${project.id === this.activeProjectId ? 'project-row--active' : ''}" @click=${() => this._selectProjectRow(project.id)}>
+            <span class="active-check" aria-hidden="true">${project.id === this.activeProjectId ? '✓' : ''}</span><span class="project-row-name">${project.name}</span>
+          </button>`)}
+        </section>
+        <section class="project-menu-section project-menu-section--examples" aria-labelledby="examples-heading">
+          <h2 id="examples-heading" class="project-menu-heading">${t('toolbar.examples')}</h2>
+          ${BUILTIN_EXAMPLES.map((example) => html`<button type="button" class="example-row" @click=${() => this._selectBuiltinExample(example.id)} ?disabled=${this.localInitializing || !this.localStore}>
+            <span class="active-check" aria-hidden="true"></span><span class="project-row-name">${example.name}</span>
+          </button>`)}
+        </section>
       </div>
     </div>`
   }
@@ -642,6 +655,11 @@ export class ScadletApp extends LitElement {
   private readonly _selectProjectRow = (id: string): void => {
     this.projectsMenuOpen = false
     if (id !== this.activeProjectId) void this._switchLocalProject(id)
+  }
+
+  private readonly _selectBuiltinExample = (id: string): void => {
+    this.projectsMenuOpen = false
+    void this._openBuiltinExample(id)
   }
 
   firstUpdated() {
@@ -880,6 +898,22 @@ export class ScadletApp extends LitElement {
     } catch (error) {
       this.persistenceMessage = `Could not open the local project: ${this._errorMessage(error)}`
       this.requestUpdate()
+    }
+  }
+
+  private async _openBuiltinExample(id: string): Promise<void> {
+    if (!this.localStore || !(await this._canLeaveCurrentProject())) return
+    try {
+      // Refresh immediately before naming so repeated opens and projects
+      // created in another tab receive an unambiguous local-copy suffix.
+      this.localProjects = await this.localStore.listProjects()
+      const project = createBuiltinExampleCopy(id, this.localProjects.map((item) => item.name))
+      const stored = await this.localStore.createProject(project)
+      await this._applyStoredProject(stored, true, true)
+      this.localEvents?.publish({ type: 'project-created', projectId: stored.id, revision: stored.revision })
+      await this._refreshProjectList()
+    } catch (error) {
+      this.persistenceMessage = `${t('toolbar.exampleOpenFailed')}: ${this._errorMessage(error)}`
     }
   }
 
@@ -1312,6 +1346,11 @@ export class ScadletApp extends LitElement {
   }
 
   private readonly _onKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape' && (this.projectsMenuOpen || this.fileMenuOpen)) {
+      this.projectsMenuOpen = false
+      this.fileMenuOpen = false
+      return
+    }
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return
     event.preventDefault()
     void this._saveAs()

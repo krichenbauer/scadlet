@@ -108,3 +108,19 @@ Avoid coupling Rete rendering, source generation, worker control, and viewer
 code in one module. Prefer small typed modules and straightforward browser APIs
 over broad abstractions. Any structural change must preserve the one-way flow
 unless its tradeoff is explicitly agreed.
+
+## Bundled project templates
+
+Maintained built-in templates live at top-level
+`examples/example_*.scadlet`. Vite discovers them with an eager raw glob, so
+their JSON text is part of the application bundle and selecting one performs
+no runtime network request. The template flow is deliberately separate from
+geometry evaluation:
+
+```text
+bundled .scadlet text → canonical parser → newly named IndexedDB record → normal project restore
+```
+
+Templates are never live editor state and are never mutated. Once copied, the
+new local record follows the same autosave, selection, rendering, export, and
+deletion lifecycle as every other local project.

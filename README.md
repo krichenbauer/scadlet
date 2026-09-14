@@ -12,7 +12,8 @@ SCADlet is fully client-side: a graph evaluates to readable OpenSCAD source, whi
 - Number, Boolean, Vector3, and basic math nodes for simple dataflow.
 - Direct literal editing, compatible typed connections, compact expandable nodes, and intermediate-value inspection.
 - In-browser OpenSCAD rendering with an interactive Three.js STL viewer.
-- Export to `.scad` and `.stl`, plus local save/open and portable `.scadlet` project files.
+- Export to `.scad` and `.stl`, plus local save/open, portable `.scadlet`
+  project files, and built-in examples copied into the local project library.
 
 ## Usage
 
@@ -22,6 +23,8 @@ SCADlet is fully client-side: a graph evaluates to readable OpenSCAD source, whi
 - Double-click a geometry or value-producing node to inspect an intermediate result.
 - Use **Render** for the current preview; with no node inspected, it renders the complete model.
 - Save or open `.scadlet` projects, and download generated OpenSCAD or STL files.
+- Open an immutable template from the Projects menu's Examples section to
+  create an editable local copy.
 
 ## Development
 

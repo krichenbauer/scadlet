@@ -14,6 +14,9 @@ for development and non-GitHub hosting.
 Runtime resources must ship with the application. Do not add CDN JavaScript,
 external fonts/icons, analytics, trackers, or third-party runtime APIs.
 Normal use needs no network after the application loads.
+Top-level `examples/example_*.scadlet` templates are eager raw Vite imports,
+not separately fetched public assets, so GitHub Pages and other production
+builds include every matching example in the application bundle.
 
 The intended license is GPL-3.0-or-later. New dependencies must be GPL
 compatible, retain required notices, and have clear licensing.
@@ -29,7 +32,8 @@ dependencies. Put system tools in `flake.nix` and application dependencies in
 may discover it on first Render, reload the dev page, and lose unsaved work.
 Browser persistence tests use Playwright (`pnpm test:e2e`) and the devShell
 Chromium exposed by `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`; generated browser
-reports stay ignored.
+reports stay ignored. Playwright serves the production build through Vite
+Preview, ensuring browser tests cover deployable bundled resources.
 Recursion regressions must exercise direct and mutual Function/Module source
 through the bundled OpenSCAD-WASM. Do not substitute JavaScript evaluation or
 assume OpenSCAD declaration-order behavior without a real runtime check.

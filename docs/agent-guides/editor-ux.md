@@ -120,9 +120,14 @@ language switcher merely in anticipation of another language.
 The header contains SCADlet, the directly editable active-project name, a
 Projects popover, File menu, and the GitHub icon. Enter and focus loss commit
 the project name through the normal dirty/autosave lifecycle. Projects manages
-only local IndexedDB records: New, Duplicate active, Delete active, active
-first, and ordering of the remaining rows. Portable open/save/export actions
-belong only in File. Do not add row-level rename/delete affordances.
+local IndexedDB records with New, Duplicate active, Delete active, active
+first, and ordering of the remaining rows. It also contains a clearly
+separated Examples section of immutable bundled templates. Selecting a
+template creates and activates an independently named ordinary local copy;
+templates themselves have no rename/delete affordances. Portable
+open/save/export actions belong only in File. Do not add row-level
+rename/delete affordances or another top-level examples menu. Examples never
+open automatically and do not introduce first-run UI.
 
 The viewer's bottom-edge strip holds the manual Render action and a default-on
 Live toggle. Live is an accessible, session-only switch: semantic graph edits

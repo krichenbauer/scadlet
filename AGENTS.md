@@ -45,6 +45,10 @@ without an explicit product decision.
   analyse termination, which remains OpenSCAD-WASM's responsibility.
 - Keep the app static and private: no backend, analytics, CDN assets, fonts,
   icons, or runtime APIs hosted by third parties.
+- Maintain bundled project templates only as top-level
+  `examples/example_*.scadlet` files. Build discovery must remain automatic
+  and eager/offline; templates are immutable and enter the editable project
+  lifecycle only as newly created IndexedDB copies.
 - View-recovery controls (Fit graph and Reset 3D view) are transient
   presentation actions. They must never change semantic graph data, generated
   source, dirty/autosave state, Inspect provenance, or persisted project view
@@ -81,8 +85,11 @@ and teaching refinements remain future work.
 OpenSCAD source import is not a current requirement. The development source
 pane is for verification, not a code editor.
 
-The compact shell keeps local IndexedDB project management in Projects and
-portable `.scadlet`/source/STL actions in File. The default-on Live toggle is
+The compact shell keeps local IndexedDB project management and a clearly
+separate immutable Examples section in Projects, while portable
+`.scadlet`/source/STL actions stay in File. Selecting an example creates and
+activates an ordinary, independently named local copy; examples never open
+automatically. The default-on Live toggle is
 a transient session setting: semantic graph edits debounce through the normal
 render lifecycle, while layout, navigation, autosave, and other presentation
 state never schedule a render. Enabling Live, activating a different local

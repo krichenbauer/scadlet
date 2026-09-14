@@ -17,6 +17,8 @@ Implemented and stable:
   analysis;
 - client-side `.scadlet` v6 persistence, restore validation, and rejection of
   cyclic node dataflow while retaining permitted definition recursion;
+- immutable, eagerly bundled example templates that create ordinary local
+  copies only when selected from the Projects menu;
 - dark, compact node presentation with explicit fixed Conditional/If interfaces,
   Geometry recognition, semantic Inspect provenance, and standard selection;
 - transient view recovery: Fit graph for the canvas and Reset 3D view for a
@@ -55,9 +57,6 @@ independent repair first.
      least Delete and Duplicate. Move optional parameter additions there, while
      direct parameter removal stays adjacent to the parameter. Add useful node
      icons for recognition and palette scanning;
-   - add a small first-run example project as a possible onboarding
-     improvement.
-
    Broader diagnostic interpretation, cached hover previews,
    collision-avoidance while moving nodes, and automatic layout are
    deliberately low priority.

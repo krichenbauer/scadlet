@@ -52,6 +52,15 @@ project database. Local storage IDs are unrelated to portable project and graph
 identity; importing a `.scadlet` creates a new local record. The active project
 is tab-scoped (`sessionStorage`), so tabs can work independently.
 
+Built-in examples are maintained as top-level `examples/example_*.scadlet`
+sources and eagerly bundled as immutable text templates. They are not
+IndexedDB records and never become the active project directly. Selection
+first parses the canonical source, gives it a clear `Example: <name>` local
+name with a numeric suffix when needed, creates a fresh IndexedDB record, and
+then uses the ordinary atomic project-activation path. Editing or deleting
+that record cannot affect the bundled source. The current project is flushed
+before this copy/activation, exactly as for an ordinary project switch.
+
 Autosave is intentionally simple: use dirty notifications with a short debounce
 and one in-flight write. Use optimistic per-project revision checks to prevent
 silent same-project last-writer-wins. `BroadcastChannel` may notify tabs of
