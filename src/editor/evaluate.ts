@@ -9,6 +9,7 @@ import { FunctionCallNode } from './nodes/function-call-node'
 import { ModuleCallNode } from './nodes/module-call-node'
 import { ConditionalNode } from './nodes/value-nodes'
 import { IfNode } from './nodes/if-node'
+import { ScadSettingsNode, type ScadSettingsValue } from './nodes/scad-settings-node'
 import { t } from '../i18n/translate'
 
 /**
@@ -34,12 +35,15 @@ export async function evaluateOpenSCAD(
 ): Promise<string> {
   if (rootNodeId !== undefined) {
     if (!editor.getNode(rootNodeId)) return ''
-    assertNoIncompleteReachableBranch(editor, [rootNodeId])
-    const source = await evaluateGeometryRoot(engine, rootNodeId)
     const scope = definitions?.scopeOf(rootNodeId)
+    const scopedSettings = settingsNodeInScope(editor, scope ?? null, definitions)
+    assertNoIncompleteReachableBranch(editor, [rootNodeId, ...(scopedSettings ? [scopedSettings.id] : [])])
+    const settings = await evaluateScopeSettings(editor, engine, scope ?? null, definitions)
+    const source = await evaluateGeometryRoot(engine, rootNodeId)
     const definition = scope ? definitions?.get(scope) : undefined
-    if (definition) return inspectModuleSource(definition, source)
-    return definitions ? joinDefinitions(await evaluateDefinitions(editor, engine, definitions), source) : source
+    if (definition) return inspectModuleSource(definition, joinScopeSource(settings, source))
+    const main = joinScopeSource(settings, source)
+    return definitions ? joinDefinitions(await evaluateDefinitions(editor, engine, definitions), main) : main
   }
 
   const mainNodeIds = new Set(editor.getNodes()
@@ -48,8 +52,13 @@ export async function evaluateOpenSCAD(
   const consumedNodeIds = new Set(editor.getConnections()
     .filter((connection) => mainNodeIds.has(connection.source) && mainNodeIds.has(connection.target))
     .map((connection) => connection.source))
-  const roots = editor.getNodes().filter((node) => mainNodeIds.has(node.id) && !consumedNodeIds.has(node.id))
-  assertNoIncompleteReachableBranch(editor, roots
+  const roots = editor.getNodes().filter((node) =>
+    mainNodeIds.has(node.id) && !consumedNodeIds.has(node.id) && !(node instanceof ScadSettingsNode),
+  )
+  const mainSettings = settingsNodeInScope(editor, null, definitions)
+  assertNoIncompleteReachableBranch(editor, [
+    ...(mainSettings ? [mainSettings.id] : []),
+    ...roots
     .filter((node) => Boolean(node.outputs.geometry))
     // An untouched If draft has no upstream program edges and emits no
     // source. Treating it as a Main root merely because its output is
@@ -57,7 +66,8 @@ export async function evaluateOpenSCAD(
     // semantic input is wired (or Inspect explicitly roots it), it becomes
     // effective and receives the normal completeness check below.
     .filter((node) => !(node instanceof IfNode) || editor.getConnections().some((connection) => connection.target === node.id))
-    .map((node) => node.id))
+    .map((node) => node.id),
+  ])
 
   const fragments: string[] = []
   for (const node of roots) {
@@ -69,7 +79,8 @@ export async function evaluateOpenSCAD(
     if (output.geometry?.code) fragments.push(output.geometry.code)
   }
 
-  const main = fragments.join('\n')
+  const settings = await evaluateScopeSettings(editor, engine, null, definitions)
+  const main = joinScopeSource(settings, fragments.join('\n'))
   return definitions ? joinDefinitions(await evaluateDefinitions(editor, engine, definitions), main) : main
 }
 
@@ -85,9 +96,11 @@ async function evaluateGeometryRoot(engine: DataflowEngine<Schemes>, nodeId: str
  * be used (not a hardcoded `geometry`) since a Module Inputs Geometry input
  * feeding Output directly exposes its value under a dynamic `geometry:<id>`
  * key, not `geometry`. */
-async function evaluateModuleBody(editor: NodeEditor<Schemes>, engine: DataflowEngine<Schemes>, definition: ModuleDefinition): Promise<string> {
+async function evaluateModuleBody(editor: NodeEditor<Schemes>, engine: DataflowEngine<Schemes>, definition: ModuleDefinition, definitions: DefinitionRegistry): Promise<string> {
   const connection = editor.getConnections().find((item) => item.target === definition.outputNodeId && item.targetInput === 'geometry')
-  return connection ? evaluateGeometryRoot(engine, connection.source, connection.sourceOutput) : ''
+  const settings = await evaluateScopeSettings(editor, engine, definition.id, definitions)
+  const geometry = connection ? await evaluateGeometryRoot(engine, connection.source, connection.sourceOutput) : ''
+  return joinScopeSource(settings, geometry)
 }
 
 /** A Function's single expression is whatever ordinary value dataflow feeds
@@ -106,7 +119,10 @@ async function evaluateFunctionBody(editor: NodeEditor<Schemes>, engine: Dataflo
 async function evaluateDefinitions(editor: NodeEditor<Schemes>, engine: DataflowEngine<Schemes>, definitions: DefinitionRegistry): Promise<string> {
   const fragments: string[] = []
   const allDefinitions = definitions.list()
-  assertNoIncompleteReachableBranch(editor, allDefinitions.map((definition) => definition.outputNodeId))
+  assertNoIncompleteReachableBranch(editor, [
+    ...allDefinitions.map((definition) => definition.outputNodeId),
+    ...editor.getNodes().filter((node) => node instanceof ScadSettingsNode).map((node) => node.id),
+  ])
   const analysis = analyzeFunctionDependencies(
     allDefinitions.map((definition) => ({ id: definition.id, kind: definition.kind, outputNodeId: definition.outputNodeId })),
     editor.getNodes().map((node) => ({
@@ -126,7 +142,7 @@ async function evaluateDefinitions(editor: NodeEditor<Schemes>, engine: Dataflow
   }
   for (const definitionId of analysis.moduleOrder) {
     const definition = definitionsById.get(definitionId)!
-    const body = await evaluateModuleBody(editor, engine, definition)
+    const body = await evaluateModuleBody(editor, engine, definition, definitions)
     const indented = body ? `\n${body.split('\n').map((line) => `  ${line}`).join('\n')}\n` : '\n'
     fragments.push(`module ${definition.name}(${moduleParameterDeclaration(definition.parameters ?? [])}) {${indented}}`)
   }
@@ -170,6 +186,34 @@ function joinDefinitions(definitions: string, main: string): string {
   return main ? `${definitions}\n\n${main}` : definitions
 }
 
+function settingsNodeInScope(
+  editor: NodeEditor<Schemes>,
+  scope: string | null,
+  definitions?: DefinitionRegistry,
+): ScadSettingsNode | undefined {
+  return editor.getNodes().find((node): node is ScadSettingsNode =>
+    node instanceof ScadSettingsNode && (definitions?.scopeOf(node.id) ?? null) === scope,
+  )
+}
+
+async function evaluateScopeSettings(
+  editor: NodeEditor<Schemes>,
+  engine: DataflowEngine<Schemes>,
+  scope: string | null,
+  definitions?: DefinitionRegistry,
+): Promise<string> {
+  const node = settingsNodeInScope(editor, scope, definitions)
+  if (!node) return ''
+  engine.reset()
+  const output = (await engine.fetch(node.id)) as { settings?: ScadSettingsValue }
+  return output.settings?.code ?? ''
+}
+
+function joinScopeSource(settings: string, body: string): string {
+  if (!settings) return body
+  return body ? `${settings}\n${body}` : settings
+}
+
 export type InspectEvaluation =
   | { kind: 'geometry'; source: string }
   | { kind: 'value'; expression: string; source?: string }
@@ -194,12 +238,13 @@ export async function evaluateInspectNode(
   const scope = definitions?.scopeOf(nodeId)
   const definition = scope ? definitions?.get(scope) : undefined
   const echo = `echo("__SCADLET_VALUE__:", ${output.value.code});`
+  const settings = await evaluateScopeSettings(editor, engine, scope ?? null, definitions)
   return definition
     ? { kind: 'value', expression: output.value.code, source: definitions
-      ? joinDefinitions(await evaluateDefinitions(editor, engine, definitions), inspectModuleSource(definition, echo))
-      : inspectModuleSource(definition, echo) }
+      ? joinDefinitions(await evaluateDefinitions(editor, engine, definitions), inspectModuleSource(definition, joinScopeSource(settings, echo)))
+      : inspectModuleSource(definition, joinScopeSource(settings, echo)) }
     : definitions
-      ? { kind: 'value', expression: output.value.code, source: joinDefinitions(await evaluateDefinitions(editor, engine, definitions), echo) }
+      ? { kind: 'value', expression: output.value.code, source: joinDefinitions(await evaluateDefinitions(editor, engine, definitions), joinScopeSource(settings, echo)) }
       : { kind: 'value', expression: output.value.code }
 }
 

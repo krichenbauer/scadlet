@@ -116,7 +116,7 @@ test('Module and Function parameter popovers preserve Inputs layout and signatur
   await expect(page.locator('scadlet-app .scad-output')).toContainText('function multiplier(factor = 3) = 10;', { timeout: 15_000 })
 
   // The normal dirty/autosave path is unchanged by the presentation-only
-  // popover. Reload restores both signatures through the v6 project format.
+  // popover. Reload restores both signatures through the v7 project format.
   await page.waitForTimeout(800)
   await page.reload()
   await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Inputs' }) }).locator('.node-socket[aria-label="width"]')).toHaveCount(1)

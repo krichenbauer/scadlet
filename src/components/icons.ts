@@ -9,6 +9,7 @@ export type CompactIconName =
   | 'translate' | 'rotate' | 'scale'
   | 'union' | 'difference' | 'intersection'
   | 'value' | 'compare' | 'math' | 'conditional'
+  | 'settings'
   | 'module' | 'function' | 'input-port' | 'output-port'
   | 'menu' | 'pencil' | 'eye'
 
@@ -35,6 +36,7 @@ const paths: Record<CompactIconName, string> = {
   compare: 'M9 5l-5 7 5 7M15 5l5 7-5 7',
   math: 'M5 3h14v18H5ZM8 7h8M8 11h2M12 11h2M16 11h2M8 15h2M12 15h2M16 15h2',
   conditional: 'M6 4v6a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4V4M6 4a2 2 0 1 0 0.01 0M18 4a2 2 0 1 0 0.01 0M12 14v6M12 20a2 2 0 1 0 0.01 0',
+  settings: 'M4 7h10M18 7h2M4 12h2M10 12h10M4 17h7M15 17h5M14 4v6M6 9v6M11 14v6',
   module: 'M4 4h16v16H4ZM8 8h8v8H8Z',
   function: 'M9 20v-9a4 4 0 0 1 4-4h2M7 11h6',
   'input-port': 'M3 12h11M10 7l4 5-4 5M15 4h6v16h-6',

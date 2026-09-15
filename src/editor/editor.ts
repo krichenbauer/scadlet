@@ -10,7 +10,7 @@ import { isEditableTarget, removeNodeWithConnections } from './deletion'
 import { isDirtyAreaSignal, isDirtyEditorSignal } from './dirty'
 import { exceedsCanvasClickTolerance, InspectManager } from './inspect'
 import { attachMarqueeSelection } from './marquee'
-import { findCatalogEntry, FUNCTION_GRAPH_ALLOWED_NODE_TYPES, type NodeCreationContext, type NodeTypeId } from './node-catalog'
+import { findCatalogEntry, FUNCTION_GRAPH_ALLOWED_NODE_TYPES, identifyNodeType, type NodeCreationContext, type NodeTypeId } from './node-catalog'
 import { NodePresentationManager } from './presentation'
 import { attachRenderer } from './render'
 import type { AreaExtra, Schemes } from './schemes'
@@ -1445,6 +1445,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     showFeedback(
       problem === 'module-call' ? 'definition.moduleCallsMainOnly'
         : problem === 'function-incompatible' ? 'definition.functionScopeIncompatible'
+          : problem === 'settings-duplicate' ? 'settings.onePerScope'
           : 'definition.invalidScopeTransfer',
     )
   }
@@ -1525,6 +1526,12 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const owner = scope === undefined ? definitionAt(clientPosition) : scope
     if (owner !== null && definitions.get(owner)?.kind === 'function' && !FUNCTION_GRAPH_ALLOWED_NODE_TYPES.has(type as NodeTypeId)) {
       showScopeTransferFeedback('function-incompatible')
+      return
+    }
+    if (type === 'scad-settings' && editor.getNodes().some((node) =>
+      identifyNodeType(node) === 'scad-settings' && definitions.scopeOf(node.id) === owner,
+    )) {
+      showFeedback('settings.onePerScope')
       return
     }
 

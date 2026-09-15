@@ -95,8 +95,8 @@ describe('parseScadletProject: top-level structure', () => {
   })
 
   it('rejects an unsupported future version', () => {
-    const raw = { ...validProject(), version: 7 }
-    expect(() => parseScadletProject(raw)).toThrow('Unsupported SCADlet project version: 7')
+    const raw = { ...validProject(), version: 8 }
+    expect(() => parseScadletProject(raw)).toThrow('Unsupported SCADlet project version: 8')
   })
 })
 

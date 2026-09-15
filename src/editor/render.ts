@@ -12,6 +12,7 @@ import { ModuleCallNode } from './nodes/module-call-node'
 import { FunctionCallNode } from './nodes/function-call-node'
 import { IfNode } from './nodes/if-node'
 import { ConditionalNode } from './nodes/value-nodes'
+import { ScadSettingsNode } from './nodes/scad-settings-node'
 import { isEditableTarget } from './deletion'
 import { t } from '../i18n/translate'
 import type { InspectManager } from './inspect'
@@ -715,9 +716,10 @@ function renderHeader(
   if (addActionsControl) header.appendChild(renderAddMenu(addActionsControl))
 
   if (!isDefinitionInterfaceNode) {
-    const actions: MoreMenuAction[] = [
+    const actions: MoreMenuAction[] = []
+    if (!(node instanceof ScadSettingsNode)) actions.push(
       { id: 'inspect', icon: 'eye', label: t('menu.inspect'), run: () => onInspect(node.id) },
-    ]
+    )
     if (sourceNameControl) {
       actions.push({
         id: 'rename',

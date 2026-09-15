@@ -94,7 +94,7 @@ test('treats a valid empty Difference as a cleared, localized preview result thr
   await expect(await fileAction(page, 'Download .stl')).toBeEnabled()
   await expect.poll(() => viewerHasMesh(page)).toBe(false)
 
-  // The transient preview status is excluded from the autosaved v6 project.
+  // The transient preview status is excluded from the autosaved v7 project.
   const stored = await page.evaluate(async () => {
     const request = indexedDB.open('scadlet-projects')
     const database = await new Promise<IDBDatabase>((resolve, reject) => {

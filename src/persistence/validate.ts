@@ -79,12 +79,20 @@ export function parseScadletProject(raw: unknown): ScadletProjectV1 {
  */
 function migrateScadletProject(version: number, raw: Record<string, unknown>): ScadletProjectV1 {
   if (version === SCADLET_VERSION) return validateV1(raw)
-  if (version === 5) return validateV1(migrateV5ToV6(raw))
-  if (version === 4) return validateV1(migrateV5ToV6(migrateV4ToV5(raw)))
-  if (version === 3) return validateV1(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(raw))))
-  if (version === 2) return validateV1(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(raw)))))
-  if (version === 1) return validateV1(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(migrateV1ToV2(raw))))))
+  if (version === 6) return validateV1(migrateV6ToV7(raw))
+  if (version === 5) return validateV1(migrateV6ToV7(migrateV5ToV6(raw)))
+  if (version === 4) return validateV1(migrateV6ToV7(migrateV5ToV6(migrateV4ToV5(raw))))
+  if (version === 3) return validateV1(migrateV6ToV7(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(raw)))))
+  if (version === 2) return validateV1(migrateV6ToV7(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(raw))))))
+  if (version === 1) return validateV1(migrateV6ToV7(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(migrateV1ToV2(raw)))))))
   throw new ScadletProjectError(`Unsupported SCADlet project version: ${version}`)
+}
+
+/** v7 adds the additive `scad-settings` node type. Existing v6 graphs need
+ * no structural rewrite: omission means that scope simply uses OpenSCAD's
+ * defaults, exactly as it did before. */
+function migrateV6ToV7(raw: Record<string, unknown>): Record<string, unknown> {
+  return { ...raw, version: SCADLET_VERSION }
 }
 
 /** v5 adds Function definitions alongside Modules. Every existing v4 record
@@ -120,7 +128,7 @@ function migrateV5ToV6(raw: Record<string, unknown>): Record<string, unknown> {
   const definitions = Array.isArray(raw.definitions)
     ? raw.definitions.map((item) => isPlainObject(item) ? { ...item, graph: migrateGraph(item.graph) } : item)
     : raw.definitions
-  return { ...raw, version: SCADLET_VERSION, graph: migrateGraph(raw.graph), definitions }
+  return { ...raw, version: 6, graph: migrateGraph(raw.graph), definitions }
 }
 
 /** Converts the former fixed-parameter/fixed-two-child representation into
@@ -369,6 +377,10 @@ function validateGraph(raw: unknown, graphKind: GraphKind, definition?: Definiti
   const seenNodeIds = new Set<string>()
   const nodes = raw.nodes.map((node, index) => validateNode(node, index, seenNodeIds, graphKind))
   const nodesById = new Map(nodes.map((node) => [node.id, node]))
+  if (nodes.filter((node) => node.type === 'scad-settings').length > 1) {
+    const scope = graphKind === 'main' ? 'Main' : graphKind === 'module' ? 'Module' : 'Function'
+    throw new ScadletProjectError(`${scope} scope may contain at most one SCAD settings node.`)
+  }
 
   if (!Array.isArray(raw.connections)) throw new ScadletProjectError('Project "graph.connections" must be an array.')
   const seenConnectionIds = new Set<string>()

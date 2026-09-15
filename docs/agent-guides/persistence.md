@@ -11,10 +11,10 @@ DOM, or Three.js objects. It preserves semantic graph state (stable node/type
 IDs, parameters, definitions, and explicit stable-port connections), editor
 positions/viewport, and minimal reproducible viewer state. It excludes
 transient selection, marquee, hover, drag, and Inspect; explicit per-node
-collapse is persistent presentation state. Omitted `collapsed` state in a v6
+collapse is persistent presentation state. Omitted `collapsed` state in a v6/v7
 record restores expanded, preserving compatibility with older v6 files.
 
-The specification is the detailed authoritative schema. Current format is v6.
+The specification is the detailed authoritative schema. Current format is v7.
 Runtime render state, including the default-on Live render preference, pending
 debounces, render revisions, and preview result freshness, is session-only and
 is never written to `.scadlet` or IndexedDB project data.
@@ -24,7 +24,9 @@ rename/reorder. `.scad` and `.stl` are exports, not project files.
 
 Any persistent language/editor change must update the canonical types,
 serializer, validator, restore path, migrations, fixtures/tests, and format
-specification together. Existing parameter shapes and port IDs are compatibility
+specification together. v6 projects migrate without a graph rewrite; v7 adds
+the `scad-settings` node and its optional `fn`/`fa`/`fs` Number ports.
+Existing parameter shapes and port IDs are compatibility
 contracts. Prefer small explicit migrations; reject unsupported newer formats,
 unknown semantic node types, and incompatible state with useful errors rather
 than silently dropping information. Restore validates/prepares before replacing
@@ -34,7 +36,8 @@ Definitions persist as project-level objects with stable IDs, kind/name,
 ordered parameter signatures, result type where applicable, graph content, and
 positions. Interface nodes restore as protected roles. Calls reference IDs.
 Old pre-definition projects open as Main plus an empty registry.
-Direct and mutual Function/Module recursion add no durable fields: existing
+Each supported graph scope validates at most one `scad-settings` node, and a
+Function graph rejects it. Direct and mutual Function/Module recursion add no durable fields: existing
 definition IDs, scoped Call nodes, stable ports, fallbacks, and connections
 already represent recursive SCCs in v6. Restore must preserve those ports and
 wires exactly across repeated loads.

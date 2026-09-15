@@ -28,6 +28,12 @@ Expose OpenSCAD semantics without forcing a value graph for literals:
 - Union and Intersection use ordered, variadic geometry-child slots. Each slot
   has a stable ID; retain connected slots plus one empty extension slot.
   Difference remains asymmetric (`base`/`subtract`).
+- SCAD settings is a non-Geometry, scope-level node available only in Main and
+  Module definitions, with at most one instance per scope. Its header Add menu
+  offers only absent `$fn`, `$fa`, and `$fs` rows. Each row uses the normal
+  Number socket plus preserved direct fallback and its adjacent Remove action;
+  arbitrary special-variable names are not supported.
+  The palette and node header use the explicit semantic title **SCAD settings**.
 
 Do not build a generic signature DSL prematurely. Reuse small, explicit
 mechanisms for optional parameters, typed inputs, alternative editors, and
@@ -89,6 +95,9 @@ path. Palette drop coordinates must convert browser coordinates to the current
 area transform; creation must not disturb viewport state. A fresh project is
 empty (no automatic Cube). Beginner labels use categories such as Primitives,
 Transformations, and Boolean operations rather than CSG jargon.
+Scope-restricted creation uses that same path: a duplicate SCAD settings drop
+or a drop into a Function is refused with the editor's localized transient
+feedback and does not create a temporary invalid node.
 
 Double-clicking a geometry output performs one-shot upstream Geometry Inspect;
 double-clicking a value output runs OpenSCAD headlessly and displays the value.

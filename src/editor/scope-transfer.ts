@@ -6,6 +6,7 @@ import { ModuleCallNode } from './nodes/module-call-node'
 import { FUNCTION_GRAPH_ALLOWED_NODE_TYPES, identifyNodeType } from './node-catalog'
 
 export type ScopeTransferProblem = 'protected' | 'module-call' | 'connection' | 'function-incompatible'
+  | 'settings-duplicate'
 
 /** Pure transaction preflight for a completed ordinary-node drag. It checks
  * the hypothetical final scopes for every touching connection as one set;
@@ -32,6 +33,12 @@ export function scopeTransferProblem(
       if (!type || !FUNCTION_GRAPH_ALLOWED_NODE_TYPES.has(type)) return 'function-incompatible'
     }
   }
+  const settingsInTarget = editor.getNodes().filter((node) => {
+    if (identifyNodeType(node) !== 'scad-settings') return false
+    const finalScope = moved.has(node.id) ? targetScope : registry.scopeOf(node.id)
+    return finalScope === targetScope
+  })
+  if (settingsInTarget.length > 1) return 'settings-duplicate'
   const finalScope = (nodeId: string): string | null => moved.has(nodeId) ? targetScope : registry.scopeOf(nodeId)
   return editor.getConnections().some((connection) =>
     (moved.has(connection.source) || moved.has(connection.target)) && finalScope(connection.source) !== finalScope(connection.target),

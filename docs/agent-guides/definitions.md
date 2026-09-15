@@ -23,6 +23,13 @@ self-contained through explicit parameters/calls; do not add hidden captures
 or arbitrary cross-frame connections. Future variables and OpenSCAD `$`
 variables require separate, explicit designs.
 
+SCAD settings is the narrow exception to Output-rooted scope configuration,
+not to connection scoping: Main and each Module may contain at most one such
+node, while Functions contain none. Its Number dependencies remain ordinary
+same-scope wires. Module-local assignments appear first in that Module body
+and therefore override Main settings for geometry evaluated by the Module in
+the normal OpenSCAD lexical structure.
+
 Each definition has exactly one protected Inputs/Parameters node and Output
 node. They cannot be deleted or duplicated, but may be positioned normally.
 New definitions place Inputs left and Output right. Signature edits propagate

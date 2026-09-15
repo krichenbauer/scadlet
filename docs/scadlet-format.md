@@ -1,10 +1,25 @@
-# The `.scadlet` project file format (v6)
+# The `.scadlet` project file format (v7)
 
 This document specifies the `.scadlet` project file format as it is
 **actually implemented** in this repository, not as originally sketched in
 `AGENTS.md`. If you find a discrepancy between this document and the code,
 the code under `src/persistence/` and `src/editor/node-catalog.ts` is the
 source of truth until this document is updated to match it.
+
+## Version 7: scoped SCAD settings
+
+Version 7 adds the `scad-settings` node type. Main and every Module graph may
+contain at most one; Function graphs may not contain one. Its parameters are a
+closed object with optional finite Number fallbacks `fn`, `fa`, and `fs`.
+Presence of a field activates the matching Number input port with the same
+stable id. Connected Number expressions override but do not erase the saved
+fallback. The node has no outputs or Geometry sockets.
+
+The node is nevertheless a code-generation root for its entire graph scope.
+Assignments are emitted in canonical `$fn`, `$fa`, `$fs` order before Main
+geometry or at the beginning of a Module body. v6 projects migrate to v7 by
+changing only the version number: no Settings node means the existing
+OpenSCAD defaults continue to apply.
 
 ## Version 6: consolidated arithmetic and math families
 
@@ -76,8 +91,8 @@ newer versions are rejected instead of being guessed at.
   `"version"`. The format version is **independent of the SCADlet
   application/package version** - bumping the app's `package.json`
   version never implies a format change, and vice versa.
-- The current format version is **`6`**. Versions 1–5 are accepted on input
-  and explicitly migrated to v6; writers and browser autosave always emit v6.
+- The current format version is **`7`**. Versions 1–6 are accepted on input
+  and explicitly migrated to v7; writers and browser autosave always emit v7.
 - Unknown/future format versions are rejected outright with a clear error
   (`Unsupported SCADlet project version: N`) - there is no attempt to
   guess-parse a newer format. See "Versioning and migrations" below.
@@ -129,7 +144,7 @@ exact, test-verified fixture this is based on):
 | Field      | Type                | Required | Meaning                                                          |
 | ---------- | ------------------- | -------- | ----------------------------------------------------------------- |
 | `format`   | `"scadlet"` literal | Yes      | Discriminates this file as a SCADlet project, not arbitrary JSON.  |
-| `version`  | integer             | Yes      | Format version. Versions `1`–`5` migrate; v6 is current.          |
+| `version`  | integer             | Yes      | Format version. Versions `1`–`6` migrate; v7 is current.          |
 | `metadata` | object              | Yes      | Project-level descriptive information. See below.                 |
 | `graph`    | object               | Yes      | Semantic program graph: nodes + connections. See below.           |
 | `definitions` | array              | Yes      | Project-owned Module and Function definition graphs. See below.    |
@@ -260,6 +275,7 @@ module-call
 function-inputs
 function-output
 function-call
+scad-settings
 ```
 
 An unrecognized `type` fails with `Unknown node type: "<value>"`. See
@@ -294,7 +310,7 @@ sections below for exact shapes.
   hidden controls.
 - The writer (`serializeProject` in `src/persistence/serialize.ts`) omits
   `collapsed` for an expanded node rather than writing `"collapsed": false`.
-  This optional default lets old v6 records lacking the field restore normally
+  This optional default lets old v6/v7 records lacking the field restore normally
   expanded without a schema bump.
 
 ## `definitions`
@@ -499,13 +515,14 @@ an unresolved output. Any outgoing wire from such a Call is invalid.
 Recursive Function and Module Calls need no new durable fields: the existing
 stable definition ID, scoped graph membership, parameter and Geometry-child
 ports/fallbacks, and connections fully represent them. They therefore remain
-canonical format v6; the v4 → v5 → v6 migration chain is unchanged.
+the same canonical representation in v7; the v4 → v5 → v6 → v7 migration
+chain preserves it unchanged.
 
 Module Calls remain forbidden inside Function definitions; both Call kinds are
 valid in Module definitions.
 
 Existing v4 projects (Modules only, no Functions) migrate through v5 and then
-to v6, with no Function entries added to the shared `definitions` array.
+to v7, with no Function entries added to the shared `definitions` array.
 
 ## Per-node parameter schemas
 
@@ -515,6 +532,20 @@ validated by that type's `validate*Params` function) - not a UI label.
 Optional semantic parameters are omitted while inactive. A representation
 may retain literal editor state (for example Cube's Scalar and XYZ forms)
 without retaining inactive sockets or connections.
+
+### `scad-settings`
+
+`scad-settings` stores an object containing zero or more of `{ "fn": number,
+"fa": number, "fs": number }`. Every present value must be finite. A present
+field activates the same-named Number input; an absent field means the row and
+port do not exist. The input may carry any ordinary same-scope Number
+expression, which overrides but does not erase the saved fallback.
+
+The node has no output and no Geometry participation. Main and each Module may
+contain at most one, and Function graphs reject it. Code generation still
+roots it once for its scope and emits `$fn`, `$fa`, `$fs` assignments in that
+canonical order before the scope body. There is no arbitrary-name or generic
+special-variable representation.
 
 ### Value and math nodes
 
@@ -747,7 +778,7 @@ rejected - see "Forward compatibility" under Validation).
   including disconnected/dead subgraphs. A self-wire and an indirect cycle
   are rejected during validation before restore. This does **not** prohibit
   direct or mutual Function/Module recursion: Call-node definition
-  dependencies are analyzed separately and remain valid in v6.
+  dependencies are analyzed separately and remain valid in v7.
 
 Currently valid ports per node type
 (`NodeCatalogEntry.inputs`/`.outputs` in `node-catalog.ts`):
@@ -772,6 +803,7 @@ exponential-log: input: x (Number)           outputs: value (Number)
 compare:       inputs: a, b (Number)         outputs: value (Boolean)
 conditional:   inputs: condition + true/false; output: result (resolved value type)
 if:            inputs: condition + then/else; output: geometry
+scad-settings: dynamic optional inputs: fn, fa, fs (Number); outputs: none
 module-inputs: dynamic outputs: parameter:<id> (Number|Boolean|Vector3)
 module-call:   dynamic inputs: parameter:<id> (referenced signature); outputs: geometry (Geometry); parameters: definitionId, arguments
 ```
@@ -866,8 +898,8 @@ in roughly this order:
 1. The input is valid JSON (`parseScadletProjectText` only).
 2. The top-level value is a plain (non-array) object.
 3. `format` is present and equals `"scadlet"`.
-4. `version` is present and numeric; versions 1–6 are accepted (older ones
-   migrate to v6), while any other number fails with
+4. `version` is present and numeric; versions 1–7 are accepted (older ones
+   migrate to v7), while any other number fails with
    `Unsupported SCADlet project version: N`.
 5. `metadata` is an object with a non-empty (after trim) `name`;
    `createdAt`/`updatedAt`, if present, are strings (content not
@@ -885,7 +917,9 @@ in roughly this order:
 9. Every individual graph scope has acyclic node dataflow. This structural
    check includes disconnected nodes and is distinct from allowed recursive
    Function/Module definition dependencies.
-10. `editor.viewport` and `viewer.camera` are validated as described
+10. Main and each Module contain at most one `scad-settings` node; Function
+    graphs contain none.
+11. `editor.viewport` and `viewer.camera` are validated as described
    above.
 
 **Strictness is not uniform across the format**, and this is
@@ -947,18 +981,21 @@ version = 1
 `parseScadletProject` routes on `version` through a single
 `migrateScadletProject(version, raw)` function
 (`src/persistence/validate.ts`). v1 first migrates to v2, then v3, then v4,
-then v5 and v6; v2 migrates through v3/v4/v5 to v6; v3's legacy `children` connections
-are remapped to the deterministic first Geometry signature entry before
-validation. v4 → v5 is a pure version-number bump: every existing v4 record
+then v5, v6, and v7; v2 migrates through v3/v4/v5/v6 to v7. v3's legacy
+`children` connections are remapped to the deterministic first Geometry
+signature entry before validation. v4 → v5 is a pure version-number bump:
+every existing v4 record
 is already a valid `kind: "module"` definition, and the (already-empty
 unless populated) `definitions` array simply gains the ability to also
 contain `kind: "function"` entries going forward. v5 → v6 then replaces every
 legacy arithmetic type in Main and definition graphs while retaining the
 already-compatible `a`, `b`, and `value` endpoints.
-canonical form. No other call site needs to know about historical shapes:
+v6 → v7 is a pure version-number bump because absence of `scad-settings`
+preserves the old OpenSCAD-default behavior. No other call site needs to know
+about historical shapes:
 
 ```text
-v1 → migrate to v2 → migrate to v3 → migrate to v4 → migrate to v5 → migrate to v6 → validate against the current shape
+v1 → migrate to v2 → migrate to v3 → migrate to v4 → migrate to v5 → migrate to v6 → migrate to v7 → validate against the current shape
 ```
 
 Rules of thumb for whether a change needs a version bump:

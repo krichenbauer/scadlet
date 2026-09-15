@@ -90,7 +90,7 @@ function absoluteConditionalProject() {
 
 /** A visible Main-graph Geometry If fixture. The browser test below drives
  * the normal Render button and real bundled OpenSCAD-WASM, then reloads the
- * autosaved v6 project rather than substituting a mocked evaluator. */
+ * autosaved v7 project rather than substituting a mocked evaluator. */
 function geometryIfProject() {
   const cube = { sizeRepresentation: 'scalar', sizeScalar: 10, sizeVector: { x: 10, y: 10, z: 10 }, size: 10 }
   return {
@@ -1385,7 +1385,7 @@ test('restores, renders, edits, autosaves, reloads, and safely deletes recursive
   await waitForAutosave(page)
 
   let saved = await readLocalRecord(page, 'recursive-modules') as { project: { version: number; definitions: { id: string; name: string; parameters: { name: string; default: number }[]; geometryInputs?: { name: string }[]; graph: { nodes: { type: string; parameters: { definitionId?: string } }[] } }[] } }
-  expect(saved.project.version).toBe(6)
+  expect(saved.project.version).toBe(7)
   expect(saved.project.definitions.find((item) => item.id === 'stack')).toMatchObject({
     name: 'stack_layers', parameters: [{ name: 'levels', default: 1 }], geometryInputs: [{ name: 'Profile' }, { name: 'Slice' }],
   })
@@ -2629,7 +2629,7 @@ test('imports an external file under a new local identity and preserves fallback
   expect(download.suggestedFilename()).toBe('Sphere Benchmark.scadlet')
 })
 
-test('imports the static legacy v5 arithmetic fixture as canonical v6 nodes', async ({ page }) => {
+test('imports the static legacy v5 arithmetic fixture as canonical v7 nodes', async ({ page }) => {
   await waitForLocalLibrary(page)
   const chooserPromise = page.waitForEvent('filechooser')
   await (await fileAction(page, 'Open')).click()
@@ -2646,7 +2646,7 @@ test('imports the static legacy v5 arithmetic fixture as canonical v6 nodes', as
   await waitForAutosave(page)
   const activeId = await activeProjectId(page)
   const saved = await readLocalRecord(page, activeId) as { project: { version: number; graph: { nodes: { type: string }[] } } }
-  expect(saved.project.version).toBe(6)
+  expect(saved.project.version).toBe(7)
   expect(saved.project.graph.nodes.filter((node) => node.type === 'arithmetic')).toHaveLength(4)
   expect(saved.project.graph.nodes.some((node) => ['add', 'subtract', 'multiply', 'divide'].includes(node.type))).toBe(false)
 })

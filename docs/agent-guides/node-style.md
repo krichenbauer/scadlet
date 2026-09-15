@@ -136,6 +136,13 @@ be added to that node.
   `translate()`/`rotate()`/`scale()` node is valid even if it has no useful
   effect.
 
+SCAD settings follows this same header Add convention. It starts with no rows;
+Add offers only the absent Fragment count (`$fn`), Minimum angle (`$fa`), and
+Minimum size (`$fs`) settings. The technical OpenSCAD name remains visible in
+each user-friendly row label, beside its normal Number fallback and directly
+adjacent Remove action. With all three rows present, Add remains visible and
+disabled.
+
 ## More menu
 
 The header More button opens the node context menu. Entries use a conventional

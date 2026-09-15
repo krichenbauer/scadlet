@@ -80,7 +80,7 @@ async function roundTrip(
 }
 
 describe('per-node semantic round trip (serialize -> restore -> evaluate)', () => {
-  it('retains typed value fallback literals and connections in the canonical v6 format', async () => {
+  it('retains typed value fallback literals and connections in the canonical v7 format', async () => {
     const { editor: src } = createGraph()
     const number = new NumberNode({ value: 5, name: 'Width' })
     const add = new ArithmeticNode({ operation: 'addition', a: 1, b: 10 })
@@ -94,7 +94,7 @@ describe('per-node semantic round trip (serialize -> restore -> evaluate)', () =
 
     const { editor: dst, engine } = createGraph()
     const { project } = await roundTrip({ editor: src, positions: {} }, dst)
-    expect(project.version).toBe(6)
+    expect(project.version).toBe(7)
     expect(project.graph.nodes.find((node) => node.id === number.id)?.parameters).toEqual({ value: 5, name: 'Width' })
     expect(project.graph.nodes.find((node) => node.id === vector.id)?.parameters).toEqual({ x: 1, y: 2, z: 3, name: 'Vector3' })
     expect(project.graph.nodes.find((node) => node.id === add.id)?.parameters).toEqual({ operation: 'addition', a: 1, b: 10 })
@@ -110,7 +110,7 @@ describe('per-node semantic round trip (serialize -> restore -> evaluate)', () =
 
     const { editor: dst } = createGraph()
     const { project } = await roundTrip({ editor: src, positions: {} }, dst)
-    expect(project.version).toBe(6)
+    expect(project.version).toBe(7)
     expect(project.graph.nodes.find((node) => node.id === compare.id)?.parameters).toEqual({ operator: '>', a: 3, b: 10 })
 
     await restoreProject(project, { editor: dst, creationContext: noopContext, setNodePosition: () => {} })
@@ -332,7 +332,7 @@ describe('per-node semantic round trip (serialize -> restore -> evaluate)', () =
 
     const { editor: dst, engine } = createGraph()
     const { project } = await roundTrip({ editor: src, positions: {} }, dst)
-    expect(project.version).toBe(6)
+    expect(project.version).toBe(7)
     expect(project.graph.connections.map(({ source, sourceOutput, target, targetInput }) => ({ source, sourceOutput, target, targetInput })))
       .toEqual(src.getConnections().map(({ source, sourceOutput, target, targetInput }) => ({ source, sourceOutput, target, targetInput })))
 

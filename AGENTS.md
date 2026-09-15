@@ -29,6 +29,9 @@ without an explicit product decision.
   an alternate geometry engine.
 - Keep Rete as the source of truth for each graph's nodes, ports, connections,
   interaction, and dataflow. Do not add a parallel graph/AST.
+- Each Main or Module scope may own at most one SCAD settings node. Its
+  curated `$fn`/`$fa`/`$fs` Number inputs are scope-level code-generation
+  roots, not Geometry flow; Function scopes never contain this node.
 - Use stable, language-independent IDs for persistent graph entities. Labels,
   localized text, names, positions, and DOM details are never semantic IDs.
 - Make the smallest change that fulfills the current task. Do not implement
@@ -79,7 +82,8 @@ implementing it and update the relevant reference with the code.
 
 ## Current product boundary
 
-The working baseline includes primitives (Cube, Cylinder, Sphere), transforms
+The working baseline includes scoped SCAD settings (`$fn`, `$fa`, `$fs`),
+primitives (Cube, Cylinder, Sphere), transforms
 (Translate, Rotate, Scale), Boolean composition (Difference, variadic Union
 and Intersection), typed values/math/conditionals, project persistence,
 intermediate inspection, and reusable Modules/Functions. Keep it educational
@@ -107,7 +111,7 @@ miss has its own 15-second execution limit.
 
 Normally collapsible nodes start expanded and use their always-visible chevron
 control for explicit, persistent per-node collapse. This presentation-only
-`collapsed` state is saved with a project; omitted state in v6 records means
+`collapsed` state is saved with a project; omitted state in v6/v7 records means
 expanded. Value Conditional and Geometry If retain their fixed compact
 interfaces and have no collapse control. Hover, selection, and a held wire
 gesture never expand a node or reveal hidden controls; its downward-chevron

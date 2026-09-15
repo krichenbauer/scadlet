@@ -90,6 +90,15 @@ order. Function and Module recursive SCCs are valid and use the same
 reachable-Call SCC analysis; OpenSCAD-WASM evaluates recursion and SCADlet
 does not attempt to prove termination.
 
+The one SCAD settings node permitted in Main or a Module is an explicit
+scope-level source root even though it has no Geometry sockets. Its ordinary
+Number inputs pull their in-scope upstream value/math dependencies through the
+same Rete dataflow evaluation. Emit its `$fn`/`$fa`/`$fs` assignments before
+the scope's Geometry statements: at the start of Main, or at the start of a
+Module body after the parameter context is established. This is part of the
+single generated source used by preview and both export paths, not a viewer or
+worker option.
+
 ## Viewer contract
 
 Three.js consumes STL from memory via `STLLoader`. It provides orbit, zoom,

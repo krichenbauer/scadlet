@@ -37,6 +37,9 @@ Preview, ensuring browser tests cover deployable bundled resources.
 Recursion regressions must exercise direct and mutual Function/Module source
 through the bundled OpenSCAD-WASM. Do not substitute JavaScript evaluation or
 assume OpenSCAD declaration-order behavior without a real runtime check.
+Scope-level SCAD settings regressions must cover the normal generated-source,
+WASM preview, and `.scad` export route so no alternate render-option path can
+silently diverge from exported code.
 
 ## Implementation quality
 

@@ -39,6 +39,7 @@ describe('NODE_CATALOG', () => {
         'compare',
         'conditional',
         'if',
+        'scad-settings',
       ].sort(),
     )
   })
@@ -70,6 +71,7 @@ describe('NODE_CATALOG', () => {
     expect(findCatalogEntry('compare')?.category).toBe('math')
     expect(findCatalogEntry('conditional')?.category).toBe('math')
     expect(findCatalogEntry('if')?.category).toBe('control-flow')
+    expect(findCatalogEntry('scad-settings')?.category).toBe('settings')
   })
 
   it('offers canonical operation choices before creation and no legacy arithmetic entries', () => {
@@ -99,7 +101,7 @@ describe('NODE_CATALOG', () => {
 
   it('provides localized explanatory copy for every ordinary palette entry', () => {
     const paletteEntries = NODE_CATALOG.filter((entry) => entry.palette !== false)
-    expect(paletteEntries).toHaveLength(19)
+    expect(paletteEntries).toHaveLength(20)
     for (const entry of paletteEntries) {
       expect(entry.paletteDescriptionKey).toBeTruthy()
       const description = t(entry.paletteDescriptionKey!)
@@ -157,6 +159,9 @@ describe('NODE_CATALOG', () => {
     expect(findCatalogEntry('translate')!.isInputPort!('vector', { x: 0, y: 0, z: 0, representation: 'vector' })).toBe(true)
     expect(findCatalogEntry('difference')).toMatchObject({ inputs: ['base', 'subtract'], outputs: ['geometry'] })
     expect(findCatalogEntry('union')).toMatchObject({ inputs: [], outputs: ['geometry'] })
+    expect(findCatalogEntry('scad-settings')).toMatchObject({ inputs: [], outputs: [], allowedScopes: ['main', 'module'] })
+    expect(findCatalogEntry('scad-settings')!.isInputPort!('fn', { fn: 30 })).toBe(true)
+    expect(findCatalogEntry('scad-settings')!.isInputPort!('fn', {})).toBe(false)
   })
 
   it('identifyNodeType recognizes a live node instance created by create()', () => {

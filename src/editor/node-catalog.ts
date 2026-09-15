@@ -26,6 +26,8 @@ import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nod
 import { ModuleCallNode, type ModuleCallParams } from './nodes/module-call-node'
 import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interface-nodes'
 import { FunctionCallNode, type FunctionCallParams } from './nodes/function-call-node'
+import { ScadSettingsNode } from './nodes/scad-settings-node'
+import { validateScadSettingsParams, type ScadSettingsParams } from '../openscad/settings'
 import type { ModuleDefinition, ModuleParameterDefault } from './definitions'
 import type { CompactIconName } from '../components/icons'
 
@@ -47,7 +49,9 @@ export const FUNCTION_CALL_DRAG_MIME_TYPE = 'application/x-scadlet-function-call
  * `src/i18n/translate.ts`, looked up via each category's `labelKey` -
  * never derive UI copy from these ids directly.
  */
-export type NodeCategoryId = 'primitives' | 'transformations' | 'boolean-operations' | 'control-flow' | 'values' | 'math'
+export type NodeCategoryId = 'primitives' | 'transformations' | 'boolean-operations' | 'control-flow' | 'settings' | 'values' | 'math'
+
+export type NodeGraphScopeKind = 'main' | 'module' | 'function'
 
 /** Stable, language-independent node-type ids (also the drag payload and click-fallback argument). */
 export type NodeTypeId =
@@ -70,6 +74,7 @@ export type NodeTypeId =
   | 'compare'
   | 'conditional'
   | 'if'
+  | 'scad-settings'
   | 'module-inputs'
   | 'module-output'
   | 'module-call'
@@ -105,6 +110,7 @@ const NODE_TYPE_ICON: Record<NodeTypeId, CompactIconName> = {
   compare: 'compare',
   conditional: 'conditional',
   if: 'conditional',
+  'scad-settings': 'settings',
   'module-inputs': 'input-port',
   'module-output': 'output-port',
   'module-call': 'module',
@@ -178,6 +184,9 @@ export interface NodeCatalogEntry {
   readonly palette?: boolean
   /** Families whose concrete operation is selected directly in the palette. */
   readonly paletteOperation?: PaletteOperationConfig
+  /** Explicit scope availability for nodes which are intentionally more
+   * restricted than the ordinary catalog vocabulary. */
+  readonly allowedScopes?: readonly NodeGraphScopeKind[]
   /** Stable input/output port ids, in the order Rete's own port map would report them - used to validate persisted connections without constructing a node. */
   readonly inputs: readonly string[]
   readonly outputs: readonly string[]
@@ -304,6 +313,7 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
   { id: 'transformations', labelKey: 'category.transformations' },
   { id: 'boolean-operations', labelKey: 'category.booleanOperations' },
   { id: 'control-flow', labelKey: 'category.controlFlow' },
+  { id: 'settings', labelKey: 'category.settings' },
   { id: 'values', labelKey: 'category.values' },
   { id: 'math', labelKey: 'category.math' },
 ]
@@ -334,6 +344,25 @@ export const FUNCTION_GRAPH_ALLOWED_NODE_TYPES: ReadonlySet<NodeTypeId> = new Se
  * comment for why this is done here rather than per node class.
  */
 const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
+  {
+    type: 'scad-settings', category: 'settings', labelKey: 'palette.scadSettings', paletteDescriptionKey: 'palette.description.scadSettings',
+    allowedScopes: ['main', 'module'], inputs: [], outputs: [],
+    isInputPort: (port, parameters) => validateScadSettingsParams(parameters)[port as keyof ScadSettingsParams] !== undefined,
+    inputSocketType: (port) => ['fn', 'fa', 'fs'].includes(port) ? 'number' : undefined,
+    outputSocketType: () => undefined,
+    create: (context, params) => {
+      let node!: ScadSettingsNode
+      node = new ScadSettingsNode(
+        params ? validateScadSettingsParams(params) : {},
+        () => context.onControlsChanged(node.id),
+        (keys, label) => context.requestRemoveForm?.(node.id, keys, label) ?? Promise.resolve(true),
+      )
+      return node
+    },
+    matches: (node) => node instanceof ScadSettingsNode,
+    serializeParams: (node) => (node as ScadSettingsNode).getPersistedParams() as Record<string, unknown>,
+    validateParams: (value) => validateScadSettingsParams(value) as Record<string, unknown>,
+  },
   {
     type: 'module-call', category: 'values', labelKey: 'node.moduleCall', palette: false, inputs: [], outputs: ['geometry'],
     inputSocketType: (port) => port.startsWith('geometry:') ? 'geometry' : undefined, outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
