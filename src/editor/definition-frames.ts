@@ -4,6 +4,7 @@ import { t } from '../i18n/translate'
 import type { AreaExtra, Schemes } from './schemes'
 import type { DefinitionRegistry } from './definitions'
 import { compactIconElement } from '../components/icons'
+import { bindTransientDetails } from '../ui/transient-popups'
 
 const NODE_WIDTH = 160
 const NODE_HEIGHT = 56
@@ -238,5 +239,6 @@ function renderDefinitionMoreMenu(definitionId: string, kind: 'module' | 'functi
   options.appendChild(remove)
 
   details.appendChild(options)
+  bindTransientDetails(details, summary)
   return details
 }

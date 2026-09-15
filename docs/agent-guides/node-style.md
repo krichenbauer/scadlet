@@ -163,6 +163,13 @@ a real duplication lifecycle exists for that node kind.
 The menu may grow later with copy/paste-related actions, but it must not become
 a substitute for direct parameter controls or the Add menu.
 
+All Add and More disclosures, their nested submenus, definition-frame More
+menus, and anchored parameter popovers participate in the application's shared
+transient-popup dismissal mechanism. Do not add document listeners per node or
+per render. Outside interaction closes them without stealing focus; Escape
+closes them and returns focus to the trigger. Inside controls and scrolling do
+not dismiss their containing popup.
+
 ## Naming and inline editing
 
 ### Value nodes

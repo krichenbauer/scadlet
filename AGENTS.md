@@ -29,6 +29,10 @@ without an explicit product decision.
   an alternate geometry engine.
 - Keep Rete as the source of truth for each graph's nodes, ports, connections,
   interaction, and dataflow. Do not add a parallel graph/AST.
+- Non-modal contextual popups use the shared outside-interaction dismissal
+  lifecycle. Pointer, keyboard, focus, and wheel interaction elsewhere closes
+  them without affecting modal dialogs, persistent UI, or hover tooltips;
+  Escape restores focus to the popup trigger.
 - Each Main or Module scope may own at most one SCAD settings node. Its
   curated `$fn`/`$fa`/`$fs` Number inputs are scope-level code-generation
   roots, not Geometry flow; Function scopes never contain this node.

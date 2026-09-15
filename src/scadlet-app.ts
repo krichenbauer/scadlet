@@ -34,6 +34,7 @@ import { scadBlob, stlBlob, triggerDownload } from './render/download'
 import { t } from './i18n/translate'
 import type { ModuleDefinition } from './editor/definitions'
 import { UNSUPPORTED_SMALL_TOUCH_MEDIA_QUERY } from './layout/small-screen'
+import { registerTransientPopupProvider, type TransientPopupEntry } from './ui/transient-popups'
 
 /** Pane size limits for the resizable workspace layout, in pixels. */
 const MIN_EDITOR_WIDTH = 280
@@ -440,6 +441,7 @@ export class ScadletApp extends LitElement {
   private unsubscribeInspectEnd?: () => void
   private unsubscribeCameraDirty?: () => void
   private unsubscribeDefinitions?: () => void
+  private unsubscribeTransientPopups?: () => void
   private localStore: LocalProjectStore | null = null
   private activeProjectSession: ActiveProjectSession | null = null
   private localEvents: LocalProjectEvents | null = null
@@ -559,7 +561,7 @@ export class ScadletApp extends LitElement {
       <div class="application-shell" ?hidden=${this.smallScreenUnsupported}>
       <header>
         <div class="menu-anchor">
-          <button class="compact-menu-button" type="button" aria-expanded=${String(this.fileMenuOpen)} @click=${this._toggleFileMenu}>${t('toolbar.file')} ⌄</button>
+          <button class="compact-menu-button file-menu-button" type="button" aria-haspopup="menu" aria-expanded=${String(this.fileMenuOpen)} @click=${this._toggleFileMenu}>${t('toolbar.file')} ⌄</button>
           ${this.fileMenuOpen ? this._filePopover() : nothing}
         </div>
         <input
@@ -572,7 +574,7 @@ export class ScadletApp extends LitElement {
           aria-label=${t('toolbar.projectName')}
         />
         <div class="menu-anchor">
-          <button class="compact-menu-button project-menu-button" type="button" aria-label=${t('toolbar.projects')} aria-expanded=${String(this.projectsMenuOpen)} @click=${this._toggleProjectsMenu}>⌄</button>
+          <button class="compact-menu-button project-menu-button" type="button" aria-label=${t('toolbar.projects')} aria-haspopup="dialog" aria-expanded=${String(this.projectsMenuOpen)} @click=${this._toggleProjectsMenu}>⌄</button>
           ${this.projectsMenuOpen ? this._projectsPopover() : nothing}
         </div>
         <span class="header-spacer"></span>
@@ -692,7 +694,7 @@ export class ScadletApp extends LitElement {
         ? a.name.localeCompare(b.name) || b.updatedAt.localeCompare(a.updatedAt)
         : b.updatedAt.localeCompare(a.updatedAt) || a.name.localeCompare(b.name))
     const ordered = active ? [active, ...others] : others
-    return html`<div class="menu-popover" role="dialog" aria-label=${t('toolbar.projects')} @keydown=${this._onMenuKeydown}>
+    return html`<div class="menu-popover project-menu" role="dialog" aria-label=${t('toolbar.projects')}>
       <div class="project-menu-actions">
         <button class="icon-button" type="button" aria-label=${t('toolbar.newProjectAction')} title=${t('toolbar.newProjectAction')} @click=${this._newProject} ?disabled=${this.localInitializing || !this.localStore}>${compactIcon('plus')}</button>
         <button class="icon-button" type="button" aria-label=${t('toolbar.duplicateActiveProject')} title=${t('toolbar.duplicateActiveProject')} @click=${this._duplicateActiveProject} ?disabled=${this.localInitializing || !this.activeProjectId}>${compactIcon('copy')}</button>
@@ -723,11 +725,11 @@ export class ScadletApp extends LitElement {
   }
 
   private _filePopover() {
-    return html`<div class="menu-popover file-menu" role="menu" aria-label=${t('toolbar.file')} @keydown=${this._onMenuKeydown}>
-      <button type="button" class="file-action" role="menuitem" @click=${this._open}>${t('toolbar.open')}</button>
-      <button type="button" class="file-action" role="menuitem" @click=${this._saveAs}>${t('toolbar.saveScadlet')}</button>
-      <button type="button" class="file-action" role="menuitem" @click=${this._downloadScad}>${t('toolbar.downloadScad')}</button>
-      <button type="button" class="file-action" role="menuitem" @click=${this._downloadStl}>${t('toolbar.downloadStl')}</button>
+    return html`<div class="menu-popover file-menu" role="menu" aria-label=${t('toolbar.file')}>
+      <button type="button" class="file-action" role="menuitem" @click=${() => { this.fileMenuOpen = false; void this._open() }}>${t('toolbar.open')}</button>
+      <button type="button" class="file-action" role="menuitem" @click=${() => { this.fileMenuOpen = false; void this._saveAs() }}>${t('toolbar.saveScadlet')}</button>
+      <button type="button" class="file-action" role="menuitem" @click=${() => { this.fileMenuOpen = false; void this._downloadScad() }}>${t('toolbar.downloadScad')}</button>
+      <button type="button" class="file-action" role="menuitem" @click=${() => { this.fileMenuOpen = false; void this._downloadStl() }}>${t('toolbar.downloadStl')}</button>
     </div>`
   }
 
@@ -743,13 +745,6 @@ export class ScadletApp extends LitElement {
 
   private readonly _changeProjectSort = (event: Event): void => {
     this.projectSort = (event.target as HTMLSelectElement).value === 'alphabetical' ? 'alphabetical' : 'recent'
-  }
-
-  private readonly _onMenuKeydown = (event: KeyboardEvent): void => {
-    if (event.key !== 'Escape') return
-    event.stopPropagation()
-    this.projectsMenuOpen = false
-    this.fileMenuOpen = false
   }
 
   private readonly _selectProjectRow = (id: string): void => {
@@ -1159,6 +1154,7 @@ export class ScadletApp extends LitElement {
   connectedCallback(): void {
     super.connectedCallback()
     window.addEventListener('keydown', this._onKeyDown)
+    this.unsubscribeTransientPopups = registerTransientPopupProvider(this._transientPopupEntries)
     this.smallScreenMedia = window.matchMedia(UNSUPPORTED_SMALL_TOUCH_MEDIA_QUERY)
     this.smallScreenUnsupported = this.smallScreenMedia.matches
     this.smallScreenMedia.addEventListener('change', this._onSmallScreenMediaChange)
@@ -1166,6 +1162,25 @@ export class ScadletApp extends LitElement {
 
   private readonly _onSmallScreenMediaChange = (event: MediaQueryListEvent): void => {
     this.smallScreenUnsupported = event.matches
+  }
+
+  private readonly _transientPopupEntries = (): readonly TransientPopupEntry[] => {
+    const entries: TransientPopupEntry[] = []
+    const add = (open: boolean, popupSelector: string, triggerSelector: string, dismiss: () => void): void => {
+      if (!open) return
+      const popup = this.renderRoot.querySelector<HTMLElement>(popupSelector)
+      const trigger = this.renderRoot.querySelector<HTMLElement>(triggerSelector)
+      if (!popup || !trigger) return
+      entries.push({
+        popup,
+        trigger,
+        dismiss,
+        restoreFocus: () => { if (trigger.isConnected) trigger.focus({ preventScroll: true }) },
+      })
+    }
+    add(this.fileMenuOpen, '.file-menu', '.file-menu-button', () => { this.fileMenuOpen = false })
+    add(this.projectsMenuOpen, '.project-menu', '.project-menu-button', () => { this.projectsMenuOpen = false })
+    return entries
   }
 
   private _clampEditorWidth(): void {
@@ -1453,11 +1468,6 @@ export class ScadletApp extends LitElement {
   }
 
   private readonly _onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key === 'Escape' && (this.projectsMenuOpen || this.fileMenuOpen)) {
-      this.projectsMenuOpen = false
-      this.fileMenuOpen = false
-      return
-    }
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return
     event.preventDefault()
     void this._saveAs()
@@ -1717,6 +1727,8 @@ export class ScadletApp extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback()
     window.removeEventListener('keydown', this._onKeyDown)
+    this.unsubscribeTransientPopups?.()
+    this.unsubscribeTransientPopups = undefined
     this.smallScreenMedia?.removeEventListener('change', this._onSmallScreenMediaChange)
     this.smallScreenMedia = undefined
     this.unsubscribeDirty?.()

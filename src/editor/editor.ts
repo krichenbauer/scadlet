@@ -30,6 +30,7 @@ import { FunctionCallNode } from './nodes/function-call-node'
 import { ConditionalNode, TrigonometryNode, type TrigonometryOperation } from './nodes/value-nodes'
 import { scopeTransferProblem, type ScopeTransferProblem } from './scope-transfer'
 import { t } from '../i18n/translate'
+import { registerTransientPopupProvider, TRANSIENT_POPUP_DISMISS_EVENT, type TransientPopupEntry } from '../ui/transient-popups'
 import { analyzeFunctionDependencies } from './function-dependencies'
 
 /** The displayed Geometry Inspect source is rooted at one node, so its
@@ -640,6 +641,37 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       ? scopeDestination.valid ? 'valid' : 'invalid'
       : null,
     scopeTransferFrameBounds: (definitionId) => activeScopeDrag?.sourceFrameBounds.get(definitionId) ?? null,
+  })
+
+  const detachTransientPopups = registerTransientPopupProvider(() => {
+    const entries: TransientPopupEntry[] = []
+    for (const details of container.querySelectorAll<HTMLDetailsElement>('details[open]')) {
+      const trigger = details.querySelector<HTMLElement>(':scope > summary')
+      if (!trigger) continue
+      entries.push({
+        popup: details,
+        trigger,
+        dismiss: () => { details.open = false; trigger.setAttribute('aria-expanded', 'false') },
+        restoreFocus: () => { if (trigger.isConnected) trigger.focus({ preventScroll: true }) },
+      })
+    }
+    for (const popup of container.querySelectorAll<HTMLElement>('.node-parameter-popover')) {
+      const nodeElement = popup.closest<HTMLElement>('.node')
+      const trigger = nodeElement?.querySelector<HTMLElement>('.node-add-summary')
+      if (!nodeElement || !trigger) continue
+      const nodeId = nodeElement.dataset.nodeId
+      entries.push({
+        popup,
+        trigger,
+        dismiss: () => popup.dispatchEvent(new Event(TRANSIENT_POPUP_DISMISS_EVENT)),
+        restoreFocus: () => requestAnimationFrame(() => {
+          const currentNode = [...container.querySelectorAll<HTMLElement>('.node')]
+            .find((candidate) => candidate.dataset.nodeId === nodeId)
+          currentNode?.querySelector<HTMLElement>('.node-add-summary')?.focus({ preventScroll: true })
+        }),
+      })
+    }
+    return entries
   })
 
   AreaExtensions.simpleNodesOrder(area)
@@ -1880,6 +1912,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       }
     },
     destroy: () => {
+      detachTransientPopups()
       detachMarquee()
       nodeSelection.destroy()
       window.removeEventListener('pointercancel', cancelBlankCanvasPress)

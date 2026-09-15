@@ -156,6 +156,17 @@ open/save/export actions belong only in File. Do not add row-level
 rename/delete affordances or another top-level examples menu. Examples never
 open automatically and do not introduce first-run UI.
 
+File, Projects, node Add/More menus (including nested Add choices), definition
+frame More menus, and the anchored parameter form are transient contextual
+surfaces. They share one shadow-DOM-aware dismissal lifecycle: an interaction
+outside both the open surface and its trigger closes it immediately. This
+includes node/canvas/socket gestures and pointer, wheel, control, or recovery
+interaction in the 3D viewer. Opening an unrelated contextual surface closes
+the previous one. Interactions and scrolling inside remain usable; Escape
+closes the surface and restores focus to its trigger. Modal dialogs, persistent
+inline editors, native controls inside a popup, and palette hover tooltips are
+outside this rule.
+
 The viewer's bottom-edge strip holds the manual Render action and a default-on
 Live toggle. Live is an accessible, session-only switch: semantic graph edits
 start one background render after 400 ms of quiet, whereas selection, dragging,

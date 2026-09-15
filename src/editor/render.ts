@@ -15,6 +15,7 @@ import { ConditionalNode } from './nodes/value-nodes'
 import { ScadSettingsNode } from './nodes/scad-settings-node'
 import { isEditableTarget } from './deletion'
 import { t } from '../i18n/translate'
+import { bindTransientDetails, TRANSIENT_POPUP_DISMISS_EVENT } from '../ui/transient-popups'
 import type { InspectManager } from './inspect'
 import { BooleanOpNode } from './nodes/boolean-op-node'
 import { isRedundantTypeLabel } from './ports'
@@ -580,7 +581,12 @@ function renderNode(
     element.appendChild(controls)
   }
 
-  if (parameterPopoverControl?.open) element.appendChild(renderParameterPopover(parameterPopoverControl))
+  if (parameterPopoverControl?.open) {
+    const trigger = element.querySelector<HTMLElement>('.node-add-summary')
+    trigger?.setAttribute('aria-expanded', 'true')
+    trigger?.setAttribute('aria-haspopup', 'dialog')
+    element.appendChild(renderParameterPopover(parameterPopoverControl))
+  }
 }
 
 /**
@@ -820,6 +826,7 @@ function renderMoreMenu(actions: readonly MoreMenuAction[]): HTMLElement {
     options.appendChild(button)
   }
   details.appendChild(options)
+  bindTransientDetails(details, summary)
 
   return details
 }
@@ -856,6 +863,7 @@ function renderAddMenu(control: ParameterActionsControl): HTMLElement {
     for (const action of actions) options.appendChild(renderParameterAction(action, () => { details.open = false }))
     details.appendChild(options)
   }
+  bindTransientDetails(details, summary)
 
   return details
 }
@@ -1229,6 +1237,7 @@ function renderParameterPopover(control: ModuleParameterAddControl): HTMLElement
   popover.setAttribute('role', 'dialog')
   popover.setAttribute('aria-labelledby', 'new-parameter-title')
   popover.addEventListener('pointerdown', (event) => event.stopPropagation())
+  popover.addEventListener(TRANSIENT_POPUP_DISMISS_EVENT, () => control.hide())
 
   const title = document.createElement('h3')
   title.id = 'new-parameter-title'
@@ -1373,6 +1382,7 @@ function renderParameterAction(action: ParameterAction, onActivate?: () => void)
     options.className = 'node-action-menu-options'
     for (const child of action.children) options.appendChild(renderParameterAction(child, onActivate))
     details.appendChild(options)
+    bindTransientDetails(details, summary)
     return details
   }
   const button = document.createElement('button')
