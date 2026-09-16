@@ -11,6 +11,8 @@ import { ConditionalNode } from './nodes/value-nodes'
 import { IfNode } from './nodes/if-node'
 import { ScadSettingsNode, type ScadSettingsValue } from './nodes/scad-settings-node'
 import { t } from '../i18n/translate'
+import { isValueBindingNode, resolveBindingInScope } from './bindings'
+import { VariableReferenceNode } from './nodes/variable-reference-node'
 
 /**
  * Evaluates the graph into a single OpenSCAD source string: one statement
@@ -39,10 +41,11 @@ export async function evaluateOpenSCAD(
     const scopedSettings = settingsNodeInScope(editor, scope ?? null, definitions)
     assertNoIncompleteReachableBranch(editor, [rootNodeId, ...(scopedSettings ? [scopedSettings.id] : [])])
     const settings = await evaluateScopeSettings(editor, engine, scope ?? null, definitions)
+    const variables = await evaluateScopeVariables(editor, engine, scope ?? null, definitions)
     const source = await evaluateGeometryRoot(engine, rootNodeId)
     const definition = scope ? definitions?.get(scope) : undefined
-    if (definition) return inspectModuleSource(definition, joinScopeSource(settings, source))
-    const main = joinScopeSource(settings, source)
+    if (definition) return inspectModuleSource(definition, joinScopeSource(variables.statements, settings, source))
+    const main = joinScopeSource(variables.statements, settings, source)
     return definitions ? joinDefinitions(await evaluateDefinitions(editor, engine, definitions), main) : main
   }
 
@@ -80,7 +83,8 @@ export async function evaluateOpenSCAD(
   }
 
   const settings = await evaluateScopeSettings(editor, engine, null, definitions)
-  const main = joinScopeSource(settings, fragments.join('\n'))
+  const variables = await evaluateScopeVariables(editor, engine, null, definitions)
+  const main = joinScopeSource(variables.statements, settings, fragments.join('\n'))
   return definitions ? joinDefinitions(await evaluateDefinitions(editor, engine, definitions), main) : main
 }
 
@@ -99,17 +103,21 @@ async function evaluateGeometryRoot(engine: DataflowEngine<Schemes>, nodeId: str
 async function evaluateModuleBody(editor: NodeEditor<Schemes>, engine: DataflowEngine<Schemes>, definition: ModuleDefinition, definitions: DefinitionRegistry): Promise<string> {
   const connection = editor.getConnections().find((item) => item.target === definition.outputNodeId && item.targetInput === 'geometry')
   const settings = await evaluateScopeSettings(editor, engine, definition.id, definitions)
+  const variables = await evaluateScopeVariables(editor, engine, definition.id, definitions)
   const geometry = connection ? await evaluateGeometryRoot(engine, connection.source, connection.sourceOutput) : ''
-  return joinScopeSource(settings, geometry)
+  return joinScopeSource(variables.statements, settings, geometry)
 }
 
 /** A Function's single expression is whatever ordinary value dataflow feeds
  * its Output's `result` input - reusing the exact same recursive fetch as
  * Geometry evaluation, just rooted at a value-typed output key. Returns
  * `''` when nothing is connected (an unresolved draft, never emitted). */
-async function evaluateFunctionBody(editor: NodeEditor<Schemes>, engine: DataflowEngine<Schemes>, definition: ModuleDefinition): Promise<string> {
+async function evaluateFunctionBody(editor: NodeEditor<Schemes>, engine: DataflowEngine<Schemes>, definition: ModuleDefinition, definitions: DefinitionRegistry): Promise<string> {
   const connection = editor.getConnections().find((item) => item.target === definition.outputNodeId && item.targetInput === 'result')
-  return connection ? evaluateGeometryRoot(engine, connection.source, connection.sourceOutput) : ''
+  if (!connection) return ''
+  const expression = await evaluateGeometryRoot(engine, connection.source, connection.sourceOutput)
+  const variables = await evaluateScopeVariables(editor, engine, definition.id, definitions)
+  return variables.expressions.length > 0 ? `let(${variables.expressions.join(', ')}) ${expression}` : expression
 }
 
 /** Functions are emitted before Modules and Main (AGENTS.md Milestone 8
@@ -137,7 +145,7 @@ async function evaluateDefinitions(editor: NodeEditor<Schemes>, engine: Dataflow
   for (const definitionId of analysis.order) {
     const definition = definitionsById.get(definitionId)!
     if (definition.kind !== 'function' || definition.resultType === undefined) continue
-    const body = await evaluateFunctionBody(editor, engine, definition)
+    const body = await evaluateFunctionBody(editor, engine, definition, definitions)
     fragments.push(`function ${definition.name}(${moduleParameterDeclaration(definition.parameters ?? [])}) = ${body || 'undef'};`)
   }
   for (const definitionId of analysis.moduleOrder) {
@@ -209,9 +217,73 @@ async function evaluateScopeSettings(
   return output.settings?.code ?? ''
 }
 
-function joinScopeSource(settings: string, body: string): string {
-  if (!settings) return body
-  return body ? `${settings}\n${body}` : settings
+function joinScopeSource(...parts: string[]): string {
+  return parts.filter(Boolean).join('\n')
+}
+
+interface EvaluatedVariables {
+  expressions: string[]
+  statements: string
+}
+
+/** Named Value definitions are explicit scope roots. A reference contributes
+ * an identifier expression, while this pass emits each definition exactly
+ * once in dependency-safe order even though no artificial Rete wire joins the
+ * compact reference back to its definition. */
+async function evaluateScopeVariables(
+  editor: NodeEditor<Schemes>,
+  engine: DataflowEngine<Schemes>,
+  scope: string | null,
+  definitions?: DefinitionRegistry,
+): Promise<EvaluatedVariables> {
+  for (const reference of editor.getNodes().filter((node): node is VariableReferenceNode => node instanceof VariableReferenceNode)) {
+    if ((definitions?.scopeOf(reference.id) ?? null) !== scope) continue
+    const binding = resolveBindingInScope(editor, definitions, reference.bindingId, scope)
+    if (!binding) throw new Error(t('variable.invalidScope'))
+    reference.syncBinding(binding)
+  }
+  const bindings = editor.getNodes().filter(isValueBindingNode)
+    .filter((node) => node.getBindingId() && (definitions?.scopeOf(node.id) ?? null) === scope)
+  const byBindingId = new Map(bindings.map((node) => [node.getBindingId()!, node]))
+  const incoming = new Map<string, string[]>()
+  for (const edge of editor.getConnections()) incoming.set(edge.target, [...(incoming.get(edge.target) ?? []), edge.source])
+  const dependencies = new Map<string, Set<string>>()
+  for (const node of bindings) {
+    const found = new Set<string>()
+    const seen = new Set<string>()
+    const pending = [...(incoming.get(node.id) ?? [])]
+    while (pending.length > 0) {
+      const id = pending.pop()!
+      if (seen.has(id)) continue
+      seen.add(id)
+      const upstream = editor.getNode(id)
+      if (upstream instanceof VariableReferenceNode) found.add(upstream.bindingId)
+      pending.push(...(incoming.get(id) ?? []))
+    }
+    dependencies.set(node.getBindingId()!, found)
+  }
+  const ordered: typeof bindings = []
+  const visiting = new Set<string>()
+  const visited = new Set<string>()
+  const visit = (bindingId: string): void => {
+    if (visiting.has(bindingId)) throw new Error(t('variable.circularDependency'))
+    if (visited.has(bindingId)) return
+    visiting.add(bindingId)
+    for (const dependency of dependencies.get(bindingId) ?? []) if (byBindingId.has(dependency)) visit(dependency)
+    visiting.delete(bindingId)
+    visited.add(bindingId)
+    ordered.push(byBindingId.get(bindingId)!)
+  }
+  for (const node of bindings) visit(node.getBindingId()!)
+
+  const expressions: string[] = []
+  for (const node of ordered) {
+    engine.reset()
+    const output = (await engine.fetch(node.id)) as { value?: NumberValue | BooleanValue | Vector3Value }
+    if (!output.value) throw new Error(`Variable "${node.getBindingName()}" has no value.`)
+    expressions.push(`${node.getBindingName()} = ${output.value.code}`)
+  }
+  return { expressions, statements: expressions.map((assignment) => `${assignment};`).join('\n') }
 }
 
 export type InspectEvaluation =
@@ -239,12 +311,13 @@ export async function evaluateInspectNode(
   const definition = scope ? definitions?.get(scope) : undefined
   const echo = `echo("__SCADLET_VALUE__:", ${output.value.code});`
   const settings = await evaluateScopeSettings(editor, engine, scope ?? null, definitions)
+  const variables = await evaluateScopeVariables(editor, engine, scope ?? null, definitions)
   return definition
     ? { kind: 'value', expression: output.value.code, source: definitions
-      ? joinDefinitions(await evaluateDefinitions(editor, engine, definitions), inspectModuleSource(definition, joinScopeSource(settings, echo)))
-      : inspectModuleSource(definition, joinScopeSource(settings, echo)) }
+      ? joinDefinitions(await evaluateDefinitions(editor, engine, definitions), inspectModuleSource(definition, joinScopeSource(variables.statements, settings, echo)))
+      : inspectModuleSource(definition, joinScopeSource(variables.statements, settings, echo)) }
     : definitions
-      ? { kind: 'value', expression: output.value.code, source: joinDefinitions(await evaluateDefinitions(editor, engine, definitions), joinScopeSource(settings, echo)) }
+      ? { kind: 'value', expression: output.value.code, source: joinDefinitions(await evaluateDefinitions(editor, engine, definitions), joinScopeSource(variables.statements, settings, echo)) }
       : { kind: 'value', expression: output.value.code }
 }
 

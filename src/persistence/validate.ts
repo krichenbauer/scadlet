@@ -1,6 +1,6 @@
 import { findCatalogEntry, FUNCTION_GRAPH_ALLOWED_NODE_TYPES } from '../editor/node-catalog'
 import { firstDataflowCycle } from '../editor/dataflow-cycle'
-import { defaultModuleGeometryInput, moduleGeometryInputPortId, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterPortId, moduleParameterNameProblem, type FunctionResultType, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterType } from '../editor/definitions'
+import { defaultModuleGeometryInput, isOpenSCADIdentifier, moduleGeometryInputPortId, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterPortId, moduleParameterNameProblem, type FunctionResultType, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterType } from '../editor/definitions'
 import {
   SCADLET_FORMAT,
   SCADLET_VERSION,
@@ -79,20 +79,28 @@ export function parseScadletProject(raw: unknown): ScadletProjectV1 {
  */
 function migrateScadletProject(version: number, raw: Record<string, unknown>): ScadletProjectV1 {
   if (version === SCADLET_VERSION) return validateV1(raw)
-  if (version === 6) return validateV1(migrateV6ToV7(raw))
-  if (version === 5) return validateV1(migrateV6ToV7(migrateV5ToV6(raw)))
-  if (version === 4) return validateV1(migrateV6ToV7(migrateV5ToV6(migrateV4ToV5(raw))))
-  if (version === 3) return validateV1(migrateV6ToV7(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(raw)))))
-  if (version === 2) return validateV1(migrateV6ToV7(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(raw))))))
-  if (version === 1) return validateV1(migrateV6ToV7(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(migrateV1ToV2(raw)))))))
+  if (version === 7) return validateV1(migrateV7ToV8(raw))
+  if (version === 6) return validateV1(migrateV7ToV8(migrateV6ToV7(raw)))
+  if (version === 5) return validateV1(migrateV7ToV8(migrateV6ToV7(migrateV5ToV6(raw))))
+  if (version === 4) return validateV1(migrateV7ToV8(migrateV6ToV7(migrateV5ToV6(migrateV4ToV5(raw)))))
+  if (version === 3) return validateV1(migrateV7ToV8(migrateV6ToV7(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(raw))))))
+  if (version === 2) return validateV1(migrateV7ToV8(migrateV6ToV7(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(raw)))))))
+  if (version === 1) return validateV1(migrateV7ToV8(migrateV6ToV7(migrateV5ToV6(migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(migrateV1ToV2(raw))))))))
   throw new ScadletProjectError(`Unsupported SCADlet project version: ${version}`)
+}
+
+/** v8 adds opt-in Value binding ids and Variable reference nodes. Older
+ * Value names remain labels/literals because migration deliberately adds no
+ * binding id. */
+function migrateV7ToV8(raw: Record<string, unknown>): Record<string, unknown> {
+  return { ...raw, version: SCADLET_VERSION }
 }
 
 /** v7 adds the additive `scad-settings` node type. Existing v6 graphs need
  * no structural rewrite: omission means that scope simply uses OpenSCAD's
  * defaults, exactly as it did before. */
 function migrateV6ToV7(raw: Record<string, unknown>): Record<string, unknown> {
-  return { ...raw, version: SCADLET_VERSION }
+  return { ...raw, version: 7 }
 }
 
 /** v5 adds Function definitions alongside Modules. Every existing v4 record
@@ -265,8 +273,8 @@ function validateNode(raw: unknown, index: number, seenIds: Set<string>, graphKi
   if (typeof raw.type !== 'string') throw new ScadletProjectError(`Node "${raw.id}" is missing a "type".`)
   const entry = findCatalogEntry(raw.type)
   if (!entry) throw new ScadletProjectError(`Unknown node type: "${raw.type}"`)
-  const isCall = entry.type === 'module-call' || entry.type === 'function-call'
-  if (graphKind === 'main' && entry.palette === false && !isCall) {
+  const allowedNonPaletteNode = entry.type === 'module-call' || entry.type === 'function-call' || entry.type === 'variable-reference'
+  if (graphKind === 'main' && entry.palette === false && !allowedNonPaletteNode) {
     throw new ScadletProjectError(`Interface node "${raw.id}" belongs inside a definition, not Main.`)
   }
   if (graphKind === 'function' && entry.type === 'module-call') {
@@ -304,6 +312,7 @@ function validateConnection(
   nodesById: Map<string, ScadletNodeDTO>,
   definition?: DefinitionContext,
   definitions: readonly ScadletDefinition[] = [],
+  bindings: ReadonlyMap<string, ModuleParameterType> = new Map(),
 ): ScadletConnectionDTO {
   if (!isPlainObject(raw)) throw new ScadletProjectError(`Connection at index ${index} must be an object.`)
 
@@ -337,7 +346,9 @@ function validateConnection(
       ? parameterSocketType(definition.parameters, sourceOutput)
       : sourceCalledDefinition && sourceOutput === 'value'
         ? sourceCalledDefinition.kind === 'function' ? sourceCalledDefinition.resultType : undefined
-        : undefined
+        : sourceNode.type === 'variable-reference' && sourceOutput === 'value'
+          ? bindings.get(String(sourceNode.parameters.bindingId))
+          : undefined
   const targetCalledDefinition = targetNode.type === 'module-call' || targetNode.type === 'function-call'
     ? definitions.find((item) => item.id === targetNode.parameters.definitionId)
     : undefined
@@ -377,6 +388,7 @@ function validateGraph(raw: unknown, graphKind: GraphKind, definition?: Definiti
   const seenNodeIds = new Set<string>()
   const nodes = raw.nodes.map((node, index) => validateNode(node, index, seenNodeIds, graphKind))
   const nodesById = new Map(nodes.map((node) => [node.id, node]))
+  const bindings = validateScopeBindings(nodes, definition?.parameters ?? [])
   if (nodes.filter((node) => node.type === 'scad-settings').length > 1) {
     const scope = graphKind === 'main' ? 'Main' : graphKind === 'module' ? 'Module' : 'Function'
     throw new ScadletProjectError(`${scope} scope may contain at most one SCAD settings node.`)
@@ -385,7 +397,7 @@ function validateGraph(raw: unknown, graphKind: GraphKind, definition?: Definiti
   if (!Array.isArray(raw.connections)) throw new ScadletProjectError('Project "graph.connections" must be an array.')
   const seenConnectionIds = new Set<string>()
   const connections = raw.connections.map((connection, index) =>
-    validateConnection(connection, index, seenConnectionIds, nodesById, definition, definitions),
+    validateConnection(connection, index, seenConnectionIds, nodesById, definition, definitions, bindings),
   )
   const occupiedInputs = new Set<string>()
   for (const connection of connections) {
@@ -399,6 +411,9 @@ function validateGraph(raw: unknown, graphKind: GraphKind, definition?: Definiti
   if (cycle) {
     const scope = graphKind === 'main' ? 'Main graph' : `${graphKind === 'function' ? 'Function' : 'Module'} definition graph`
     throw new ScadletProjectError(`${scope} contains a node dataflow cycle at connection "${cycle.id}". Function and Module definition recursion is allowed.`)
+  }
+  if (hasVariableBindingCycle(nodes, connections)) {
+    throw new ScadletProjectError('Variable bindings contain a circular dependency.')
   }
 
   // Conditional's branch/result sockets are dynamic but their port IDs are
@@ -423,6 +438,69 @@ function validateGraph(raw: unknown, graphKind: GraphKind, definition?: Definiti
   }
 
   return { nodes, connections }
+}
+
+function validateScopeBindings(nodes: readonly ScadletNodeDTO[], parameters: readonly ModuleParameter[]): Map<string, ModuleParameterType> {
+  const bindings = new Map<string, ModuleParameterType>()
+  const names = new Set(parameters.map((parameter) => parameter.name))
+  for (const parameter of parameters) bindings.set(parameter.id, parameter.type)
+  for (const node of nodes) {
+    if (node.type !== 'number' && node.type !== 'boolean' && node.type !== 'vector3') continue
+    const bindingId = node.parameters.bindingId
+    if (bindingId === undefined) continue
+    const name = node.parameters.name
+    if (typeof bindingId !== 'string' || !bindingId || typeof name !== 'string' || !isOpenSCADIdentifier(name)) {
+      throw new ScadletProjectError(`Value node "${node.id}" has an invalid variable binding.`)
+    }
+    if (bindings.has(bindingId)) throw new ScadletProjectError(`Duplicate variable binding id "${bindingId}" in one scope.`)
+    if (names.has(name)) throw new ScadletProjectError(`Duplicate binding name "${name}" in one scope.`)
+    bindings.set(bindingId, node.type === 'number' ? 'number' : node.type === 'boolean' ? 'boolean' : 'vector3')
+    names.add(name)
+  }
+  for (const node of nodes) {
+    if (node.type !== 'variable-reference') continue
+    const bindingId = String(node.parameters.bindingId)
+    if (!bindings.has(bindingId)) {
+      throw new ScadletProjectError(`Variable reference node "${node.id}" has a missing, stale, or cross-scope binding "${bindingId}".`)
+    }
+  }
+  return bindings
+}
+
+function hasVariableBindingCycle(nodes: readonly ScadletNodeDTO[], connections: readonly ScadletConnectionDTO[]): boolean {
+  const bindingNodeById = new Map(nodes
+    .filter((node) => (node.type === 'number' || node.type === 'boolean' || node.type === 'vector3') && typeof node.parameters.bindingId === 'string')
+    .map((node) => [String(node.parameters.bindingId), node.id]))
+  const incoming = new Map<string, string[]>()
+  for (const edge of connections) incoming.set(edge.target, [...(incoming.get(edge.target) ?? []), edge.source])
+  const dependencies = new Map<string, Set<string>>()
+  for (const [bindingId, nodeId] of bindingNodeById) {
+    const found = new Set<string>()
+    const seen = new Set<string>()
+    const pending = [...(incoming.get(nodeId) ?? [])]
+    while (pending.length > 0) {
+      const id = pending.pop()!
+      if (seen.has(id)) continue
+      seen.add(id)
+      const node = nodes.find((item) => item.id === id)
+      if (node?.type === 'variable-reference') found.add(String(node.parameters.bindingId))
+      pending.push(...(incoming.get(id) ?? []))
+    }
+    dependencies.set(bindingId, found)
+  }
+  const visiting = new Set<string>()
+  const visited = new Set<string>()
+  const visit = (id: string): boolean => {
+    if (visiting.has(id)) return true
+    if (visited.has(id)) return false
+    visiting.add(id)
+    for (const dependency of dependencies.get(id) ?? []) {
+      if (bindingNodeById.has(dependency) && visit(dependency)) return true
+    }
+    visiting.delete(id); visited.add(id)
+    return false
+  }
+  return [...bindingNodeById.keys()].some(visit)
 }
 
 function validateDefinitions(raw: unknown): ScadletDefinition[] {

@@ -36,6 +36,11 @@ without an explicit product decision.
 - Each Main or Module scope may own at most one SCAD settings node. Its
   curated `$fn`/`$fa`/`$fs` Number inputs are scope-level code-generation
   roots, not Geometry flow; Function scopes never contain this node.
+- Named Number, Boolean, and Vector3 nodes and Module/Function parameters are
+  variable bindings local to exactly one Main, Module, or Function scope.
+  Compact Variable reference nodes resolve only by stable binding ID plus
+  explicit scope; names are editable source text, never identity, and no
+  reference may capture across a scope boundary.
 - Use stable, language-independent IDs for persistent graph entities. Labels,
   localized text, names, positions, and DOM details are never semantic IDs.
 - Make the smallest change that fulfills the current task. Do not implement
@@ -87,7 +92,8 @@ implementing it and update the relevant reference with the code.
 ## Current product boundary
 
 The working baseline includes scoped SCAD settings (`$fn`, `$fa`, `$fs`),
-primitives (Cube, Cylinder, Sphere), transforms
+scoped named Values and compact Variable references, primitives (Cube,
+Cylinder, Sphere), transforms
 (Translate, Rotate, Scale), Boolean composition (Difference, variadic Union
 and Intersection), typed values/math/conditionals, project persistence,
 intermediate inspection, and reusable Modules/Functions. Keep it educational
@@ -115,7 +121,7 @@ miss has its own 15-second execution limit.
 
 Normally collapsible nodes start expanded and use their always-visible chevron
 control for explicit, persistent per-node collapse. This presentation-only
-`collapsed` state is saved with a project; omitted state in v6/v7 records means
+`collapsed` state is saved with a project; omitted state in v6/v7/v8 records means
 expanded. Value Conditional and Geometry If retain their fixed compact
 interfaces and have no collapse control. Hover, selection, and a held wire
 gesture never expand a node or reveal hidden controls; its downward-chevron

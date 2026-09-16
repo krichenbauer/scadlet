@@ -35,7 +35,7 @@ function serializeOptions(source: NodeEditor<Schemes>, registry: DefinitionRegis
   }
 }
 
-describe('Function definition persistence (introduced in v5, retained in canonical v7)', () => {
+describe('Function definition persistence (introduced in v5, retained in canonical v8)', () => {
   it('migrates a v4 Module-only project unchanged, with an empty Function registry', () => {
     const project = parseScadletProject({
       format: 'scadlet', version: 4,
@@ -44,7 +44,7 @@ describe('Function definition persistence (introduced in v5, retained in canonic
       definitions: [],
       editor: { viewport: { x: 1, y: 2, zoom: 1 } }, viewer: { camera },
     })
-    expect(project.version).toBe(7)
+    expect(project.version).toBe(8)
     expect(project.definitions).toEqual([])
   })
 
@@ -283,7 +283,7 @@ describe('Function definition persistence (introduced in v5, retained in canonic
       editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera },
     })
     const recursive = parseScadletProject(project(false))
-    expect(recursive.version).toBe(7)
+    expect(recursive.version).toBe(8)
     expect(recursive.definitions).toHaveLength(2)
     expect(recursive.definitions.flatMap((item) => item.graph.connections)).toHaveLength(2)
     expect(parseScadletProject(project(true)).definitions).toHaveLength(2)
@@ -351,7 +351,7 @@ describe('Function definition persistence (introduced in v5, retained in canonic
       expect(call.getArguments()).toHaveProperty('n')
     }
     const roundTrip = parseScadletProject(serializeProject(serializeOptions(target, restored)))
-    expect(roundTrip.version).toBe(7)
+    expect(roundTrip.version).toBe(8)
     expect(roundTrip.definitions.flatMap((definition) => definition.graph.connections)).toHaveLength(26)
     expect(roundTrip.graph.connections).toHaveLength(1)
   })

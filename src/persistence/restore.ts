@@ -7,6 +7,7 @@ import type { Schemes } from '../editor/schemes'
 import type { ModuleDefinition } from '../editor/definitions'
 import { ModuleInputsNode } from '../editor/nodes/module-interface-nodes'
 import { FunctionInputsNode, FunctionOutputNode } from '../editor/nodes/function-interface-nodes'
+import type { VariableBindingResolution } from '../editor/nodes/variable-reference-node'
 import type { ScadletProjectV1, ScadletViewerCamera } from './project'
 
 /** Removes every node (and, transitively, every connection) currently in `editor`, one at a time, so per-node cleanup (presentation/inspect state - see `editor/editor.ts`'s `noderemoved` pipe) runs for each. */
@@ -112,6 +113,20 @@ function prepareRestorePlan(project: ScadletProjectV1, deps: RestoreProjectDeps)
   }
   const nodes: PlannedNode[] = []
 
+  const scopeBindings = new Map<string | null, Map<string, VariableBindingResolution>>()
+  const collectBindings = (scope: string | null, graphNodes: ScadletProjectV1['graph']['nodes'], definition?: ModuleDefinition): void => {
+    const bindings = new Map<string, VariableBindingResolution>()
+    for (const parameter of definition?.parameters ?? []) bindings.set(parameter.id, { id: parameter.id, name: parameter.name, type: parameter.type })
+    for (const node of graphNodes) {
+      if ((node.type !== 'number' && node.type !== 'boolean' && node.type !== 'vector3') || typeof node.parameters.bindingId !== 'string') continue
+      const id = node.parameters.bindingId
+      bindings.set(id, { id, name: String(node.parameters.name), type: node.type })
+    }
+    scopeBindings.set(scope, bindings)
+  }
+  collectBindings(null, project.graph.nodes)
+  for (const definition of project.definitions) collectBindings(definition.id, definition.graph.nodes, definitionsById.get(definition.id))
+
   const addNode = (dto: ScadletProjectV1['graph']['nodes'][number], definitionId: string | null) => {
     const definition = definitionId ? definitionsById.get(definitionId) : undefined
     const entry = findCatalogEntry(dto.type)
@@ -122,7 +137,7 @@ function prepareRestorePlan(project: ScadletProjectV1, deps: RestoreProjectDeps)
         ? new FunctionInputsNode(definition?.parameters ?? [])
         : dto.type === 'function-output'
           ? new FunctionOutputNode(definition?.resultType)
-          : entry.create(context, dto.parameters)
+          : entry.create({ ...context, resolveVariableBinding: (id) => scopeBindings.get(definitionId)?.get(id) }, dto.parameters)
     node.id = dto.id
     nodes.push({ dto, node, definitionId })
   }

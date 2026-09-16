@@ -20,8 +20,11 @@ parameters and geometry-child slots also have stable IDs.
 
 Ordinary wires may not cross a definition boundary. Definitions are
 self-contained through explicit parameters/calls; do not add hidden captures
-or arbitrary cross-frame connections. Future variables and OpenSCAD `$`
-variables require separate, explicit designs.
+or arbitrary cross-frame connections. Named Values and definition parameters
+may be used by compact Variable reference nodes only inside that same explicit
+scope. Binding identity is stable ID plus scope; editable names are unique only
+within their scope, and identical names remain independent across Main and
+different definitions. OpenSCAD `$` variables remain a separate design.
 
 SCAD settings is the narrow exception to Output-rooted scope configuration,
 not to connection scoping: Main and each Module may contain at most one such
@@ -38,6 +41,10 @@ type/removal changes preflight, confirm, and remove only affected connections.
 
 Supported value types are Number, Boolean, and Vector3. Do not split Number
 into int/float or add String/List until a real language feature needs them.
+These are also the only variable-binding/reference types. Parameter removal
+and named-Value deletion count and confirm affected references, then remove the
+definition and its reference nodes together; individual references retain the
+ordinary unconfirmed node-deletion lifecycle.
 
 ## Modules
 
@@ -65,6 +72,9 @@ imperative return.
 - Its Output has exactly one typed value input/result. A Function graph permits
   values, math, conditionals, and compatible Function Calls, never Geometry
   nodes, Module calls, or actions.
+- Function-local named Values compile to ordered `let(...)` bindings around
+  the result expression. Statement assignments are never emitted inside a
+  Function expression.
 - Result type is Number, Boolean, or Vector3. An unresolved Function is a valid
   saveable draft but emits no declaration and cannot create new calls. Existing
   calls become unresolved drafts and incompatible outgoing wires are handled by
@@ -88,6 +98,9 @@ not semantic truth. Transfer of ordinary nodes between scopes happens only on a
 completed drag and is atomic: preflight all touching connections under proposed
 scopes, reject invalid cross-scope results, and never silently delete wires.
 Protected interfaces cannot transfer.
+Moving a named Value requires all of its references to remain resolvable in the
+hypothetical destination; moving only a reference is rejected. Same-scope name
+collisions with Values or parameters are rejected before membership changes.
 
 The existing sidebar contains dynamic My Modules/My Functions sections. A
 definition entry creates a compact call node through the shared creation path;

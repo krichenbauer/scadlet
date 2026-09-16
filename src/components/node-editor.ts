@@ -275,6 +275,11 @@ export class NodeEditorElement extends LitElement {
       background: #2c3540;
     }
 
+    .node[data-node-type='variable-reference'] {
+      min-width: 112px;
+      max-width: 180px;
+    }
+
     .node--selected {
       border-color: #7ac0ff;
       box-shadow: 0 0 0 2px rgb(122 192 255 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
@@ -907,6 +912,53 @@ export class NodeEditorElement extends LitElement {
 
     .node-port--output .node-socket {
       margin-right: -6px;
+    }
+
+    .node-create-variable-reference {
+      flex: none;
+      display: grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      cursor: copy;
+      opacity: 0.78;
+    }
+
+    .node-create-variable-reference:hover:not(:disabled) { opacity: 1; background: rgb(122 192 255 / 0.16); }
+    .node-create-variable-reference:disabled { cursor: not-allowed; opacity: 0.28; }
+    .node-create-variable-reference:focus-visible {
+      opacity: 1;
+      border-color: #7ac0ff;
+      outline: 2px solid rgb(122 192 255 / 0.45);
+      outline-offset: 1px;
+    }
+    .node-create-variable-reference svg {
+      width: 14px;
+      height: 14px;
+      fill: none;
+      stroke: currentcolor;
+      stroke-width: 1.7;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    #canvas.variable-reference-placement-active { cursor: copy; }
+    .variable-reference-placement-ghost {
+      position: fixed;
+      z-index: 1000;
+      pointer-events: none;
+      padding: 5px 9px;
+      border: 1px dashed #7ac0ff;
+      border-radius: 5px;
+      background: rgb(35 46 57 / 0.92);
+      color: #eee;
+      font: 600 12px system-ui, sans-serif;
+      opacity: 0.82;
     }
 
     .node-control {

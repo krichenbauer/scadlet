@@ -11,7 +11,7 @@ export type CompactIconName =
   | 'value' | 'compare' | 'math' | 'conditional'
   | 'settings'
   | 'module' | 'function' | 'input-port' | 'output-port'
-  | 'menu' | 'pencil' | 'eye'
+  | 'menu' | 'pencil' | 'eye' | 'reference'
 
 const paths: Record<CompactIconName, string> = {
   plus: 'M12 5v14M5 12h14',
@@ -44,6 +44,7 @@ const paths: Record<CompactIconName, string> = {
   menu: 'M4 7h16M4 12h16M4 17h16',
   pencil: 'M4 20l1-4 10-10 3 3-10 10-4 1ZM14 6l3 3',
   eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7ZM12 9a3 3 0 1 0 0.01 0',
+  reference: 'M4 7h9v10H4zM13 12h7M17 8l4 4-4 4',
 }
 
 type BooleanOperationIconName = Extract<CompactIconName, 'union' | 'difference' | 'intersection'>

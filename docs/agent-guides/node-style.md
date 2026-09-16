@@ -190,6 +190,24 @@ Renaming changes the public parameter/input name but preserves the existing
 port identity and compatible live connections. Type and default-value editing
 remain separate controls.
 
+A successful identifier rename activates Number, Boolean, or Vector3 as a
+scope-local variable definition without changing its existing direct output.
+Its normal output row gains one 24px icon-only **Create variable reference**
+button immediately beside the socket. The local reference icon depicts a
+small source box pointing to an output arrow, has no visible text, and uses the
+standard focus/disabled treatment plus the localized accessible name and
+tooltip. Before activation the button is disabled and its tooltip explains
+that a valid unique name is required. Module/Function parameter output rows use
+the same enabled control.
+
+The resulting Variable reference is an explicit compact-node exception: it
+shows only the current binding name, the reference family icon, the ordinary
+More menu, and one typed Value output. It has no inputs, editable title,
+literal control, Add action, or Collapse action. It otherwise follows ordinary
+selection, movement, Inspect, output-socket accessibility, and deletion rules.
+A temporary dashed name ghost communicates click-and-place; it is presentation
+state and never persisted.
+
 ## Collapse
 
 Normally collapsible nodes use the shared far-right header chevron button.

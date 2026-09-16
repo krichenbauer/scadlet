@@ -65,19 +65,19 @@ describe('SCAD settings persistence', () => {
       viewport: { x: 0, y: 0, k: 1 }, viewerCamera: CAMERA, definitions: definitions.list(), getNodeScope: (id) => definitions.scopeOf(id),
       now: () => '2026-09-15T00:00:00.000Z',
     })
-    expect(saved.version).toBe(7)
+    expect(saved.version).toBe(8)
     expect(saved.graph.nodes.find((node) => node.id === 'main-settings')?.parameters).toEqual({ fn: 30, fs: 1 })
     expect(saved.definitions[0]?.graph.nodes.find((node) => node.id === 'part-settings')?.parameters).toEqual({ fn: 12, fa: 6 })
     expect(saved.graph.connections).toHaveLength(1)
   })
 
-  it('migrates a legacy v6 project without settings to v7 unchanged', () => {
+  it('migrates a legacy v6 project without settings to v8 unchanged', () => {
     const legacy = project(6)
     legacy.graph.nodes = legacy.graph.nodes.filter((node: { type: string }) => node.type !== 'scad-settings' && node.type !== 'number')
     legacy.graph.connections = []
     legacy.definitions[0]!.graph.nodes = legacy.definitions[0]!.graph.nodes.filter((node: { type: string }) => node.type !== 'scad-settings')
     const parsed = parseScadletProject(legacy)
-    expect(parsed.version).toBe(7)
+    expect(parsed.version).toBe(8)
     expect(parsed.graph.nodes.map((node) => node.id)).toEqual(['main-call'])
   })
 

@@ -1,10 +1,36 @@
-# The `.scadlet` project file format (v7)
+# The `.scadlet` project file format (v8)
 
 This document specifies the `.scadlet` project file format as it is
 **actually implemented** in this repository, not as originally sketched in
 `AGENTS.md`. If you find a discrepancy between this document and the code,
 the code under `src/persistence/` and `src/editor/node-catalog.ts` is the
 source of truth until this document is updated to match it.
+
+## Version 8: scoped variable bindings and references
+
+Version 8 adds an optional `bindingId` to Number, Boolean, and Vector3
+parameters plus the non-palette `variable-reference` node. A Value with no
+`bindingId` keeps its historical literal-only behavior even when its `name`
+looks like an identifier. A bound Value requires a valid OpenSCAD identifier
+name. Its stable binding ID, not that mutable name, is the reference identity.
+
+Module and Function parameter IDs are binding IDs in their own definition
+scope. Within Main or one definition graph, binding IDs and names must be
+unique across bound Values and parameters. The same name or imported ID may be
+used independently in another scope. A reference stores only
+`{ "bindingId": "..." }`, must resolve in its enclosing graph, and exposes one
+typed `value` output matching its binding. Missing, stale, duplicate, and
+cross-scope binding data is rejected rather than resolved by name.
+
+Named Values emit dependency-ordered assignments before scoped settings and
+Main/Module Geometry. Function-local Values emit ordered `let(...)` bindings around the Function
+expression. A reference emits only the current identifier, while the original
+Value output retains its prior literal/expression semantics. Binding dependency
+cycles are rejected.
+
+The v7→v8 migration changes only the version number. It deliberately adds no
+binding IDs, so every pre-v8 Value name remains a generic label and generated
+OpenSCAD is unchanged.
 
 ## Version 7: scoped SCAD settings
 
@@ -91,8 +117,8 @@ newer versions are rejected instead of being guessed at.
   `"version"`. The format version is **independent of the SCADlet
   application/package version** - bumping the app's `package.json`
   version never implies a format change, and vice versa.
-- The current format version is **`7`**. Versions 1–6 are accepted on input
-  and explicitly migrated to v7; writers and browser autosave always emit v7.
+- The current format version is **`8`**. Versions 1–7 are accepted on input
+  and explicitly migrated to v8; writers and browser autosave always emit v8.
 - Unknown/future format versions are rejected outright with a clear error
   (`Unsupported SCADlet project version: N`) - there is no attempt to
   guess-parse a newer format. See "Versioning and migrations" below.
@@ -114,7 +140,7 @@ exact, test-verified fixture this is based on):
 ```json
 {
   "format": "scadlet",
-  "version": 6,
+  "version": 8,
   "metadata": {
     "name": "Gearbox Experiment",
     "createdAt": "2026-09-01T00:00:00.000Z",
@@ -144,7 +170,7 @@ exact, test-verified fixture this is based on):
 | Field      | Type                | Required | Meaning                                                          |
 | ---------- | ------------------- | -------- | ----------------------------------------------------------------- |
 | `format`   | `"scadlet"` literal | Yes      | Discriminates this file as a SCADlet project, not arbitrary JSON.  |
-| `version`  | integer             | Yes      | Format version. Versions `1`–`6` migrate; v7 is current.          |
+| `version`  | integer             | Yes      | Format version. Versions `1`–`7` migrate; v8 is current.          |
 | `metadata` | object              | Yes      | Project-level descriptive information. See below.                 |
 | `graph`    | object               | Yes      | Semantic program graph: nodes + connections. See below.           |
 | `definitions` | array              | Yes      | Project-owned Module and Function definition graphs. See below.    |
@@ -310,7 +336,7 @@ sections below for exact shapes.
   hidden controls.
 - The writer (`serializeProject` in `src/persistence/serialize.ts`) omits
   `collapsed` for an expanded node rather than writing `"collapsed": false`.
-  This optional default lets old v6/v7 records lacking the field restore normally
+  This optional default lets old v6/v7/v8 records lacking the field restore normally
   expanded without a schema bump.
 
 ## `definitions`
@@ -350,8 +376,10 @@ from its user-editable OpenSCAD-style `name`.
 - Module names are non-empty OpenSCAD-style identifiers and unique per
   project. Names are not definition identity.
 - `parameters` is an ordered signature. Each item has a stable non-empty
-  `id`, a Module-unique OpenSCAD-style name, one of `number`, `boolean`, or
-  `vector3`, and a matching finite literal default. Missing `parameters` in
+  `id`, a scope-unique OpenSCAD-style binding name, one of `number`, `boolean`,
+  or `vector3`, and a matching finite literal default. Its ID also identifies
+  same-scope Variable references. A parameter name may not collide with a
+  bound Value in that definition. Missing `parameters` in
   a historically written parameterless v3 record is normalized to `[]`;
   writers always include the array. The `module-inputs` node's own
   `parameters` remains `{}` in both forms: its dynamic ports are derived from
@@ -374,8 +402,8 @@ never compact. There are no Geometry defaults or Call fallbacks.
 Type changes retain the parameter ID but reset every Call fallback for that ID
 to the new definition default after attached connections are removed. Deletion
 preflights the complete dynamic signature and removes the ID, its Call fallback
-entries, and only its attached connections as one editor operation; cancellation
-or failure leaves the stored v3 payload unchanged. These Phase 4 edits do
+entries, its same-scope Variable references, and only affected connections as
+one editor operation; cancellation or failure leaves the stored payload unchanged. These edits do
 not change the v3 schema.
 - Each Module has exactly one `module-inputs` node and one `module-output`
   node. The latter owns the one stable Geometry input `geometry`.
@@ -515,14 +543,14 @@ an unresolved output. Any outgoing wire from such a Call is invalid.
 Recursive Function and Module Calls need no new durable fields: the existing
 stable definition ID, scoped graph membership, parameter and Geometry-child
 ports/fallbacks, and connections fully represent them. They therefore remain
-the same canonical representation in v7; the v4 → v5 → v6 → v7 migration
+the same canonical representation in v8; the v4 → v5 → v6 → v7 → v8 migration
 chain preserves it unchanged.
 
 Module Calls remain forbidden inside Function definitions; both Call kinds are
 valid in Module definitions.
 
 Existing v4 projects (Modules only, no Functions) migrate through v5 and then
-to v7, with no Function entries added to the shared `definitions` array.
+to v8, with no Function entries added to the shared `definitions` array.
 
 ## Per-node parameter schemas
 
@@ -549,9 +577,22 @@ special-variable representation.
 
 ### Value and math nodes
 
-`number` stores `{ "value": number, "name": string }`; `boolean` stores
-`{ "value": boolean, "name": string }`; and `vector3` stores finite numeric
-`{ "x": number, "y": number, "z": number, "name": string }`.
+`number` stores `{ "value": number, "name": string, "bindingId"?: string }`;
+`boolean` stores `{ "value": boolean, "name": string, "bindingId"?: string }`;
+and `vector3` stores finite numeric
+`{ "x": number, "y": number, "z": number, "name": string, "bindingId"?: string }`.
+When omitted, `bindingId` preserves the legacy label-only behavior. When
+present it must be non-empty, `name` must be a valid scope-unique OpenSCAD
+identifier, and the Value becomes an assignment root. The binding ID normally
+starts as the Value node's own stable ID when the user first commits a valid
+name; it remains stable through later renames and scope-valid movement.
+
+`variable-reference` stores exactly `{ "bindingId": string }`. It has no
+inputs or editable value and exposes one `value` output whose Number, Boolean,
+or Vector3 type is resolved from the same-scope binding during validation and
+restore. Its visible label is projected from that binding and is not persisted
+as duplicate authority. References are permitted in Main, Module, and Function
+graphs but never resolve outside their enclosing graph.
 
 `arithmetic` stores `{ "operation": id, "a": number, "b": number }`, where
 `id` is exactly `addition`, `subtraction`, `multiplication`, `division`,
@@ -617,9 +658,11 @@ dead/disconnected If drafts do not.
 All source and math value outputs use the stable port id `value`; Vector3
 uses Number inputs `x`, `y`, and `z`; Arithmetic and Compare use `a`/`b`,
 Trigonometry uses `a` plus dynamic `b`, and the other unary families use `x`.
-`name` is a SCADlet-only human-readable source label, not an OpenSCAD
-variable or graph identity. It is optional when loading older v2 files and
-normalizes to the source type name. Number/Boolean sources have no inputs.
+Without `bindingId`, `name` remains a SCADlet-only human-readable source label,
+not an OpenSCAD variable or graph identity. It is optional when loading older
+v2 files and normalizes to the source type name. With `bindingId`, `name` is
+the mutable OpenSCAD identifier while the ID remains identity. Number/Boolean
+sources have no inputs.
 Transient inspect selection and the
 value result returned by OpenSCAD `echo()` are deliberately excluded from
 the project file.
@@ -778,7 +821,7 @@ rejected - see "Forward compatibility" under Validation).
   including disconnected/dead subgraphs. A self-wire and an indirect cycle
   are rejected during validation before restore. This does **not** prohibit
   direct or mutual Function/Module recursion: Call-node definition
-  dependencies are analyzed separately and remain valid in v7.
+  dependencies are analyzed separately and remain valid in v8.
 
 Currently valid ports per node type
 (`NodeCatalogEntry.inputs`/`.outputs` in `node-catalog.ts`):
@@ -806,6 +849,10 @@ if:            inputs: condition + then/else; output: geometry
 scad-settings: dynamic optional inputs: fn, fa, fs (Number); outputs: none
 module-inputs: dynamic outputs: parameter:<id> (Number|Boolean|Vector3)
 module-call:   dynamic inputs: parameter:<id> (referenced signature); outputs: geometry (Geometry); parameters: definitionId, arguments
+function-inputs: dynamic outputs: parameter:<id> (Number|Boolean|Vector3)
+function-output: input: result (resolved Number|Boolean|Vector3); outputs: none
+function-call: dynamic inputs: parameter:<id>; output: value (resolved Number|Boolean|Vector3)
+variable-reference: inputs: none; output: value (same type as same-scope binding)
 ```
 
 Port-level addressing (rather than plain node-to-node edges) exists
@@ -898,8 +945,8 @@ in roughly this order:
 1. The input is valid JSON (`parseScadletProjectText` only).
 2. The top-level value is a plain (non-array) object.
 3. `format` is present and equals `"scadlet"`.
-4. `version` is present and numeric; versions 1–7 are accepted (older ones
-   migrate to v7), while any other number fails with
+4. `version` is present and numeric; versions 1–8 are accepted (older ones
+   migrate to v8), while any other number fails with
    `Unsupported SCADlet project version: N`.
 5. `metadata` is an object with a non-empty (after trim) `name`;
    `createdAt`/`updatedAt`, if present, are strings (content not
@@ -917,9 +964,12 @@ in roughly this order:
 9. Every individual graph scope has acyclic node dataflow. This structural
    check includes disconnected nodes and is distinct from allowed recursive
    Function/Module definition dependencies.
-10. Main and each Module contain at most one `scad-settings` node; Function
+10. Each scope has unique binding IDs and valid unique binding names across
+    bound Values and parameters. Every Variable reference resolves by ID in
+    that same scope, and variable-dependency cycles are rejected.
+11. Main and each Module contain at most one `scad-settings` node; Function
     graphs contain none.
-11. `editor.viewport` and `viewer.camera` are validated as described
+12. `editor.viewport` and `viewer.camera` are validated as described
    above.
 
 **Strictness is not uniform across the format**, and this is
@@ -981,7 +1031,7 @@ version = 1
 `parseScadletProject` routes on `version` through a single
 `migrateScadletProject(version, raw)` function
 (`src/persistence/validate.ts`). v1 first migrates to v2, then v3, then v4,
-then v5, v6, and v7; v2 migrates through v3/v4/v5/v6 to v7. v3's legacy
+then v5, v6, v7, and v8; v2 migrates through v3/v4/v5/v6/v7 to v8. v3's legacy
 `children` connections are remapped to the deterministic first Geometry
 signature entry before validation. v4 → v5 is a pure version-number bump:
 every existing v4 record
@@ -992,10 +1042,11 @@ legacy arithmetic type in Main and definition graphs while retaining the
 already-compatible `a`, `b`, and `value` endpoints.
 v6 → v7 is a pure version-number bump because absence of `scad-settings`
 preserves the old OpenSCAD-default behavior. No other call site needs to know
-about historical shapes:
+about historical shapes. v7 → v8 is likewise a pure bump: migration does not
+invent binding IDs from legacy Value labels, so their source remains unchanged:
 
 ```text
-v1 → migrate to v2 → migrate to v3 → migrate to v4 → migrate to v5 → migrate to v6 → migrate to v7 → validate against the current shape
+v1 → migrate to v2 → migrate to v3 → migrate to v4 → migrate to v5 → migrate to v6 → migrate to v7 → migrate to v8 → validate against the current shape
 ```
 
 Rules of thumb for whether a change needs a version bump:

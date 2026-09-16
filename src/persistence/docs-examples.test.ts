@@ -35,7 +35,7 @@ describe('docs/scadlet-format.md examples stay valid', () => {
 
   it('v2-empty-cube.scadlet keeps an omitted Cube signature', () => {
     const project = parseScadletProject(readExample('v2-empty-cube.scadlet'))
-    expect(project.version).toBe(7)
+    expect(project.version).toBe(8)
     expect(project.graph.nodes[0]?.parameters).toEqual({})
   })
 
@@ -56,7 +56,7 @@ describe('docs/scadlet-format.md examples stay valid', () => {
 
   it('recursive-functions-v6.scadlet preserves direct and mutual recursive Calls', () => {
     const project = parseScadletProject(readExample('recursive-functions-v6.scadlet'))
-    expect(project.version).toBe(7)
+    expect(project.version).toBe(8)
     expect(project.definitions).toHaveLength(3)
     expect(project.definitions.find((definition) => definition.id === 'factorial')?.graph.nodes)
       .toContainEqual(expect.objectContaining({ id: 'factorial-self', type: 'function-call' }))
@@ -68,7 +68,7 @@ describe('docs/scadlet-format.md examples stay valid', () => {
 
   it('recursive-modules-v6.scadlet preserves direct and mutual recursive Calls', () => {
     const project = parseScadletProject(readExample('recursive-modules-v6.scadlet'))
-    expect(project.version).toBe(7)
+    expect(project.version).toBe(8)
     expect(project.definitions.find((definition) => definition.id === 'stack')?.graph.nodes)
       .toContainEqual(expect.objectContaining({ id: 'stack-self', type: 'module-call' }))
     expect(project.definitions.find((definition) => definition.id === 'pong')?.graph.nodes)
@@ -106,6 +106,7 @@ describe('docs/scadlet-format.md documented node types stay in sync with the cat
     'function-inputs',
     'function-output',
     'function-call',
+    'variable-reference',
     'scad-settings',
   ]
 

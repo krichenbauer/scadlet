@@ -27,6 +27,7 @@ import { ModuleCallNode, type ModuleCallParams } from './nodes/module-call-node'
 import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interface-nodes'
 import { FunctionCallNode, type FunctionCallParams } from './nodes/function-call-node'
 import { ScadSettingsNode } from './nodes/scad-settings-node'
+import { VariableReferenceNode, validateVariableReferenceParams, type VariableBindingResolution } from './nodes/variable-reference-node'
 import { validateScadSettingsParams, type ScadSettingsParams } from '../openscad/settings'
 import type { ModuleDefinition, ModuleParameterDefault } from './definitions'
 import type { CompactIconName } from '../components/icons'
@@ -43,6 +44,8 @@ export const MODULE_CALL_DRAG_MIME_TYPE = 'application/x-scadlet-module-call'
 /** The Function Call counterpart of `MODULE_CALL_DRAG_MIME_TYPE`. Kept as a
  * distinct MIME type since it resolves to a different generic node type. */
 export const FUNCTION_CALL_DRAG_MIME_TYPE = 'application/x-scadlet-function-call'
+/** Stable binding and source-node ids carried by the icon-only reference-creation drag. */
+export const VARIABLE_REFERENCE_DRAG_MIME_TYPE = 'application/x-scadlet-variable-reference'
 
 /**
  * Stable, language-independent category ids. Display text lives in
@@ -81,6 +84,7 @@ export type NodeTypeId =
   | 'function-inputs'
   | 'function-output'
   | 'function-call'
+  | 'variable-reference'
 
 /**
  * The node-family icon shown at the far left of a node's header (and
@@ -117,6 +121,7 @@ const NODE_TYPE_ICON: Record<NodeTypeId, CompactIconName> = {
   'function-inputs': 'input-port',
   'function-output': 'output-port',
   'function-call': 'function',
+  'variable-reference': 'reference',
 }
 
 /** Falls back to the neutral value icon for a node the catalog doesn't
@@ -157,6 +162,8 @@ export interface NodeCreationContext {
   /** Runs the one dynamic Math signature transition through the editor's
    * connection-safe, confirmation-aware lifecycle. */
   requestTrigonometryOperationChange?(nodeId: string, operation: TrigonometryOperation): Promise<boolean>
+  /** Resolves a reference strictly in the scope where it is being restored. */
+  resolveVariableBinding?(bindingId: string): VariableBindingResolution | undefined
 }
 
 export interface PaletteOperationChoice {
@@ -325,7 +332,7 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
  * Shared by `persistence/validate.ts` (file validation) and `editor.ts`
  * (live node-creation/scope-transfer gating) so both enforce identically. */
 export const FUNCTION_GRAPH_ALLOWED_NODE_TYPES: ReadonlySet<NodeTypeId> = new Set([
-  'function-inputs', 'function-output', 'function-call', 'number', 'boolean', 'vector3', 'arithmetic', 'trigonometry', 'basic-math', 'exponential-log', 'compare', 'conditional',
+  'function-inputs', 'function-output', 'function-call', 'variable-reference', 'number', 'boolean', 'vector3', 'arithmetic', 'trigonometry', 'basic-math', 'exponential-log', 'compare', 'conditional',
 ])
 
 /**
@@ -344,6 +351,22 @@ export const FUNCTION_GRAPH_ALLOWED_NODE_TYPES: ReadonlySet<NodeTypeId> = new Se
  * comment for why this is done here rather than per node class.
  */
 const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
+  {
+    type: 'variable-reference', category: 'values', labelKey: 'node.variableReference', palette: false, inputs: [], outputs: ['value'],
+    inputSocketType: () => undefined,
+    // File validation resolves this dynamic type from the enclosing scope's
+    // binding table; it is intentionally not duplicated in persisted params.
+    outputSocketType: () => undefined,
+    create: (context, params) => {
+      const reference = validateVariableReferenceParams(params)
+      const binding = context.resolveVariableBinding?.(reference.bindingId)
+      if (!binding) throw new Error(`Unknown variable binding "${reference.bindingId}".`)
+      return new VariableReferenceNode(reference, binding)
+    },
+    matches: (node) => node instanceof VariableReferenceNode,
+    serializeParams: (node) => (node as VariableReferenceNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateVariableReferenceParams(value) as unknown as Record<string, unknown>,
+  },
   {
     type: 'scad-settings', category: 'settings', labelKey: 'palette.scadSettings', paletteDescriptionKey: 'palette.description.scadSettings',
     allowedScopes: ['main', 'module'], inputs: [], outputs: [],
@@ -780,6 +803,7 @@ export const NODE_CATALOG: readonly NodeCatalogEntry[] = CATALOG_ENTRIES.map((en
       requestRemoveForm: context.requestRemoveForm,
       getModuleDefinition: context.getModuleDefinition,
       requestTrigonometryOperationChange: context.requestTrigonometryOperationChange,
+      resolveVariableBinding: context.resolveVariableBinding,
     }
     node = entry.create(wrappedContext, params)
     wireDirtyNotifications(node, context.notifyDirty)

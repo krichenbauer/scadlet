@@ -34,6 +34,14 @@ Expose OpenSCAD semantics without forcing a value graph for literals:
   Number socket plus preserved direct fallback and its adjacent Remove action;
   arbitrary special-variable names are not supported.
   The palette and node header use the explicit semantic title **SCAD settings**.
+- A deliberately renamed Number, Boolean, or Vector3 is a variable definition
+  in its current scope. Its direct typed output remains unchanged. A small
+  icon-only **Create variable reference** action beside that output, and beside
+  each Module/Function parameter output, creates a compact same-scope reference
+  either by drag-and-drop or one-shot click-and-place. The action is disabled
+  until a Value has a valid unique identifier. Escape, scope selection, graph
+  replacement, and editor destruction cancel click-and-place without graph
+  mutation; the gesture never creates a wire.
 
 Do not build a generic signature DSL prematurely. Reuse small, explicit
 mechanisms for optional parameters, typed inputs, alternative editors, and
@@ -98,6 +106,10 @@ Transformations, and Boolean operations rather than CSG jargon.
 Scope-restricted creation uses that same path: a duplicate SCAD settings drop
 or a drop into a Function is refused with the editor's localized transient
 feedback and does not create a temporary invalid node.
+Variable-reference placement uses the same client-to-graph coordinate
+conversion but additionally carries the source node ID and stable binding ID.
+The explicit source and destination scopes must match; a drop outside that
+scope is rejected rather than retargeted by a coincidentally equal name or ID.
 
 Double-clicking a geometry output performs one-shot upstream Geometry Inspect;
 double-clicking a value output runs OpenSCAD headlessly and displays the value.

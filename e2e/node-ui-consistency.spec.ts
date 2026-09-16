@@ -130,6 +130,7 @@ test('Module and Function Calls show only their definition names while retaining
 
   const functionDefinition = await createDefinition('function', 'taper')
   await addNumberParameter(await definitionInputs(page, functionDefinition.definitionId), 'ratio')
+  await expect.poll(async () => Boolean(await functionDefinition.frame.boundingBox())).toBe(true)
   const functionFrameBox = await functionDefinition.frame.boundingBox()
   if (!functionFrameBox) throw new Error('Expected Function definition frame')
   await dropPaletteNode(page, 'number', { x: functionFrameBox.x + functionFrameBox.width / 2, y: functionFrameBox.y + functionFrameBox.height / 2 })

@@ -11,10 +11,10 @@ DOM, or Three.js objects. It preserves semantic graph state (stable node/type
 IDs, parameters, definitions, and explicit stable-port connections), editor
 positions/viewport, and minimal reproducible viewer state. It excludes
 transient selection, marquee, hover, drag, and Inspect; explicit per-node
-collapse is persistent presentation state. Omitted `collapsed` state in a v6/v7
+collapse is persistent presentation state. Omitted `collapsed` state in a v6/v7/v8
 record restores expanded, preserving compatibility with older v6 files.
 
-The specification is the detailed authoritative schema. Current format is v7.
+The specification is the detailed authoritative schema. Current format is v8.
 Runtime render state, including the default-on Live render preference, pending
 debounces, render revisions, and preview result freshness, is session-only and
 is never written to `.scadlet` or IndexedDB project data.
@@ -26,6 +26,10 @@ Any persistent language/editor change must update the canonical types,
 serializer, validator, restore path, migrations, fixtures/tests, and format
 specification together. v6 projects migrate without a graph rewrite; v7 adds
 the `scad-settings` node and its optional `fn`/`fa`/`fs` Number ports.
+v8 adds opt-in `bindingId` fields to named Values and the
+`variable-reference` node. The v7→v8 migration changes only the version:
+existing Value `name` fields remain labels and do not become bindings
+retroactively.
 Existing parameter shapes and port IDs are compatibility
 contracts. Prefer small explicit migrations; reject unsupported newer formats,
 unknown semantic node types, and incompatible state with useful errors rather
@@ -41,6 +45,10 @@ Function graph rejects it. Direct and mutual Function/Module recursion add no du
 definition IDs, scoped Call nodes, stable ports, fallbacks, and connections
 already represent recursive SCCs in v6. Restore must preserve those ports and
 wires exactly across repeated loads.
+Within each graph scope, v8 also validates unique binding IDs and identifier
+names across bound Values and definition parameters. Every Variable reference
+must resolve by its persisted stable ID in that same graph; stale, malformed,
+duplicate, circular, and cross-scope binding data is rejected before restore.
 
 ## File access and local library
 

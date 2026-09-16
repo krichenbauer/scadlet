@@ -51,17 +51,21 @@ export interface ModuleDefinition {
 export type ModuleNameProblem = 'empty' | 'identifier' | 'duplicate'
 export type ModuleParameterNameProblem = 'empty' | 'identifier' | 'duplicate'
 
-const MODULE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
+export const OPENSCAD_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+export function isOpenSCADIdentifier(name: string): boolean {
+  return OPENSCAD_IDENTIFIER.test(name)
+}
 
 export function moduleNameProblem(name: string, existingNames: Iterable<string>): ModuleNameProblem | null {
   if (!name.trim()) return 'empty'
-  if (!MODULE_IDENTIFIER.test(name)) return 'identifier'
+  if (!isOpenSCADIdentifier(name)) return 'identifier'
   return new Set(existingNames).has(name) ? 'duplicate' : null
 }
 
 export function moduleParameterNameProblem(name: string, existingNames: Iterable<string>): ModuleParameterNameProblem | null {
   if (!name.trim()) return 'empty'
-  if (!MODULE_IDENTIFIER.test(name)) return 'identifier'
+  if (!isOpenSCADIdentifier(name)) return 'identifier'
   return new Set(existingNames).has(name) ? 'duplicate' : null
 }
 

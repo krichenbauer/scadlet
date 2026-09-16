@@ -40,7 +40,7 @@ describe('v3 Module definition persistence', () => {
       now: () => '2026-09-05T00:00:00.000Z',
     }))
 
-    expect(project.version).toBe(7)
+    expect(project.version).toBe(8)
     expect(project.graph.nodes).toEqual([])
     expect(project.definitions).toHaveLength(1)
     expect(project.definitions[0]).toMatchObject({ id: definition.id, kind: 'module', name: 'wheel', interface: { inputs: inputs.id, output: output.id } })
@@ -68,7 +68,7 @@ describe('v3 Module definition persistence', () => {
       graph: { nodes: [], connections: [] },
       editor: { viewport: { x: 12, y: -4, zoom: 1.3 } }, viewer: { camera },
     })
-    expect(project.version).toBe(7)
+    expect(project.version).toBe(8)
     expect(project.definitions).toEqual([])
     expect(project.editor.viewport).toEqual({ x: 12, y: -4, zoom: 1.3 })
   })
@@ -187,7 +187,7 @@ describe('v3 Module definition persistence', () => {
     const recursive = structuredClone(dead)
     recursive.definitions[1].graph.connections.push({ id: 'b-body', source: 'b-call', sourceOutput: 'geometry', target: 'b-out', targetInput: 'geometry' })
     const parsed = parseScadletProject(recursive)
-    expect(parsed.version).toBe(7)
+    expect(parsed.version).toBe(8)
     expect(parsed.definitions.flatMap((item) => item.graph.connections)).toHaveLength(2)
   })
 
@@ -227,7 +227,7 @@ describe('v3 Module definition persistence', () => {
       editor: target, metadata: { name: 'Recursive Modules' }, getNodePosition: () => ({ x: 0, y: 0 }),
       viewport: { x: 0, y: 0, k: 1 }, viewerCamera: camera, definitions: restored.list(), getNodeScope: (id) => restored.scopeOf(id),
     }))
-    expect(roundTrip.version).toBe(7)
+    expect(roundTrip.version).toBe(8)
     expect(roundTrip.graph.connections).toHaveLength(1)
     expect(roundTrip.definitions.flatMap((item) => item.graph.connections)).toHaveLength(33)
   })

@@ -11,7 +11,7 @@ import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interfa
 import { ModuleCallNode } from './nodes/module-call-node'
 import { FunctionCallNode } from './nodes/function-call-node'
 import { IfNode } from './nodes/if-node'
-import { ConditionalNode } from './nodes/value-nodes'
+import { BooleanNode, ConditionalNode, NumberNode, Vector3Node } from './nodes/value-nodes'
 import { ScadSettingsNode } from './nodes/scad-settings-node'
 import { isEditableTarget } from './deletion'
 import { t } from '../i18n/translate'
@@ -27,7 +27,7 @@ import type { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData } from './connection-compatibility'
 import { hasGeometryOutput } from './geometry-accent'
 import { compactIconElement, type CompactIconName } from '../components/icons'
-import { identifyNodeType, nodeTypeIcon } from './node-catalog'
+import { identifyNodeType, nodeTypeIcon, VARIABLE_REFERENCE_DRAG_MIME_TYPE } from './node-catalog'
 
 type Position = { x: number; y: number }
 type Side = 'input' | 'output'
@@ -153,6 +153,8 @@ export function attachRenderer(
   onNodeInteraction: (nodeId: string) => void,
   onConnectionInteraction: (connectionId: string) => void,
   onDeleteNode: (nodeId: string) => void,
+  onRenameValue: (nodeId: string, name: string) => Promise<boolean>,
+  onBeginReferencePlacement: (bindingId: string, sourceNodeId: string) => void,
 ): () => void {
   const socketPosition = getDOMSocketPosition<Schemes, AreaExtra>()
   // `attach()` only uses `connection` to walk up to its parent `area` via
@@ -227,7 +229,7 @@ export function attachRenderer(
       const { data } = context
 
       if (data.type === 'node') {
-        renderNode(editor, area, data.element, data.payload, presentation, inspect, connectionGesture, nodeListenersWired, notifyDirty, onInspect, onNodeInteraction, renamingNodeIds, onDeleteNode)
+        renderNode(editor, area, data.element, data.payload, presentation, inspect, connectionGesture, nodeListenersWired, notifyDirty, onInspect, onNodeInteraction, renamingNodeIds, onDeleteNode, onRenameValue, onBeginReferencePlacement)
       } else if (data.type === 'connection') {
         updateConnection(
           area,
@@ -287,6 +289,8 @@ function renderNode(
   onNodeInteraction: (nodeId: string) => void,
   renamingNodeIds: Set<string>,
   onDeleteNode: (nodeId: string) => void,
+  onRenameValue: (nodeId: string, name: string) => Promise<boolean>,
+  onBeginReferencePlacement: (bindingId: string, sourceNodeId: string) => void,
 ): void {
   element.classList.add('node')
   element.dataset.nodeId = node.id
@@ -299,6 +303,7 @@ function renderNode(
   element.dataset.geometryOutput = String(producesGeometry)
 
   const nodeType = identifyNodeType(node)
+  element.dataset.nodeType = nodeType ?? ''
   const iconName = nodeTypeIcon(nodeType)
 
   const inspected = inspect.isInspected(node.id)
@@ -464,6 +469,7 @@ function renderNode(
     isDefinitionInterfaceNode,
     onInspect,
     onDeleteNode,
+    onRenameValue,
     () => void area.update('node', node.id),
   ))
   main.appendChild(body)
@@ -472,7 +478,10 @@ function renderNode(
     const outputs = document.createElement('div')
     outputs.className = 'node-outputs'
     for (const [key, output] of mainOutputs) {
-      outputs.appendChild(renderPort(area, node.id, 'output', key, output.label, output.socket.name, key === 'value' ? { visibleLabel: '', accessibleLabel: output.label } : undefined))
+      const row = renderPort(area, node.id, 'output', key, output.label, output.socket.name, key === 'value' ? { visibleLabel: '', accessibleLabel: output.label } : undefined)
+      const reference = referenceCreationForOutput(node, key)
+      if (reference) insertReferenceCreationControl(row, renderReferenceCreationControl(reference, node.id, onBeginReferencePlacement))
+      outputs.appendChild(row)
     }
     main.appendChild(outputs)
   }
@@ -524,6 +533,8 @@ function renderNode(
     for (const [key, output] of geometryOutputs) {
       const row = renderPort(area, node.id, 'output', key, output.label, output.socket.name)
       row.classList.add('node-param-output-row')
+      const reference = referenceCreationForOutput(node, key)
+      if (reference) insertReferenceCreationControl(row, renderReferenceCreationControl(reference, node.id, onBeginReferencePlacement))
       if (node instanceof ModuleInputsNode && key.startsWith('geometry:')) {
         const id = key.slice('geometry:'.length)
         const editControl = node.controls.editGeometryInput
@@ -547,6 +558,8 @@ function renderNode(
     for (const [key, output] of parameterOutputs) {
       const row = renderPort(area, node.id, 'output', key, output.label, output.socket.name)
       row.classList.add('node-param-output-row')
+      const reference = referenceCreationForOutput(node, key)
+      if (reference) insertReferenceCreationControl(row, renderReferenceCreationControl(reference, node.id, onBeginReferencePlacement))
       if (node instanceof ModuleInputsNode || node instanceof FunctionInputsNode) {
         const id = key.slice('parameter:'.length)
         const editControl = node.controls.editParameter
@@ -611,6 +624,7 @@ function renderHeader(
   isDefinitionInterfaceNode: boolean,
   onInspect: (nodeId: string) => void,
   onDeleteNode: (nodeId: string) => void,
+  onRenameValue: (nodeId: string, name: string) => Promise<boolean>,
   rerender: () => void,
 ): HTMLElement {
   const header = document.createElement('div')
@@ -649,9 +663,13 @@ function renderHeader(
       renamingNodeIds.delete(node.id)
       rerender()
     }
-    const commit = (): void => {
+    const commit = async (): Promise<void> => {
+      if (settled) return
       const next = title.value.trim()
-      if (next) nameControl.setValue(next)
+      if (next && !(await onRenameValue(node.id, next))) {
+        finish()
+        return
+      }
       finish()
     }
     const cancel = (): void => {
@@ -661,7 +679,7 @@ function renderHeader(
       if (event.key === 'Enter') { event.preventDefault(); title.blur() }
       else if (event.key === 'Escape') { event.preventDefault(); cancel() }
     })
-    title.addEventListener('blur', () => commit())
+    title.addEventListener('blur', () => { void commit() })
     // The renderer replaces this header synchronously; defer focus/select
     // to the next frame so the fresh input is guaranteed to be connected
     // (same technique the collapse button below uses to restore focus).
@@ -774,6 +792,53 @@ function renderHeader(
   }
 
   return header
+}
+
+interface ReferenceCreationPresentation {
+  bindingId?: string
+  disabledReason?: string
+}
+
+function referenceCreationForOutput(node: Schemes['Node'], key: string): ReferenceCreationPresentation | undefined {
+  if (key === 'value' && (node instanceof NumberNode || node instanceof BooleanNode || node instanceof Vector3Node)) {
+    return node.getBindingId() ? { bindingId: node.getBindingId() } : { disabledReason: t('variable.nameRequired') }
+  }
+  if ((node instanceof ModuleInputsNode || node instanceof FunctionInputsNode) && key.startsWith('parameter:')) {
+    return { bindingId: key.slice('parameter:'.length) }
+  }
+  return undefined
+}
+
+function renderReferenceCreationControl(
+  presentation: ReferenceCreationPresentation,
+  sourceNodeId: string,
+  onBeginPlacement: (bindingId: string, sourceNodeId: string) => void,
+): HTMLButtonElement {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'node-create-variable-reference'
+  button.setAttribute('aria-label', t('variable.createReference'))
+  button.title = presentation.disabledReason ?? t('variable.createReference')
+  button.disabled = !presentation.bindingId
+  button.draggable = Boolean(presentation.bindingId)
+  button.appendChild(compactIconElement('reference'))
+  button.addEventListener('pointerdown', (event) => event.stopPropagation())
+  button.addEventListener('dragstart', (event) => {
+    event.stopPropagation()
+    if (!presentation.bindingId || !event.dataTransfer) { event.preventDefault(); return }
+    event.dataTransfer.effectAllowed = 'copy'
+    event.dataTransfer.setData(VARIABLE_REFERENCE_DRAG_MIME_TYPE, JSON.stringify({ bindingId: presentation.bindingId, sourceNodeId }))
+  })
+  button.addEventListener('click', (event) => {
+    event.stopPropagation()
+    if (presentation.bindingId) onBeginPlacement(presentation.bindingId, sourceNodeId)
+  })
+  return button
+}
+
+function insertReferenceCreationControl(row: HTMLElement, button: HTMLButtonElement): void {
+  const label = row.querySelector('.node-port-label')
+  row.insertBefore(button, label)
 }
 
 interface MoreMenuAction {

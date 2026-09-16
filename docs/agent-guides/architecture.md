@@ -99,6 +99,17 @@ Module body after the parameter context is established. This is part of the
 single generated source used by preview and both export paths, not a viewer or
 worker option.
 
+Named Number, Boolean, and Vector3 nodes are also explicit code-generation
+roots in their owning scope. Their stable binding IDs link compact Variable
+reference nodes back to the definition without adding a synthetic Rete wire;
+the reference evaluates to the current identifier while the named Value's
+ordinary output continues to evaluate to its literal/expression. Emit named
+Value assignments in dependency-safe order before scoped settings and Main or
+Module Geometry. In a Function, encode the same ordered assignments as
+one valid `let(...)` expression around the result. Missing, cross-scope, or
+circular bindings are errors and must never produce plausible but incorrect
+OpenSCAD.
+
 ## Viewer contract
 
 Three.js consumes STL from memory via `STLLoader`. It provides orbit, zoom,

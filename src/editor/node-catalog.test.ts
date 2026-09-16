@@ -29,6 +29,7 @@ describe('NODE_CATALOG', () => {
         'function-inputs',
         'function-output',
         'function-call',
+        'variable-reference',
         'number',
         'boolean',
         'vector3',

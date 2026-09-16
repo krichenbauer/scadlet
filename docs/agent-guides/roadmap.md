@@ -15,7 +15,7 @@ Implemented and stable:
 - scoped reusable Modules and Functions, nested Calls, and direct/mutual
   definition recursion evaluated by OpenSCAD-WASM without static termination
   analysis;
-- client-side `.scadlet` v7 persistence, restore validation, and rejection of
+- client-side `.scadlet` v8 persistence, restore validation, and rejection of
   cyclic node dataflow while retaining permitted definition recursion;
 - immutable, eagerly bundled example templates that create ordinary local
   copies only when selected from the Projects menu;
@@ -29,6 +29,9 @@ Implemented and stable:
 - one scope-level SCAD settings node in Main and each Module, with optional
   `$fn`/`$fa`/`$fs` Number rows, connected expression dependencies, and no
   Function-scope availability.
+- scope-local variable bindings from deliberately named Values and
+  Module/Function parameters, with stable-ID compact references, safe rename
+  and deletion, ordered Main/Module assignments, and Function `let(...)` code.
 
 Current catalog/value semantics are intentionally limited. Geometry If is a
 statement-level node valid in Main/Module scopes, with required Boolean
@@ -41,26 +44,23 @@ evaluation errors; disconnected drafts do not create fake `undef` semantics.
 Implement later work in this order unless a concrete defect warrants a small,
 independent repair first.
 
-1. **Named values and references.** Let uniquely named Value nodes act as
-   bindings. Their compact reference nodes must remain stable through renames,
-   validate scope usage, and generate readable OpenSCAD bindings.
-2. **Iteration / visual OpenSCAD `for`.** Add Geometry iteration in Main and
+1. **Iteration / visual OpenSCAD `for`.** Add Geometry iteration in Main and
    Module scopes using a fixed Header/Result pair with a structural wire and a
    loop-local binding, built on the named-value/scope model.
-3. **Copy and paste.** Support copying and pasting selected nodes and their
+2. **Copy and paste.** Support copying and pasting selected nodes and their
    internal connections within the current semantic scope. Define clipboard,
    placement, protected-interface-node, and cross-scope behavior explicitly
    when this work begins.
-4. **Missing basic value nodes.** Add useful arithmetic, mathematical, and
+3. **Missing basic value nodes.** Add useful arithmetic, mathematical, and
    logical operators selectively, preserving the current typed value model and
    Function-scope rules.
-5. **Missing simple Geometry nodes.** Prioritize ordinary transformations such
+4. **Missing simple Geometry nodes.** Prioritize ordinary transformations such
    as Mirror and Resize, with the same scope, persistence, and effective-output
    rules as the existing Geometry catalog.
-6. **2D Geometry and extrusion.** Treat 2D primitives, 2D Boolean operations,
+5. **2D Geometry and extrusion.** Treat 2D primitives, 2D Boolean operations,
    and linear/rotational extrusion as one coherent extension rather than
    isolated nodes.
-7. **Remaining larger extensions.** A secondary geometry-oriented OpenSCAD
+6. **Remaining larger extensions.** A secondary geometry-oriented OpenSCAD
    code node with explicit parameter and possibly Geometry inputs, import of
    existing `.scad`, dedicated definition canvases, collaboration/sync, and
    broader OpenSCAD compatibility each require their own product design.

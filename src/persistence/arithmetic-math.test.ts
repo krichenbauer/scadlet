@@ -23,7 +23,7 @@ function engine() {
 describe('Arithmetic/math persistence v6', () => {
   it('migrates a static v5 fixture in Main, Module, and Function scopes without changing ids, positions, ports, wires, or source', async () => {
     const project = parseScadletProject(legacyV5)
-    expect(project.version).toBe(7)
+    expect(project.version).toBe(8)
     const allNodes = [...project.graph.nodes, ...project.definitions.flatMap((definition) => definition.graph.nodes)]
     const migrated = allNodes.filter((node) => ['add-main', 'subtract-main', 'multiply-main', 'divide-main', 'module-add', 'function-divide'].includes(node.id))
     expect(migrated.map((node) => [node.id, node.type, node.parameters.operation])).toEqual([
@@ -127,7 +127,7 @@ describe('Arithmetic/math persistence v6', () => {
     ] } })).toThrow(/Multiple connections target input "a"/)
   })
 
-  it('constructs every canonical family from validated v7 parameters', () => {
+  it('constructs every canonical family from validated current parameters', () => {
     expect(new ArithmeticNode({ operation: 'modulo', a: 5, b: 2 }).data({}).value.code).toBe('(5 % 2)')
     expect(new TrigonometryNode({ operation: 'atan2', a: 1, b: 2, inputPorts: ['a', 'b'] }).data({}).value.code).toBe('atan2(1, 2)')
     expect(new BasicMathNode({ operation: 'round', x: 1.2 }).data({}).value.code).toBe('round(1.2)')
@@ -135,7 +135,7 @@ describe('Arithmetic/math persistence v6', () => {
     expect(new CompareNode({ operator: '>', a: 3, b: 10 }).data({}).value.code).toBe('(3 > 10)')
   })
 
-  it('round-trips every family operation through canonical v7 serialization and restore', async () => {
+  it('round-trips every family operation through canonical v8 serialization and restore', async () => {
     const cases: [string, Record<string, unknown>][] = [
       ...['addition', 'subtraction', 'multiplication', 'division', 'modulo', 'power'].map((operation) => ['arithmetic', { operation, a: 2, b: 3 }] as [string, Record<string, unknown>]),
       ...['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2'].map((operation) => ['trigonometry', { operation, a: 2, b: 3, inputPorts: operation === 'atan2' ? ['a', 'b'] : ['a'] }] as [string, Record<string, unknown>]),
@@ -154,7 +154,7 @@ describe('Arithmetic/math persistence v6', () => {
       viewport: { x: 0, y: 0, k: 1 }, viewerCamera: { position: [80, 80, 60], target: [0, 0, 0] }, now: () => '2026-09-09T00:00:00.000Z',
     })
     const project = parseScadletProject(serialized)
-    expect(project.version).toBe(7)
+    expect(project.version).toBe(8)
     expect(project.graph.nodes.map((node) => [node.type, node.parameters])).toEqual(cases)
     const target = new NodeEditor<Schemes>()
     await restoreProject(project, { editor: target, creationContext: { onControlsChanged: () => {} }, setNodePosition: () => {} })

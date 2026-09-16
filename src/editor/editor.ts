@@ -32,6 +32,9 @@ import { scopeTransferProblem, type ScopeTransferProblem } from './scope-transfe
 import { t } from '../i18n/translate'
 import { registerTransientPopupProvider, TRANSIENT_POPUP_DISMISS_EVENT, type TransientPopupEntry } from '../ui/transient-popups'
 import { analyzeFunctionDependencies } from './function-dependencies'
+import { bindingNamesInScope, isValueBindingNode, referencesToBinding, resolveBindingInScope } from './bindings'
+import { VariableReferenceNode } from './nodes/variable-reference-node'
+import { VARIABLE_REFERENCE_DRAG_MIME_TYPE } from './node-catalog'
 
 /** The displayed Geometry Inspect source is rooted at one node, so its
  * participating canvas nodes are exactly that root plus its incoming graph
@@ -110,6 +113,8 @@ export interface SCADletEditor {
   /** Creates a generic Call node for a resolved project Function in Main or
    * in a Function scope (never in a Module scope). */
   addFunctionCallAt(definitionId: string, clientPosition: Position): Promise<boolean>
+  /** Creates one compact use of an existing same-scope binding. */
+  addVariableReferenceAt(bindingId: string, sourceNodeId: string, clientPosition: Position): Promise<boolean>
   createFunction(name: string): Promise<ModuleDefinition>
   renameFunction(definitionId: string, name: string): Promise<boolean>
   deleteFunction(definitionId: string): Promise<boolean>
@@ -246,6 +251,27 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     inputs: () => Object.keys(node.inputs),
     outputs: () => Object.keys(node.outputs),
   }))
+  let referencePlacement: { bindingId: string; sourceNodeId: string; ghost: HTMLElement } | null = null
+
+  const cancelReferencePlacement = (): void => {
+    referencePlacement?.ghost.remove()
+    referencePlacement = null
+    container.classList.remove('variable-reference-placement-active')
+  }
+
+  const beginReferencePlacement = (bindingId: string, sourceNodeId: string): void => {
+    cancelReferencePlacement()
+    const scope = definitions.scopeOf(sourceNodeId)
+    const binding = resolveBindingInScope(editor, definitions, bindingId, scope)
+    if (!binding) return
+    const ghost = document.createElement('div')
+    ghost.className = 'variable-reference-placement-ghost'
+    ghost.textContent = binding.name
+    ghost.setAttribute('aria-hidden', 'true')
+    container.appendChild(ghost)
+    referencePlacement = { bindingId, sourceNodeId, ghost }
+    container.classList.add('variable-reference-placement-active')
+  }
   let showDataflowCycleFeedback: () => void = () => {}
   const canCreateConnection = (
     from: Pick<SocketData, 'nodeId' | 'key' | 'side'>,
@@ -543,7 +569,10 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     notifyDirty()
     notifySemanticChange()
   }
-  const unsubscribeDefinitions = definitions.subscribe(() => notifySemanticDirty())
+  const unsubscribeDefinitions = definitions.subscribe(() => {
+    cancelReferencePlacement()
+    notifySemanticDirty()
+  })
 
   editor.addPipe((context) => {
     if (isDirtyEditorSignal(context.type)) notifySemanticDirty()
@@ -595,6 +624,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     container.focus({ preventScroll: true })
   }
   const selectDefinition = async (definitionId: string): Promise<void> => {
+    cancelReferencePlacement()
     connectionSelection.clear()
     clearNodeSelection()
     const nodeIds = definitions.nodeIds(definitionId).filter((nodeId) => Boolean(editor.getNode(nodeId)))
@@ -606,6 +636,69 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // Shared by keyboard Delete/Backspace (`attachDeletion` below) and the
   // header More menu's Delete action - one predicate, one removal path.
   const canDeleteNode = (nodeId: string): boolean => !definitions.isProtectedNode(nodeId)
+
+  async function renameValueBinding(nodeId: string, rawName: string): Promise<boolean> {
+    const node = editor.getNode(nodeId)
+    if (!isValueBindingNode(node)) return false
+    const scope = definitions.scopeOf(nodeId)
+    const name = rawName.trim()
+    const problem = moduleParameterNameProblem(name, bindingNamesInScope(editor, definitions, scope, node.getBindingId()))
+    if (problem) {
+      showFeedback(problem === 'duplicate' ? 'variable.duplicateName' : 'variable.invalidName')
+      return false
+    }
+    if (node.getBindingId() && node.getBindingName() === name) return true
+    node.renameBinding(name)
+    const bindingId = node.getBindingId()!
+    const binding = resolveBindingInScope(editor, definitions, bindingId, scope)!
+    for (const reference of referencesToBinding(editor, definitions, bindingId, scope)) {
+      reference.syncBinding(binding)
+      await area.update('node', reference.id)
+    }
+    await area.update('node', node.id)
+    return true
+  }
+
+  async function removeNodeAndReferences(nodeId: string): Promise<boolean> {
+    if (!canDeleteNode(nodeId)) return false
+    const node = editor.getNode(nodeId)
+    if (!node) return false
+    const scope = definitions.scopeOf(nodeId)
+    const bindingNode = isValueBindingNode(node) ? node : undefined
+    const references = bindingNode?.getBindingId()
+      ? referencesToBinding(editor, definitions, bindingNode.getBindingId()!, scope)
+      : []
+    if (references.length > 0) {
+      let confirmed = false
+      try {
+        confirmed = window.confirm(t('variable.confirmDelete')
+          .replace('{name}', bindingNode!.getBindingName())
+          .replace('{count}', String(references.length)))
+      } catch { confirmed = false }
+      if (!confirmed) return false
+    }
+    const previousDirtySuspended = dirtySuspended
+    dirtySuspended = true
+    try {
+      connection.drop(); connectionGesture.cancel()
+      for (const reference of references) await removeNodeWithConnections(editor, reference.id, canDeleteNode)
+      await removeNodeWithConnections(editor, nodeId, canDeleteNode)
+    } finally {
+      dirtySuspended = previousDirtySuspended
+    }
+    if (!previousDirtySuspended) notifySemanticDirty()
+    return true
+  }
+
+  async function syncBindingReferences(bindingId: string, scope: string | null): Promise<void> {
+    const binding = resolveBindingInScope(editor, definitions, bindingId, scope)
+    if (!binding) return
+    for (const reference of referencesToBinding(editor, definitions, bindingId, scope)) {
+      reference.syncBinding(binding)
+      await area.update('node', reference.id)
+    }
+  }
+
   const detachRenderer = attachRenderer(
     editor,
     area,
@@ -632,7 +725,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       if (inspect.id !== null && !inspect.participates(nodeId)) endInspect()
     },
     selectConnection,
-    (nodeId) => { void removeNodeWithConnections(editor, nodeId, canDeleteNode) },
+    (nodeId) => { void removeNodeAndReferences(nodeId) },
+    renameValueBinding,
+    beginReferencePlacement,
   )
   const detachDefinitionFrames = attachDefinitionFrames(area, definitions, {
     select: selectDefinition,
@@ -676,7 +771,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
 
   AreaExtensions.simpleNodesOrder(area)
 
-  attachDeletion(editor, area, container, connectionSelection, canDeleteNode, (connectionId) => void removeConnectionOrConfirm(connectionId))
+  attachDeletion(editor, area, container, connectionSelection, canDeleteNode, (connectionId) => void removeConnectionOrConfirm(connectionId), removeNodeAndReferences)
   const selectConnectionOnPointerDown = (event: PointerEvent): void => {
     if (event.button !== 0) return
     const wire = event.composedPath().find((item): item is Element =>
@@ -727,6 +822,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // exists (AGENTS.md section 3/15).
   editor.addPipe((context) => {
     if (context.type === 'noderemoved') {
+      cancelReferencePlacement()
       connectionGesture.removeNode(context.data.id)
       presentation.remove(context.data.id)
       // Restore is transactional: if reconstruction fails it rolls the old
@@ -833,7 +929,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   async function addModuleParameter(definitionId: string, input: { name: string; type: ModuleParameterType; default: ModuleParameterDefault }): Promise<void> {
     const definition = definitions.get(definitionId)
     if (!definition) throw new Error(`Unknown Module definition "${definitionId}".`)
-    const nameProblem = moduleParameterNameProblem(input.name, (definition.parameters ?? []).map((parameter) => parameter.name))
+    const nameProblem = moduleParameterNameProblem(input.name, bindingNamesInScope(editor, definitions, definitionId))
     if (nameProblem) throw new Error(nameProblem === 'duplicate' ? t('definition.duplicateParameter') : t('definition.invalidParameter'))
     if (!moduleParameterDefaultIsValid(input.type, input.default)) throw new Error(t('definition.invalidParameterDefault'))
     const parameter: ModuleParameter = { id: crypto.randomUUID(), name: input.name, type: input.type, default: input.default }
@@ -858,6 +954,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const key = `parameter:${parameterId}`
     return editor.getConnections().filter((connection) =>
       (connection.source === definition.inputsNodeId && connection.sourceOutput === key)
+      || (editor.getNode(connection.source) instanceof VariableReferenceNode
+        && (editor.getNode(connection.source) as VariableReferenceNode).bindingId === parameterId
+        && definitions.scopeOf(connection.source) === definition.id)
       || (editor.getNode(connection.target) instanceof ModuleCallNode
         && (editor.getNode(connection.target) as ModuleCallNode).definitionId === definition.id
         && connection.targetInput === key),
@@ -877,6 +976,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
         await area.update('node', node.id)
       }
     }
+    for (const parameter of definition.parameters ?? []) await syncBindingReferences(parameter.id, definition.id)
   }
 
   async function editModuleParameter(definitionId: string, parameterId: string, update: { name?: string; type?: ModuleParameterType; default?: ModuleParameterDefault; move?: -1 | 1 }): Promise<boolean> {
@@ -897,7 +997,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
         nextParameters.splice(destination, 0, moved)
       }
     }
-    const nameProblem = moduleParameterNameProblem(next.name, nextParameters.filter((parameter) => parameter.id !== parameterId).map((parameter) => parameter.name))
+    const nameProblem = moduleParameterNameProblem(next.name, bindingNamesInScope(editor, definitions, definitionId, parameterId))
     if (nameProblem) throw new Error(nameProblem === 'duplicate' ? t('definition.duplicateParameter') : t('definition.invalidParameter'))
     if (!['number', 'boolean', 'vector3'].includes(next.type) || !moduleParameterDefaultIsValid(next.type, next.default)) throw new Error(t('definition.invalidParameterDefault'))
     const doomed = typeChanged ? signatureConnections(definition, parameterId) : []
@@ -916,8 +1016,13 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const parameter = definition?.parameters?.find((item) => item.id === parameterId)
     if (!definition || !parameter) throw new Error(t('definition.deleteParameterFailed'))
     const doomed = signatureConnections(definition, parameterId)
+    const references = referencesToBinding(editor, definitions, parameterId, definitionId)
     try {
-      if (doomed.length > 0 && !window.confirm(t('definition.confirmDeleteParameter').replace('{name}', parameter.name).replace('{count}', String(doomed.length)))) return false
+      if ((doomed.length > 0 || references.length > 0) && !window.confirm((references.length > 0 ? t('variable.confirmDeleteParameter') : t('definition.confirmDeleteParameter'))
+        .replace('{name}', parameter.name)
+        .replace('{count}', String(doomed.length))
+        .replace('{connections}', String(doomed.length))
+        .replace('{references}', String(references.length)))) return false
     } catch {
       throw new Error(t('definition.deleteParameterFailed'))
     }
@@ -947,6 +1052,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
         for (const item of doomed) {
           if (!await editor.removeConnection(item.id)) throw new Error(`Could not remove connection ${item.id}.`)
         }
+      }
+      for (const reference of references) {
+        if (!await editor.removeNode(reference.id)) throw new Error(`Could not remove reference ${reference.id}.`)
       }
       definitions.setParameters(definitionId, previousParameters.filter((item) => item.id !== parameterId))
       await synchronizeModuleSignature(definitions.get(definitionId)!)
@@ -1057,7 +1165,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   async function addFunctionParameter(definitionId: string, input: { name: string; type: ModuleParameterType; default: ModuleParameterDefault }): Promise<void> {
     const definition = definitions.get(definitionId)
     if (!definition) throw new Error(`Unknown Function definition "${definitionId}".`)
-    const nameProblem = moduleParameterNameProblem(input.name, (definition.parameters ?? []).map((parameter) => parameter.name))
+    const nameProblem = moduleParameterNameProblem(input.name, bindingNamesInScope(editor, definitions, definitionId))
     if (nameProblem) throw new Error(nameProblem === 'duplicate' ? t('definition.duplicateFunctionParameter') : t('definition.invalidParameter'))
     if (!moduleParameterDefaultIsValid(input.type, input.default)) throw new Error(t('definition.invalidParameterDefault'))
     const parameter: ModuleParameter = { id: crypto.randomUUID(), name: input.name, type: input.type, default: input.default }
@@ -1079,6 +1187,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const key = moduleParameterPortId(parameterId)
     return editor.getConnections().filter((connection) =>
       (connection.source === definition.inputsNodeId && connection.sourceOutput === key)
+      || (editor.getNode(connection.source) instanceof VariableReferenceNode
+        && (editor.getNode(connection.source) as VariableReferenceNode).bindingId === parameterId
+        && definitions.scopeOf(connection.source) === definition.id)
       || (editor.getNode(connection.target) instanceof FunctionCallNode
         && (editor.getNode(connection.target) as FunctionCallNode).definitionId === definition.id
         && connection.targetInput === key),
@@ -1098,6 +1209,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
         await area.update('node', node.id)
       }
     }
+    for (const parameter of definition.parameters ?? []) await syncBindingReferences(parameter.id, definition.id)
   }
 
   async function editFunctionParameter(definitionId: string, parameterId: string, update: { name?: string; type?: ModuleParameterType; default?: ModuleParameterDefault; move?: -1 | 1 }): Promise<boolean> {
@@ -1118,7 +1230,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
         nextParameters.splice(destination, 0, moved)
       }
     }
-    const nameProblem = moduleParameterNameProblem(next.name, nextParameters.filter((parameter) => parameter.id !== parameterId).map((parameter) => parameter.name))
+    const nameProblem = moduleParameterNameProblem(next.name, bindingNamesInScope(editor, definitions, definitionId, parameterId))
     if (nameProblem) throw new Error(nameProblem === 'duplicate' ? t('definition.duplicateFunctionParameter') : t('definition.invalidParameter'))
     if (!['number', 'boolean', 'vector3'].includes(next.type) || !moduleParameterDefaultIsValid(next.type, next.default)) throw new Error(t('definition.invalidParameterDefault'))
     const doomed = typeChanged ? functionSignatureConnections(definition, parameterId) : []
@@ -1137,8 +1249,13 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const parameter = definition?.parameters?.find((item) => item.id === parameterId)
     if (!definition || !parameter) throw new Error(t('definition.deleteParameterFailed'))
     const doomed = functionSignatureConnections(definition, parameterId)
+    const references = referencesToBinding(editor, definitions, parameterId, definitionId)
     try {
-      if (doomed.length > 0 && !window.confirm(t('definition.confirmDeleteParameter').replace('{name}', parameter.name).replace('{count}', String(doomed.length)))) return false
+      if ((doomed.length > 0 || references.length > 0) && !window.confirm((references.length > 0 ? t('variable.confirmDeleteParameter') : t('definition.confirmDeleteParameter'))
+        .replace('{name}', parameter.name)
+        .replace('{count}', String(doomed.length))
+        .replace('{connections}', String(doomed.length))
+        .replace('{references}', String(references.length)))) return false
     } catch {
       throw new Error(t('definition.deleteParameterFailed'))
     }
@@ -1158,6 +1275,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
         for (const item of doomed) {
           if (!await editor.removeConnection(item.id)) throw new Error(`Could not remove connection ${item.id}.`)
         }
+      }
+      for (const reference of references) {
+        if (!await editor.removeNode(reference.id)) throw new Error(`Could not remove reference ${reference.id}.`)
       }
       definitions.setParameters(definitionId, previousParameters.filter((item) => item.id !== parameterId))
       await synchronizeFunctionSignature(definitions.get(definitionId)!)
@@ -1478,6 +1598,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       problem === 'module-call' ? 'definition.moduleCallsMainOnly'
         : problem === 'function-incompatible' ? 'definition.functionScopeIncompatible'
           : problem === 'settings-duplicate' ? 'settings.onePerScope'
+            : problem === 'binding-conflict' ? 'variable.duplicateName'
+              : problem === 'variable-reference' ? 'variable.invalidScope'
           : 'definition.invalidScopeTransfer',
     )
   }
@@ -1581,6 +1703,76 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const position = clientToGraphPosition(clientPosition, rect, area.area.transform)
     await area.translate(node.id, position)
   }
+
+  async function addVariableReferenceAt(bindingId: string, sourceNodeId: string, clientPosition: Position): Promise<boolean> {
+    const owner = definitionAt(clientPosition)
+    const sourceScope = definitions.scopeOf(sourceNodeId)
+    if (!editor.getNode(sourceNodeId) || owner !== sourceScope) {
+      showFeedback('variable.invalidScope')
+      return false
+    }
+    const binding = resolveBindingInScope(editor, definitions, bindingId, owner)
+    if (!binding) {
+      showFeedback('variable.invalidScope')
+      return false
+    }
+    cancelReferencePlacement()
+    const node = new VariableReferenceNode({ bindingId }, binding)
+    if (owner !== null) definitions.assignNode(owner, node.id)
+    if (!await editor.addNode(node)) return false
+    endInspect()
+    const rect = area.container.getBoundingClientRect()
+    await area.translate(node.id, clientToGraphPosition(clientPosition, rect, area.area.transform))
+    return true
+  }
+
+  const moveReferencePlacementGhost = (event: PointerEvent): void => {
+    if (!referencePlacement) return
+    referencePlacement.ghost.style.left = `${event.clientX + 12}px`
+    referencePlacement.ghost.style.top = `${event.clientY + 12}px`
+  }
+  const placeReferenceOnCanvas = (event: PointerEvent): void => {
+    if (!referencePlacement || event.button !== 0) return
+    if (event.target instanceof Element && event.target.closest('.node, .connection, .definition-frame, button, input, select, textarea')) {
+      cancelReferencePlacement()
+      return
+    }
+    const { bindingId, sourceNodeId } = referencePlacement
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    cancelReferencePlacement()
+    void addVariableReferenceAt(bindingId, sourceNodeId, { x: event.clientX, y: event.clientY })
+  }
+  const cancelReferencePlacementOnEscape = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || !referencePlacement) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    cancelReferencePlacement()
+  }
+  const allowReferenceDrop = (event: DragEvent): void => {
+    if (!event.dataTransfer?.types.includes(VARIABLE_REFERENCE_DRAG_MIME_TYPE)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+  }
+  const createReferenceFromDrop = (event: DragEvent): void => {
+    const raw = event.dataTransfer?.getData(VARIABLE_REFERENCE_DRAG_MIME_TYPE)
+    if (!raw) return
+    let payload: { bindingId: string; sourceNodeId: string }
+    try {
+      const parsed = JSON.parse(raw) as Partial<typeof payload>
+      if (typeof parsed.bindingId !== 'string' || typeof parsed.sourceNodeId !== 'string') return
+      payload = { bindingId: parsed.bindingId, sourceNodeId: parsed.sourceNodeId }
+    } catch { return }
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    cancelReferencePlacement()
+    void addVariableReferenceAt(payload.bindingId, payload.sourceNodeId, { x: event.clientX, y: event.clientY })
+  }
+  window.addEventListener('pointermove', moveReferencePlacementGhost, { capture: true })
+  container.addEventListener('pointerdown', placeReferenceOnCanvas, { capture: true })
+  window.addEventListener('keydown', cancelReferencePlacementOnEscape, { capture: true })
+  container.addEventListener('dragover', allowReferenceDrop)
+  container.addEventListener('drop', createReferenceFromDrop)
 
   async function addModuleCallAt(definitionId: string, clientPosition: Position): Promise<boolean> {
     const owner = definitionAt(clientPosition)
@@ -1871,6 +2063,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     editModuleGeometryInput,
     deleteModuleGeometryInput,
     addFunctionCallAt,
+    addVariableReferenceAt,
     createFunction,
     renameFunction,
     deleteFunction,
@@ -1912,6 +2105,12 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       }
     },
     destroy: () => {
+      cancelReferencePlacement()
+      window.removeEventListener('pointermove', moveReferencePlacementGhost, { capture: true })
+      container.removeEventListener('pointerdown', placeReferenceOnCanvas, { capture: true })
+      window.removeEventListener('keydown', cancelReferencePlacementOnEscape, { capture: true })
+      container.removeEventListener('dragover', allowReferenceDrop)
+      container.removeEventListener('drop', createReferenceFromDrop)
       detachTransientPopups()
       detachMarquee()
       nodeSelection.destroy()
@@ -2060,6 +2259,7 @@ function attachDeletion(
   connectionSelection: ConnectionSelectionManager,
   canDeleteNode: (nodeId: string) => boolean,
   removeConnection: (connectionId: string) => void,
+  removeNode: (nodeId: string) => Promise<boolean>,
 ): void {
   // Not part of the tab order (a big pan/zoom canvas isn't a meaningful
   // tab stop) but focusable programmatically, so a following
@@ -2090,7 +2290,9 @@ function attachDeletion(
     if (selected.length === 0) return
 
     event.preventDefault()
-    void Promise.all(selected.map((node) => removeNodeWithConnections(editor, node.id, canDeleteNode)))
+    void (async () => {
+      for (const node of selected) if (editor.getNode(node.id)) await removeNode(node.id)
+    })()
   })
 }
 
