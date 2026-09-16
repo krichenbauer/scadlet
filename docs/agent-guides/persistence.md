@@ -30,6 +30,11 @@ v8 adds opt-in `bindingId` fields to named Values and the
 `variable-reference` node. The v7→v8 migration changes only the version:
 existing Value `name` fields remain labels and do not become bindings
 retroactively.
+The same v8 node records also support additive typed `value` connections into
+Number, Boolean, and Vector3 nodes. No parameter or migration field is needed:
+the existing direct values remain persisted fallbacks and ordinary stable-port
+connection records preserve an override. Older projects contain no such edge
+and therefore restore with unchanged fallback behavior.
 Existing parameter shapes and port IDs are compatibility
 contracts. Prefer small explicit migrations; reject unsupported newer formats,
 unknown semantic node types, and incompatible state with useful errors rather

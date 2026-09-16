@@ -101,6 +101,36 @@ describe('per-node semantic round trip (serialize -> restore -> evaluate)', () =
     expect(await evaluateOpenSCAD(dst, engine)).toBe('cube((5 + 10), center=true);')
   })
 
+  it('round-trips Number, Boolean, and Vector3 pass-through inputs without replacing their fallbacks', async () => {
+    const { editor: src } = createGraph()
+    const numberExpression = new ArithmeticNode({ operation: 'division', a: 12, b: 3 })
+    const booleanExpression = new CompareNode({ operator: '>', a: 5, b: 2 })
+    const vectorExpression = new Vector3Node({ x: 4, y: 5, z: 6 })
+    const number = new NumberNode({ value: 7 })
+    const boolean = new BooleanNode({ value: false })
+    const vector = new Vector3Node({ x: 1, y: 2, z: 3 })
+    const cube = new CubeNode({ sizeRepresentation: 'scalar', size: 1, center: false })
+    const translate = new TranslateNode({ representation: 'vector', x: 0, y: 0, z: 0 })
+    for (const node of [numberExpression, booleanExpression, vectorExpression, number, boolean, vector, cube, translate]) await src.addNode(node)
+    await src.addConnection(connect(numberExpression, 'value', number, 'value'))
+    await src.addConnection(connect(booleanExpression, 'value', boolean, 'value'))
+    await src.addConnection(connect(vectorExpression, 'value', vector, 'value'))
+    await src.addConnection(connect(number, 'value', cube, 'size'))
+    await src.addConnection(connect(boolean, 'value', cube, 'center'))
+    await src.addConnection(connect(cube, 'geometry', translate, 'geometry'))
+    await src.addConnection(connect(vector, 'value', translate, 'vector'))
+
+    const { editor: dst, engine } = createGraph()
+    const { project } = await roundTrip({ editor: src, positions: {} }, dst)
+    expect(project.graph.nodes.find((node) => node.id === number.id)?.parameters).toMatchObject({ value: 7 })
+    expect(project.graph.nodes.find((node) => node.id === boolean.id)?.parameters).toMatchObject({ value: false })
+    expect(project.graph.nodes.find((node) => node.id === vector.id)?.parameters).toMatchObject({ x: 1, y: 2, z: 3 })
+    expect(project.graph.connections.filter((connection) => connection.targetInput === 'value')).toHaveLength(3)
+    expect(await evaluateOpenSCAD(dst, engine)).toBe(
+      'translate([4, 5, 6]) {\n    cube((12 / 3), center=(5 > 2));\n}',
+    )
+  })
+
   it('round-trips Compare fallbacks and connections repeatedly without duplicating controls or ports', async () => {
     const { editor: src } = createGraph()
     const left = new NumberNode({ value: 42 })
@@ -134,6 +164,20 @@ describe('per-node semantic round trip (serialize -> restore -> evaluate)', () =
     expect(compare.getPersistedParams()).toEqual({ operator: '>', a: 0, b: 0 })
     expect(Object.keys(compare.inputs)).toEqual(['a', 'b'])
     expect(Object.keys(compare.controls)).toEqual(['operator', 'a', 'b'])
+  })
+
+  it('restores a legacy literal Value with its new typed input and unchanged fallback semantics', async () => {
+    const project = parseScadletProject({
+      format: 'scadlet', version: 7, metadata: { name: 'Legacy Value' }, definitions: [],
+      graph: { nodes: [{ id: 'number', type: 'number', position: { x: 0, y: 0 }, parameters: { value: 9, name: 'Legacy label' } }], connections: [] },
+      editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera: { position: [80, 80, 60], target: [0, 0, 0] } },
+    })
+    const { editor, engine } = createGraph()
+    await restoreProject(project, { editor, creationContext: noopContext, setNodePosition: () => {} })
+    const number = editor.getNode('number') as NumberNode
+    expect(Object.keys(number.inputs)).toEqual(['value'])
+    expect(number.getBindingId()).toBeUndefined()
+    expect((await engine.fetch(number.id)).value?.code).toBe('9')
   })
 
   it('Cube with non-default dimensions and center', async () => {

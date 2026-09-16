@@ -180,6 +180,17 @@ title into an inline text field with its full current text selected. Enter or
 focus loss validates and commits the name; Escape cancels the edit and restores
 the prior title.
 
+Number and Boolean retain their compact height by rendering their new typed
+`Value` socket and direct fallback as one always-visible parameter row; this
+single row does not add a Collapse action. The row exposes whether its effective
+source is connected or fallback state to assistive technology. A connection
+blanks and disables the fallback control using the normal overridden tooltip;
+disconnect restores the saved control value immediately. Vector3 uses the same
+row for its whole-vector override while retaining its established collapsible
+X/Y/Z rows. When the whole vector is connected, preserved component rows remain
+present where required by their wires but are visibly subdued and their direct
+controls are disabled.
+
 ### Module and Function interface inputs
 
 Module Geometry inputs and Module/Function parameter rows display a compact

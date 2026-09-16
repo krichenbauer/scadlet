@@ -49,6 +49,54 @@ describe('scoped variables', () => {
     )
   })
 
+  it('uses a connected expression for a named Value assignment, direct output, and stable-ID references', async () => {
+    const editor = new NodeEditor<Schemes>()
+    const dataflow = engine(); editor.use(dataflow)
+    const width = new NumberNode({ name: 'width', bindingId: 'width-id', value: 12 })
+    const widthReference = new VariableReferenceNode({ bindingId: 'width-id' }, { id: 'width-id', name: 'width', type: 'number' })
+    const divide = new ArithmeticNode({ operation: 'division', a: 0, b: 3 })
+    const spacing = new NumberNode({ name: 'spacing', bindingId: 'spacing-id', value: 99 })
+    const spacingReference = new VariableReferenceNode({ bindingId: 'spacing-id' }, { id: 'spacing-id', name: 'spacing', type: 'number' })
+    const cube = new CubeNode({ sizeRepresentation: 'scalar', size: 1 })
+    for (const node of [spacing, spacingReference, width, widthReference, divide, cube]) await editor.addNode(node)
+    await editor.addConnection(connect(widthReference, 'value', divide, 'a'))
+    await editor.addConnection(connect(divide, 'value', spacing, 'value'))
+    await editor.addConnection(connect(spacingReference, 'value', cube, 'size'))
+
+    expect(await evaluateOpenSCAD(editor, dataflow)).toBe(
+      'width = 12;\nspacing = (width / 3);\ncube(spacing);',
+    )
+    dataflow.reset()
+    expect((await dataflow.fetch(spacing.id)).value?.code).toBe('(width / 3)')
+    expect(spacingReference.data().value.code).toBe('spacing')
+  })
+
+  it('wraps connected named Values in a dependency-ordered Function let expression', async () => {
+    const editor = new NodeEditor<Schemes>()
+    const dataflow = engine(); editor.use(dataflow)
+    const definitions = new DefinitionRegistry()
+    const definition = {
+      id: 'function-id', kind: 'function' as const, name: 'third', inputsNodeId: 'inputs', outputNodeId: 'output',
+      parameters: [{ id: 'width-id', name: 'width', type: 'number' as const, default: 12 }], resultType: 'number' as const,
+    }
+    definitions.add(definition)
+    const inputs = new FunctionInputsNode(definition.parameters); inputs.id = definition.inputsNodeId
+    const output = new FunctionOutputNode('number'); output.id = definition.outputNodeId
+    const widthReference = new VariableReferenceNode({ bindingId: 'width-id' }, { id: 'width-id', name: 'width', type: 'number' })
+    const divide = new ArithmeticNode({ operation: 'division', a: 0, b: 3 })
+    const spacing = new NumberNode({ name: 'spacing', bindingId: 'spacing-id', value: 99 })
+    const spacingReference = new VariableReferenceNode({ bindingId: 'spacing-id' }, { id: 'spacing-id', name: 'spacing', type: 'number' })
+    for (const node of [inputs, output, widthReference, divide, spacing, spacingReference]) await editor.addNode(node)
+    for (const node of [widthReference, divide, spacing, spacingReference]) definitions.assignNode(definition.id, node.id)
+    await editor.addConnection(connect(widthReference, 'value', divide, 'a'))
+    await editor.addConnection(connect(divide, 'value', spacing, 'value'))
+    await editor.addConnection(connect(spacingReference, 'value', output, 'result'))
+
+    expect(await evaluateOpenSCAD(editor, dataflow, undefined, definitions)).toBe(
+      'function third(width = 12) = let(spacing = (width / 3)) spacing;',
+    )
+  })
+
   it('uses parameter identifiers and valid Function let syntax inside independent scopes', async () => {
     const editor = new NodeEditor<Schemes>()
     const dataflow = engine(); editor.use(dataflow)

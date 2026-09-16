@@ -163,6 +163,12 @@ describe('NODE_CATALOG', () => {
     expect(findCatalogEntry('scad-settings')).toMatchObject({ inputs: [], outputs: [], allowedScopes: ['main', 'module'] })
     expect(findCatalogEntry('scad-settings')!.isInputPort!('fn', { fn: 30 })).toBe(true)
     expect(findCatalogEntry('scad-settings')!.isInputPort!('fn', {})).toBe(false)
+    expect(findCatalogEntry('number')).toMatchObject({ inputs: ['value'], outputs: ['value'] })
+    expect(findCatalogEntry('number')!.inputSocketType('value', {})).toBe('number')
+    expect(findCatalogEntry('boolean')).toMatchObject({ inputs: ['value'], outputs: ['value'] })
+    expect(findCatalogEntry('boolean')!.inputSocketType('value', {})).toBe('boolean')
+    expect(findCatalogEntry('vector3')).toMatchObject({ inputs: ['value', 'x', 'y', 'z'], outputs: ['value'] })
+    expect(findCatalogEntry('vector3')!.inputSocketType('value', {})).toBe('vector3')
   })
 
   it('identifyNodeType recognizes a live node instance created by create()', () => {

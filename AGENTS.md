@@ -41,6 +41,10 @@ without an explicit product decision.
   Compact Variable reference nodes resolve only by stable binding ID plus
   explicit scope; names are editable source text, never identity, and no
   reference may capture across a scope boundary.
+- Number, Boolean, and Vector3 Value nodes each accept a same-typed effective
+  Value input while retaining their direct editor value as the persisted
+  fallback. A connected whole Vector3 overrides preserved component inputs
+  and fallbacks; disconnect restores them.
 - Use stable, language-independent IDs for persistent graph entities. Labels,
   localized text, names, positions, and DOM details are never semantic IDs.
 - Make the smallest change that fulfills the current task. Do not implement

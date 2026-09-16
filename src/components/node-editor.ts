@@ -1179,6 +1179,13 @@ export class NodeEditorElement extends LitElement {
       opacity: 1;
     }
 
+    /* A whole Vector3 input wins without deleting component fallbacks or
+       wires. Keep those preserved rows visible when connected, but subdued
+       so their temporarily inactive status is clear. */
+    .node-param-row[data-overridden] {
+      opacity: 0.5;
+    }
+
     .node-param-value {
       flex: 1;
       min-width: 0;

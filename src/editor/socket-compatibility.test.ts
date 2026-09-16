@@ -69,4 +69,36 @@ describe('semantic socket compatibility', () => {
     expect(canConnectSocketData(editor, { nodeId: geometry.id, key: 'geometry', side: 'output' }, { nodeId: conditional.id, key: 'true', side: 'input' })).toBe(false)
     expect(canConnectSocketData(editor, { nodeId: number.id, key: 'value', side: 'output' }, { nodeId: conditional.id, key: 'condition', side: 'input' })).toBe(false)
   })
+
+  it('accepts only each literal Value node\'s own type and rejects Geometry', async () => {
+    const editor = new NodeEditor<Schemes>()
+    const source = new TypedSource()
+    const number = new NumberNode()
+    const boolean = new BooleanNode()
+    const vector = new Vector3Node()
+    for (const node of [source, number, boolean, vector]) await editor.addNode(node as Schemes['Node'])
+
+    for (const [target, compatible] of [[number, 'number'], [boolean, 'boolean'], [vector, 'vector3']] as const) {
+      for (const sourceType of Object.keys(sockets) as SocketName[]) {
+        expect(canConnectSocketData(
+          editor,
+          { nodeId: source.id, key: sourceType, side: 'output' },
+          { nodeId: target.id, key: 'value', side: 'input' },
+        ), `${sourceType} → ${target.label}`).toBe(sourceType === compatible)
+      }
+    }
+  })
+
+  it('rejects direct and indirect Value pass-through cycles before graph mutation', async () => {
+    const editor = new NodeEditor<Schemes>()
+    attachSocketCompatibilityGuard(editor)
+    const first = new NumberNode({ value: 1 })
+    const second = new NumberNode({ value: 2 })
+    await editor.addNode(first); await editor.addNode(second)
+
+    expect(await editor.addConnection(new ClassicPreset.Connection(first, 'value', first, 'value') as Schemes['Connection'])).toBe(false)
+    expect(await editor.addConnection(new ClassicPreset.Connection(first, 'value', second, 'value') as Schemes['Connection'])).toBe(true)
+    expect(await editor.addConnection(new ClassicPreset.Connection(second, 'value', first, 'value') as Schemes['Connection'])).toBe(false)
+    expect(editor.getConnections()).toHaveLength(1)
+  })
 })

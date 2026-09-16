@@ -31,7 +31,8 @@ Implemented and stable:
   Function-scope availability.
 - scope-local variable bindings from deliberately named Values and
   Module/Function parameters, with stable-ID compact references, safe rename
-  and deletion, ordered Main/Module assignments, and Function `let(...)` code.
+  and deletion, typed connected-expression overrides with preserved direct
+  fallbacks, ordered Main/Module assignments, and Function `let(...)` code.
 
 Current catalog/value semantics are intentionally limited. Geometry If is a
 statement-level node valid in Main/Module scopes, with required Boolean

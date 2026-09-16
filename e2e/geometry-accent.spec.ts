@@ -377,12 +377,12 @@ test('keeps nodes draggable from free surfaces without visible grab handles or c
   await expect(number.locator('.node-title')).toHaveText('Width')
 
   const numberBeforeValue = await position(number)
-  await number.locator('.node-controls--primary input[type="number"]').fill('12')
+  await number.locator('[data-param-key="value"] input[type="number"]').fill('12')
   await expectUnmoved(number, numberBeforeValue)
 
   const booleanBeforeCheckbox = await position(boolean)
-  await boolean.locator('.node-controls--primary input[type="checkbox"]').check()
-  await expect(boolean.locator('.node-controls--primary input[type="checkbox"]')).toBeChecked()
+  await boolean.locator('[data-param-key="value"] input[type="checkbox"]').check()
+  await expect(boolean.locator('[data-param-key="value"] input[type="checkbox"]')).toBeChecked()
   await expectUnmoved(boolean, booleanBeforeCheckbox)
 
   const collapseBefore = await position(arithmetic)

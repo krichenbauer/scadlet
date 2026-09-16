@@ -10,9 +10,11 @@ source of truth until this document is updated to match it.
 
 Version 8 adds an optional `bindingId` to Number, Boolean, and Vector3
 parameters plus the non-palette `variable-reference` node. A Value with no
-`bindingId` keeps its historical literal-only behavior even when its `name`
-looks like an identifier. A bound Value requires a valid OpenSCAD identifier
-name. Its stable binding ID, not that mutable name, is the reference identity.
+`bindingId` keeps its historical unbound, label-only behavior even when its
+`name` looks like an identifier. It may still act as an ordinary typed
+input-or-fallback pass-through. A bound Value requires a valid OpenSCAD
+identifier name. Its stable binding ID, not that mutable name, is the reference
+identity.
 
 Module and Function parameter IDs are binding IDs in their own definition
 scope. Within Main or one definition graph, binding IDs and names must be
@@ -27,6 +29,14 @@ Main/Module Geometry. Function-local Values emit ordered `let(...)` bindings aro
 expression. A reference emits only the current identifier, while the original
 Value output retains its prior literal/expression semantics. Binding dependency
 cycles are rejected.
+
+Number and Boolean each have a same-typed `value` input. Vector3 has a whole
+Vector3 `value` input in addition to its Number `x`, `y`, and `z` inputs. A
+connected `value` expression is the node's effective output; otherwise the
+persisted direct value is used. For Vector3, the whole input takes precedence
+over preserved component connections and fallbacks. These additive stable
+ports require no schema version bump: connections already persist by node and
+port ID, and old records simply have no incoming override edge.
 
 The v7→v8 migration changes only the version number. It deliberately adds no
 binding IDs, so every pre-v8 Value name remains a generic label and generated
@@ -587,6 +597,15 @@ identifier, and the Value becomes an assignment root. The binding ID normally
 starts as the Value node's own stable ID when the user first commits a valid
 name; it remains stable through later renames and scope-valid movement.
 
+The direct fields above are always retained as fallbacks. `number.value` and
+`boolean.value` are overridden by a compatible incoming connection to the
+stable `value` input port. For `vector3`, an incoming Vector3 on `value`
+overrides the `[x, y, z]` expression assembled from its component Number inputs
+and fallbacks. Disconnecting an override requires no parameter rewrite and
+immediately restores the saved fallback expression. Named assignments,
+ordinary direct outputs, and downstream references all use this same effective
+input-or-fallback evaluation.
+
 `variable-reference` stores exactly `{ "bindingId": string }`. It has no
 inputs or editable value and exposes one `value` output whose Number, Boolean,
 or Vector3 type is resolved from the same-scope binding during validation and
@@ -836,9 +855,9 @@ scale:         inputs: geometry + active x,y,z | vector; outputs: geometry
 difference:    inputs: base, subtract      outputs: geometry
 union:         dynamic inputs: child:<id>   outputs: geometry
 intersection:  dynamic inputs: child:<id>   outputs: geometry
-number:        inputs: none                 outputs: value (Number)
-boolean:       inputs: none                 outputs: value (Boolean)
-vector3:       inputs: x, y, z (Number)     outputs: value (Vector3)
+number:        input: value (Number)         output: value (Number)
+boolean:       input: value (Boolean)        output: value (Boolean)
+vector3:       inputs: value (Vector3) + x, y, z (Number); output: value (Vector3)
 arithmetic:    inputs: a, b (Number)        outputs: value (Number)
 trigonometry:  input: a (Number); atan2 also b (Number); outputs: value (Number)
 basic-math:    input: x (Number)             outputs: value (Number)

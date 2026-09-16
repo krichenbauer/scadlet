@@ -390,18 +390,25 @@ function renderNode(
     ([key, ctrl]) => ctrl && !paramInputKeys.has(key) && !(ctrl instanceof ParameterActionsControl) && !(ctrl instanceof TitleSelectControl)
       && !(ctrl instanceof ModuleParameterAddControl) && !(ctrl instanceof ModuleParameterEditControl) && !(ctrl instanceof ModuleGeometryInputEditControl) && !(sourceNameControl && key === 'name'),
   )
-  // Literal value sources have no inputs, so their primary control is part
-  // of the compact node rather than hidden behind explicit collapse. Other
-  // standalone controls retain the normal progressive-disclosure behavior.
+  // Legacy or non-port standalone literal controls remain part of the compact
+  // node rather than hidden behind explicit collapse. Other standalone
+  // controls retain the normal progressive-disclosure behavior.
   const alwaysVisibleControls = standaloneControls.filter(
     ([key, control]) => (Boolean(sourceNameControl) && key === 'value' && parameterInputs.length === 0) || (control instanceof ModuleGeometryInputAddControl && control.open),
   )
   const expandableStandaloneControls = standaloneControls.filter(([key]) => !alwaysVisibleControls.some(([primary]) => primary === key))
+  // Number and Boolean keep their single input/fallback row permanently
+  // visible, preserving the compact literal-source shape while adding one
+  // ordinary typed socket. Vector3 retains its established collapsible
+  // component rows plus the new whole-vector override row.
+  const alwaysVisibleInputKeys = new Set<string>()
+  if (node instanceof NumberNode || node instanceof BooleanNode) alwaysVisibleInputKeys.add('value')
+  const collapsibleParameterInputs = parameterInputs.filter(([key]) => !alwaysVisibleInputKeys.has(key))
 
   // A node has collapsible content if it has parameter inputs (whose rows can be shown/hidden)
   // or standalone controls (shown only when expanded). This drives the
   // explicit collapse-button visibility.
-  const hasCollapsibleContent = !fixedConditionalInterface && (parameterInputs.length > 0 || parameterOutputs.length > 0 || geometryOutputs.length > 0 || expandableStandaloneControls.length > 0)
+  const hasCollapsibleContent = !fixedConditionalInterface && (collapsibleParameterInputs.length > 0 || parameterOutputs.length > 0 || geometryOutputs.length > 0 || expandableStandaloneControls.length > 0)
   // Rete remains authoritative for the semantic endpoint. Presentation keeps
   // compact expansion state, while this direct read ensures a freshly
   // committed snapped wire immediately disables its fallback literal even if
@@ -412,6 +419,7 @@ function renderNode(
       .filter((connection) => connection.target === node.id && parameterInputs.some(([key]) => key === connection.targetInput))
       .map((connection) => connection.targetInput),
   ])
+  const wholeVectorConnected = node instanceof Vector3Node && connectedInputKeys.has('value')
   // Explicit expansion shows all parameter rows and standalone controls;
   // compact nodes show only rows backed by existing connections.
   const expanded = hasCollapsibleContent && presentation.isInteractivelyExpanded(node.id)
@@ -507,7 +515,7 @@ function renderNode(
       parameterInputs.map(([key]) => key),
       expanded,
       connectedInputKeys,
-    )
+    ).map((row) => ({ ...row, visible: row.visible || alwaysVisibleInputKeys.has(row.key) }))
 
     const paramRows = document.createElement('div')
     paramRows.className = 'node-param-rows'
@@ -515,8 +523,25 @@ function renderNode(
       const input = inputsByKey.get(key)
       if (!input) continue
       const control = node.controls[key] as ClassicPreset.Control | undefined
+      const componentOverridden = wholeVectorConnected && key !== 'value'
+      const valueSource = (node instanceof NumberNode || node instanceof BooleanNode || node instanceof Vector3Node) && key === 'value'
+        ? connected ? 'connected' : 'fallback'
+        : undefined
       paramRows.appendChild(
-        renderParamRow(area, node.id, key, input.label ?? key, input.socket.name, visible, connected, control, removableRowsByKey.get(key)),
+        renderParamRow(
+          area,
+          node.id,
+          key,
+          input.label ?? key,
+          input.socket.name,
+          visible,
+          connected,
+          control,
+          removableRowsByKey.get(key),
+          connected || componentOverridden,
+          componentOverridden,
+          valueSource,
+        ),
       )
     }
     element.appendChild(paramRows)
@@ -1007,12 +1032,21 @@ function renderParamRow(
   connected: boolean,
   control: ClassicPreset.Control | undefined,
   removeRow: RemovableRow | undefined,
+  fallbackOverridden = connected,
+  componentOverridden = false,
+  valueSource?: 'connected' | 'fallback',
 ): HTMLElement {
   const row = document.createElement('div')
   row.className = 'node-param-row'
   if (!visible) row.hidden = true
   row.dataset.paramKey = key
   if (connected) row.dataset.connected = 'true'
+  if (componentOverridden) row.dataset.overridden = 'true'
+  if (valueSource) {
+    row.dataset.valueSource = valueSource
+    row.setAttribute('role', 'group')
+    row.setAttribute('aria-label', `${label}: ${t(valueSource === 'connected' ? 'control.connectedValue' : 'control.fallbackValue')}`)
+  }
 
   const socket = document.createElement('div')
   socket.className = 'node-socket'
@@ -1032,7 +1066,7 @@ function renderParamRow(
   row.appendChild(labelEl)
 
   if (control) {
-    const valueEl = renderParamControlValue(control, connected)
+    const valueEl = renderParamControlValue(control, fallbackOverridden)
     if (valueEl) row.appendChild(valueEl)
   }
 

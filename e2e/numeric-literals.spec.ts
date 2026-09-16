@@ -139,9 +139,9 @@ test('an emptied numeric literal keeps its last valid value and never becomes Na
   expect(await generatedSource(page)).toBe('translate([12, 0, 5]) {\n    cube(10);\n}')
 
   // The ordinary "select the field and delete the digits before retyping"
-  // gesture, on a parameter row, a standalone value control, and a scalar
+  // gesture on a parameter row, a Value fallback row, and a scalar
   // literal that a node also keeps as its own representation state.
-  const value = page.locator('node-editor .node[data-node-id="rise"] .node-control input[type="number"]')
+  const value = page.locator('node-editor .node[data-node-id="rise"] [data-param-key="value"] input[type="number"]')
   const cube = page.locator('node-editor .node[data-node-id="cube"]')
   const size = cube.locator('[data-param-key="size"] input')
   await x.fill('')

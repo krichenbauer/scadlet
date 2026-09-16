@@ -206,6 +206,20 @@ describe('parseScadletProject: connections', () => {
     expect(() => parseScadletProject(raw)).toThrow('incompatible socket types: geometry output cannot connect to number input')
   })
 
+  it('validates typed Value pass-through ports and rejects a self-cycle', () => {
+    const raw = createEmptyProject('Value inputs') as any
+    raw.graph.nodes = [
+      { id: 'number', type: 'number', position: { x: 0, y: 0 }, parameters: { value: 1, name: 'Number' } },
+      { id: 'boolean', type: 'boolean', position: { x: 100, y: 0 }, parameters: { value: true, name: 'Boolean' } },
+      { id: 'vector', type: 'vector3', position: { x: 200, y: 0 }, parameters: { x: 1, y: 2, z: 3, name: 'Vector3' } },
+    ]
+    raw.graph.connections = [{ id: 'bad-type', source: 'boolean', sourceOutput: 'value', target: 'number', targetInput: 'value' }]
+    expect(() => parseScadletProject(raw)).toThrow('incompatible socket types: boolean output cannot connect to number input')
+
+    raw.graph.connections = [{ id: 'self', source: 'vector', sourceOutput: 'value', target: 'vector', targetInput: 'value' }]
+    expect(() => parseScadletProject(raw)).toThrow('node dataflow cycle at connection "self"')
+  })
+
   it('rejects a duplicate connection id', () => {
     const raw = validProject()
     raw.graph.connections.push({ ...raw.graph.connections[0] })

@@ -103,12 +103,16 @@ Named Number, Boolean, and Vector3 nodes are also explicit code-generation
 roots in their owning scope. Their stable binding IDs link compact Variable
 reference nodes back to the definition without adding a synthetic Rete wire;
 the reference evaluates to the current identifier while the named Value's
-ordinary output continues to evaluate to its literal/expression. Emit named
+ordinary output evaluates to its compatible connected expression or, when
+unconnected, its preserved direct fallback. Number and Boolean have one
+same-typed `value` input. Vector3 has a whole-Vector3 `value` input whose
+connected expression takes precedence over its preserved X/Y/Z component
+inputs and fallbacks. Emit named
 Value assignments in dependency-safe order before scoped settings and Main or
 Module Geometry. In a Function, encode the same ordered assignments as
 one valid `let(...)` expression around the result. Missing, cross-scope, or
-circular bindings are errors and must never produce plausible but incorrect
-OpenSCAD.
+circular bindings and ordinary Value-input dataflow cycles are errors and must
+never produce plausible but incorrect OpenSCAD.
 
 ## Viewer contract
 

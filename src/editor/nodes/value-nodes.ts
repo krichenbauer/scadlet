@@ -133,12 +133,13 @@ function socketForConditionalType(type: ConditionalValueType | undefined) {
 }
 
 /** A literal Number is an OpenSCAD expression source, never a JavaScript calculation. */
-export class NumberNode extends ClassicPreset.Node<{}, { value: ClassicPreset.Socket }, { name: LabeledTextControl; value: LabeledNumberControl }> implements DataflowNode {
+export class NumberNode extends ClassicPreset.Node<{ value: ClassicPreset.Socket }, { value: ClassicPreset.Socket }, { name: LabeledTextControl; value: LabeledNumberControl }> implements DataflowNode {
   private bindingId?: string
   constructor(params: NumberParams = { value: 10, name: 'Number' }) {
     super(t('node.number'))
     this.bindingId = params.bindingId
     this.addControl('name', new LabeledTextControl(t('control.name'), { initial: params.name ?? 'Number' }))
+    this.addInput('value', new ClassicPreset.Input(numberSocket, t('input.value')))
     this.addControl('value', new LabeledNumberControl(t('control.value'), { initial: params.value }))
     this.addOutput('value', new ClassicPreset.Output(numberSocket, t('output.number')))
   }
@@ -147,15 +148,18 @@ export class NumberNode extends ClassicPreset.Node<{}, { value: ClassicPreset.So
   getBindingName(): string { return this.controls.name.value ?? '' }
   renameBinding(name: string): void { this.bindingId ??= this.id; this.controls.name.setValue(name) }
   getPersistedParams(): NumberParams { return { value: this.controls.value.value ?? 0, name: this.getBindingName(), ...(this.bindingId ? { bindingId: this.bindingId } : {}) } }
-  data(): { value: NumberValue } { return { value: { code: String(this.controls.value.value ?? 0) } } }
+  data(inputs: { value?: NumberValue[] } = {}): { value: NumberValue } {
+    return { value: inputs.value?.[0] ?? { code: String(this.controls.value.value ?? 0) } }
+  }
 }
 
-export class BooleanNode extends ClassicPreset.Node<{}, { value: ClassicPreset.Socket }, { name: LabeledTextControl; value: CheckboxControl }> implements DataflowNode {
+export class BooleanNode extends ClassicPreset.Node<{ value: ClassicPreset.Socket }, { value: ClassicPreset.Socket }, { name: LabeledTextControl; value: CheckboxControl }> implements DataflowNode {
   private bindingId?: string
   constructor(params: BooleanParams = { value: false, name: 'Boolean' }) {
     super(t('node.boolean'))
     this.bindingId = params.bindingId
     this.addControl('name', new LabeledTextControl(t('control.name'), { initial: params.name ?? 'Boolean' }))
+    this.addInput('value', new ClassicPreset.Input(booleanSocket, t('input.value')))
     this.addControl('value', new CheckboxControl(t('control.value'), params.value))
     this.addOutput('value', new ClassicPreset.Output(booleanSocket, t('output.boolean')))
   }
@@ -164,7 +168,9 @@ export class BooleanNode extends ClassicPreset.Node<{}, { value: ClassicPreset.S
   getBindingName(): string { return this.controls.name.value ?? '' }
   renameBinding(name: string): void { this.bindingId ??= this.id; this.controls.name.setValue(name) }
   getPersistedParams(): BooleanParams { return { value: this.controls.value.value, name: this.getBindingName(), ...(this.bindingId ? { bindingId: this.bindingId } : {}) } }
-  data(): { value: BooleanValue } { return { value: { code: this.controls.value.value ? 'true' : 'false' } } }
+  data(inputs: { value?: BooleanValue[] } = {}): { value: BooleanValue } {
+    return { value: inputs.value?.[0] ?? { code: this.controls.value.value ? 'true' : 'false' } }
+  }
 }
 
 export class Vector3Node extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { value: ClassicPreset.Socket }, Record<string, LabeledNumberControl | LabeledTextControl>> implements DataflowNode {
@@ -173,6 +179,7 @@ export class Vector3Node extends ClassicPreset.Node<Record<string, ClassicPreset
     super(t('node.vector3'))
     this.bindingId = params.bindingId
     this.addControl('name', new LabeledTextControl(t('control.name'), { initial: params.name ?? 'Vector3' }))
+    this.addInput('value', new ClassicPreset.Input(vector3Socket, t('input.value')))
     for (const [key, label] of [['x', t('control.x')], ['y', t('control.y')], ['z', t('control.z')]] as const) {
       this.addInput(key, new ClassicPreset.Input(numberSocket, label))
       this.addControl(key, new LabeledNumberControl(label, { initial: params[key] }))
@@ -188,7 +195,9 @@ export class Vector3Node extends ClassicPreset.Node<Record<string, ClassicPreset
   getBindingName(): string { return (this.controls.name as LabeledTextControl).value ?? '' }
   renameBinding(name: string): void { this.bindingId ??= this.id; (this.controls.name as LabeledTextControl).setValue(name) }
 
-  data(inputs: Record<string, NumberValue[] | undefined>): { value: Vector3Value } {
+  data(inputs: Record<string, (NumberValue | Vector3Value)[] | undefined>): { value: Vector3Value } {
+    const connected = inputs.value?.[0]
+    if (connected) return { value: connected }
     const params = this.getPersistedParams()
     const x = inputs.x?.[0]?.code ?? String(params.x)
     const y = inputs.y?.[0]?.code ?? String(params.y)

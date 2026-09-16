@@ -25,6 +25,44 @@ describe('Milestone 7 value nodes', () => {
     expect(new ArithmeticNode({ operation: 'division', a: 1, b: 0 }).data({}).value.code).toBe('(1 / 0)')
   })
 
+  it('gives every literal Value type one compatible pass-through input with a preserved direct fallback', () => {
+    const number = new NumberNode({ value: 20 })
+    const boolean = new BooleanNode({ value: true })
+    const vector = new Vector3Node({ x: 1, y: 2, z: 3 })
+
+    expect(Object.keys(number.inputs)).toEqual(['value'])
+    expect(number.inputs.value?.socket.name).toBe('number')
+    expect(number.data().value.code).toBe('20')
+    expect(number.data({ value: [{ code: '(width / 3)' }] }).value.code).toBe('(width / 3)')
+
+    expect(Object.keys(boolean.inputs)).toEqual(['value'])
+    expect(boolean.inputs.value?.socket.name).toBe('boolean')
+    expect(boolean.data().value.code).toBe('true')
+    expect(boolean.data({ value: [{ code: '(width > 3)' }] }).value.code).toBe('(width > 3)')
+
+    expect(Object.keys(vector.inputs)).toEqual(['value', 'x', 'y', 'z'])
+    expect(vector.inputs.value?.socket.name).toBe('vector3')
+    expect(vector.data({}).value.code).toBe('[1, 2, 3]')
+    expect(vector.data({ x: [{ code: 'x' }], value: [{ code: 'offset' }] }).value.code).toBe('offset')
+  })
+
+  it('uses an unnamed Value as a pass-through expression and restores its fallback immediately after disconnect', async () => {
+    const editor = new NodeEditor<Schemes>()
+    const dataflow = engine()
+    editor.use(dataflow)
+    const source = new ArithmeticNode({ operation: 'division', a: 12, b: 3 })
+    const value = new NumberNode({ value: 7 })
+    const cube = new CubeNode({ sizeRepresentation: 'scalar', size: 1 })
+    for (const node of [source, value, cube]) await editor.addNode(node)
+    const incoming = connect(source, 'value', value, 'value')
+    await editor.addConnection(incoming)
+    await editor.addConnection(connect(value, 'value', cube, 'size'))
+
+    expect(await evaluateOpenSCAD(editor, dataflow)).toBe('cube((12 / 3));')
+    await editor.removeConnection(incoming.id)
+    expect(await evaluateOpenSCAD(editor, dataflow)).toBe('cube(7);')
+  })
+
   it('keeps source names as descriptive persisted metadata, not OpenSCAD identifiers', () => {
     const number = new NumberNode({ name: 'Wall thickness', value: 2.5 })
     const boolean = new BooleanNode({ name: 'Centered', value: true })

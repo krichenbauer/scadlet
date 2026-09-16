@@ -42,6 +42,14 @@ Expose OpenSCAD semantics without forcing a value graph for literals:
   until a Value has a valid unique identifier. Escape, scope selection, graph
   replacement, and editor destruction cancel click-and-place without graph
   mutation; the gesture never creates a wire.
+- Number and Boolean Value sources expose one same-typed `Value` input beside
+  their always-visible direct fallback. Vector3 additionally exposes one
+  whole-Vector3 `Value` input above its existing Number component inputs.
+  Connected expressions disable the affected fallback controls without
+  erasing them; disconnect restores those controls immediately. A connected
+  whole vector subdues and overrides preserved X/Y/Z values and wires. These
+  inputs behave identically for unnamed pass-through Values and named variable
+  definitions.
 
 Do not build a generic signature DSL prematurely. Reuse small, explicit
 mechanisms for optional parameters, typed inputs, alternative editors, and
