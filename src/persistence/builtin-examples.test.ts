@@ -34,6 +34,7 @@ describe('built-in example discovery', () => {
       'Boolean Operations',
       'House',
       'Parametric Bowl',
+      'Recursive Tree',
     ])
     expect(BUILTIN_EXAMPLES.every((example) => !example.name.includes('example_'))).toBe(true)
   })
