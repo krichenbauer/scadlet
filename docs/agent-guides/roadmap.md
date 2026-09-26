@@ -35,7 +35,8 @@ Implemented and stable:
   fallbacks, ordered Main/Module assignments, and Function `let(...)` code.
 - numeric Geometry iteration in Main and Module scopes through a fixed visual
   `For`/`For result` pair, ordered body inputs, lexical iterator references,
-  nested loops, and idiomatic OpenSCAD `for` blocks.
+  nested loops, idiomatic OpenSCAD `for` blocks, and quiet bodyless drafts that
+  remain omitted from source until Geometry is connected.
 
 Current catalog/value semantics are intentionally limited. Geometry If is a
 statement-level node valid in Main/Module scopes, with required Boolean

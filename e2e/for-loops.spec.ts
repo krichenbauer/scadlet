@@ -33,6 +33,19 @@ async function fileAction(page: Page, name: string): Promise<Locator> {
   return page.getByRole('menuitem', { name, exact: true })
 }
 
+async function expectStructuralAnchorBelow(node: Locator, ordinaryRows: Locator): Promise<number> {
+  const anchor = node.locator('.node-structural-row .node-structural-anchor')
+  const anchorBox = await waitForBoundingBox(anchor)
+  const rowBottoms = await ordinaryRows.evaluateAll((rows) => rows.map((row) => {
+    const rect = row.getBoundingClientRect()
+    return rect.bottom
+  }))
+  expect(rowBottoms.length).toBeGreaterThan(0)
+  expect(anchorBox.y).toBeGreaterThan(Math.max(...rowBottoms))
+  expect(await node.evaluate((element) => element.lastElementChild?.classList.contains('node-structural-row'))).toBe(true)
+  return anchorBox.y
+}
+
 test('For creates an accessible fixed pair, composes a numeric Geometry body, duplicates jointly, and is refused in Functions', async ({ page }) => {
   await ready(page)
   const editor = page.locator('node-editor')
@@ -62,11 +75,22 @@ test('For creates an accessible fixed pair, composes a numeric Geometry body, du
   await expect(header.locator('.node-create-variable-reference')).toHaveAttribute('aria-label', 'Create variable reference')
   await expect(header.locator('.node-structural-anchor')).toHaveCount(1)
   await expect(result.locator('.node-structural-anchor')).toHaveCount(1)
+  await expect(header.locator('.node-socket[data-socket-type="structure"]')).toHaveCount(0)
+  await expect(result.locator('.node-socket[data-socket-type="structure"]')).toHaveCount(0)
+  await expect(header.locator('.node-structural-anchor')).toHaveAttribute('role', 'img')
+  await expect(result.locator('.node-structural-anchor')).toHaveAttribute('role', 'img')
+  await expect(header.locator('.node-structural-anchor')).toHaveCSS('background-color', 'rgb(58, 58, 58)')
+  await expect(result.locator('.node-structural-anchor')).toHaveCSS('border-color', 'rgb(133, 133, 133)')
+  await expectStructuralAnchorBelow(header, header.locator('.node-param-row'))
+  const initialResultAnchorY = await expectStructuralAnchorBelow(result, result.locator('.node-inputs .node-port'))
   const structural = editor.locator('svg.connection[data-structural-connection="true"]')
   await expect(structural).toHaveCount(1)
   expect(await structural.locator('.connection-path').evaluate((path) => getComputedStyle(path).strokeWidth)).toBe('6px')
+  await expect(structural.locator('.connection-path')).toHaveCSS('stroke', 'rgb(133, 133, 133)')
   expect(await structural.evaluate((wire) => getComputedStyle(wire).pointerEvents)).toBe('none')
   await expect(structural.locator('.connection-hit-path')).toHaveCSS('pointer-events', 'none')
+  await expect(structural).toHaveAttribute('role', 'img')
+  await expect(structural).toHaveAttribute('aria-label', 'Fixed loop boundary')
 
   const headerBox = await waitForBoundingBox(header)
   const resultBox = await waitForBoundingBox(result)
@@ -98,6 +122,9 @@ test('For creates an accessible fixed pair, composes a numeric Geometry body, du
   const translate = editor.locator('.node[data-node-type="translate"]')
   await connect(page, cube.locator('.node-port--output .node-socket'), translate.locator('.node-socket[data-socket-side="input"][data-socket-key="geometry"]'))
   await connect(page, translate.locator('.node-port--output .node-socket'), result.locator('.node-socket[data-socket-key^="child:"]'))
+  await expect(result.locator('.node-inputs .node-port')).toHaveCount(2)
+  const expandedResultAnchorY = await expectStructuralAnchorBelow(result, result.locator('.node-inputs .node-port'))
+  expect(expandedResultAnchorY).toBeGreaterThan(initialResultAnchorY)
   await connect(page, header.locator('.node-socket[data-socket-key="value"]'), translate.locator('.node-socket[data-socket-key="x"]'))
   await expect(page.locator('scadlet-app .scad-output')).toContainText('for (i = [0 : 1 : 10])', { timeout: 15_000 })
   await expect(page.locator('scadlet-app .scad-output')).toContainText('translate([i, 0, 0])')
@@ -152,5 +179,74 @@ test('For creates an accessible fixed pair, composes a numeric Geometry body, du
   await expect(editor.locator('.node[data-node-type="for-result"]')).toHaveCount(2)
   await expect(editor.locator('svg.connection[data-structural-connection="true"]')).toHaveCount(2)
   await expect(editor.locator('.node[data-node-type="variable-reference"] .node-title')).toHaveText('index')
+  await expectStructuralAnchorBelow(editor.locator('.node[data-node-type="for-result"]').first(), editor.locator('.node[data-node-type="for-result"]').first().locator('.node-inputs .node-port'))
   await expect(page.locator('scadlet-app .scad-output')).toContainText('for (index = [0 : 1 : 10])', { timeout: 15_000 })
+})
+
+test('a new bodyless For pair stays quiet, exports empty source, restores, and activates when Geometry is connected', async ({ page }) => {
+  await ready(page)
+  const editor = page.locator('node-editor')
+  const canvas = await waitForBoundingBox(editor)
+  await dropPaletteNode(page, 'for', { x: canvas.x + 140, y: canvas.y + 140 })
+
+  const header = editor.locator('.node[data-node-type="for"]')
+  const result = editor.locator('.node[data-node-type="for-result"]')
+  await expect(page.locator('scadlet-app .render-error')).toHaveCount(0)
+  await expect(page.locator('geometry-viewer .empty-geometry-status')).toHaveText('Nothing visible to render.', { timeout: 15_000 })
+
+  await page.getByRole('button', { name: 'Render', exact: true }).click()
+  await expect(page.locator('scadlet-app .render-error')).toHaveCount(0)
+  await expect(page.locator('geometry-viewer .empty-geometry-status')).toHaveText('Nothing visible to render.')
+
+  await result.locator('.node-more-summary').click()
+  await result.getByRole('menuitem', { name: 'Inspect', exact: true }).click()
+  await expect(page.locator('scadlet-app .render-error')).toHaveCount(0)
+  await expect(page.locator('geometry-viewer .empty-geometry-status')).toHaveText('Nothing visible to render.')
+  await expect(editor.locator('.node--inspected')).toHaveCount(0)
+
+  const projectName = page.getByRole('textbox', { name: 'Project name' })
+  await projectName.fill('Empty For draft')
+  await projectName.press('Enter')
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    (await fileAction(page, 'Download .scad')).click(),
+  ])
+  const path = await download.path()
+  if (!path) throw new Error('Expected downloaded SCAD path')
+  expect(readFileSync(path, 'utf8')).toBe('')
+  await expect(page.locator('scadlet-app .render-error')).toHaveCount(0)
+
+  await dropPaletteNode(page, 'cube', { x: canvas.x + 280, y: canvas.y + 390 })
+  const cube = editor.locator('.node[data-node-type="cube"]')
+  const initialAnchorY = (await waitForBoundingBox(result.locator('.node-structural-anchor'))).y
+  await connect(page, cube.locator('.node-port--output .node-socket'), result.locator('.node-socket[data-socket-key^="child:"]'))
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('for (i = [0 : 1 : 10])', { timeout: 15_000 })
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('cube();')
+  await expect(result.locator('.node-inputs .node-port')).toHaveCount(2)
+  expect(await expectStructuralAnchorBelow(result, result.locator('.node-inputs .node-port'))).toBeGreaterThan(initialAnchorY)
+
+  const bodyWire = editor.locator('svg.connection[data-structural-connection="false"] .connection-hit-path')
+  await bodyWire.dispatchEvent('pointerdown', { button: 0 })
+  await page.keyboard.press('Delete')
+  await expect(editor.locator('svg.connection[data-structural-connection="false"]')).toHaveCount(0)
+  await expect(page.locator('scadlet-app .render-error')).toHaveCount(0)
+  await expect(page.locator('scadlet-app .scad-output')).not.toContainText('for (')
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('cube();', { timeout: 15_000 })
+  await expectStructuralAnchorBelow(result, result.locator('.node-inputs .node-port'))
+
+  await cube.locator('.node-more-summary').click()
+  await cube.getByRole('menuitem', { name: 'Delete', exact: true }).click()
+  await expect(cube).toHaveCount(0)
+  await expect(page.locator('geometry-viewer .empty-geometry-status')).toHaveText('Nothing visible to render.', { timeout: 15_000 })
+
+  await waitForAutosave(page)
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: 'Project name' })).toBeEnabled()
+  await expect(editor.locator('.node[data-node-type="for"]')).toHaveCount(1)
+  const restoredResult = editor.locator('.node[data-node-type="for-result"]')
+  await expect(restoredResult.locator('.node-inputs .node-port')).toHaveCount(2)
+  await expectStructuralAnchorBelow(restoredResult, restoredResult.locator('.node-inputs .node-port'))
+  await expect(page.locator('scadlet-app .render-error')).toHaveCount(0)
+  await expect(page.locator('geometry-viewer .empty-geometry-status')).toHaveText('Nothing visible to render.', { timeout: 15_000 })
+  await expect(header).toHaveCount(1)
 })

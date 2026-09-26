@@ -169,7 +169,8 @@ export class ForResultNode extends ClassicPreset.Node<
     const body = this.slots
       .map((slot) => (inputs[this.port(slot)]?.[0] as GeometryValue | undefined)?.code)
       .filter((code): code is string => Boolean(code))
-    if (!structure || structure.pairId !== this.pairId || body.length === 0) return { geometry: { code: '', error: 'incomplete For pair' } }
+    if (!structure || structure.pairId !== this.pairId) return { geometry: { code: '', error: 'incomplete For pair' } }
+    if (body.length === 0) return { geometry: { code: '' } }
     return { geometry: { code: forToOpenSCAD(structure, body) } }
   }
 }

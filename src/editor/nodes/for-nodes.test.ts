@@ -24,4 +24,12 @@ describe('For nodes', () => {
       'child:first': [{ code: 'cube();' }],
     })).toThrow('must not be zero')
   })
+
+  it('treats a structurally valid result without Geometry as an omitted draft', () => {
+    const result = new ForResultNode({ pairId: 'pair', children: [{ id: 'body' }] })
+    expect(result.data({
+      loop: [{ pairId: 'pair', iterator: 'i', start: '0', step: '1', end: '8' }],
+    }).geometry).toEqual({ code: '' })
+    expect(result.data({}).geometry).toMatchObject({ code: '', error: 'incomplete For pair' })
+  })
 })

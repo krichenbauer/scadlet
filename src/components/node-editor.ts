@@ -899,15 +899,27 @@ export class NodeEditorElement extends LitElement {
       width: 10px;
       height: 16px;
       box-sizing: border-box;
-      border: 2px solid #e3d06a;
+      border: 2px solid #858585;
       border-radius: 2px;
-      background: #554d22;
+      background: #3a3a3a;
       flex: none;
       pointer-events: none;
     }
 
     .node-port--input .node-structural-anchor { margin-left: -6px; }
     .node-port--output .node-structural-anchor { margin-right: -6px; }
+
+    .node-structural-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 20px;
+      padding-bottom: 4px;
+    }
+
+    .node-structural-row > .node-port--output:first-child {
+      margin-left: auto;
+    }
 
     .node-socket--snap-target {
       outline: 3px solid rgb(255 255 255 / 0.8);
@@ -1225,7 +1237,7 @@ export class NodeEditorElement extends LitElement {
     .connection-path[data-socket-type='vector3'] { stroke: #b07cff; }
     .connection-path[data-socket-type='boolean'] { stroke: #63c174; }
     .connection--structural .connection-path {
-      stroke: #e3d06a;
+      stroke: #858585;
       stroke-width: 6px;
       stroke-dasharray: 10 4;
     }
@@ -1359,6 +1371,10 @@ export class NodeEditorElement extends LitElement {
 
   async evaluate(rootNodeId?: string): Promise<string> {
     return (await this.instance?.evaluate(rootNodeId)) ?? ''
+  }
+
+  isBodylessForResultRoot(rootNodeId?: string): boolean {
+    return this.instance?.isBodylessForResultRoot(rootNodeId) ?? false
   }
 
   async evaluateInspect(nodeId: string): Promise<InspectEvaluation> {

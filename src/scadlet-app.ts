@@ -1574,6 +1574,13 @@ export class ScadletApp extends LitElement {
       if (!this._isCurrentRender(generation, revision, inspectTarget)) return
       this.scadSource = source
       if (!source.trim()) {
+        if (this.nodeEditor.isBodylessForResultRoot(inspectTarget ?? undefined)) {
+          this.stl = null
+          this.viewer.clear()
+          this.renderInfo = t('render.emptyGeometry')
+          if (inspectTarget === null) this.liveScheduler.markSuccessful(revision)
+          return
+        }
         this.renderError = 'Nothing to render - add at least one node.'
         return
       }
@@ -1656,8 +1663,16 @@ export class ScadletApp extends LitElement {
       }
 
       if (!inspected.source.trim()) {
-        this.renderInfo = null
-        this.renderError = 'Nothing to render - add at least one node.'
+        this.scadSource = inspected.source
+        if (this.nodeEditor.isBodylessForResultRoot(nodeId)) {
+          this.stl = null
+          this.viewer.clear()
+          this.renderInfo = t('render.emptyGeometry')
+          this.editorInstance?.clearInspect()
+        } else {
+          this.renderInfo = null
+          this.renderError = 'Nothing to render - add at least one node.'
+        }
         return
       }
       const result = await this.renderController.render(inspected.source)

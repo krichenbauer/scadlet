@@ -352,6 +352,7 @@ function renderNode(
   const fixedInputs: [string, ClassicPreset.Input<ClassicPreset.Socket>][] = []
   for (const [key, input] of Object.entries(node.inputs)) {
     if (!input) continue
+    if (input.socket.name === 'structure') continue
     if (fixedConditionalInterface) {
       fixedInputs.push([key, input])
       continue
@@ -360,16 +361,22 @@ function renderNode(
     // (like Module Output's `geometry` input) is structural interface
     // infrastructure that must stay visible regardless of compact state,
     // not a collapsible parameter row.
-    if (input.socket.name === 'geometry' || input.socket.name === 'structure' || (node instanceof FunctionOutputNode && key === 'result')) {
+    if (input.socket.name === 'geometry' || (node instanceof FunctionOutputNode && key === 'result')) {
       geometryInputs.push([key, input])
     } else {
       parameterInputs.push([key, input])
     }
   }
   const outputClasses = classifyOutputPorts(node.outputs)
+  const structuralInputs = Object.entries(node.inputs).filter(
+    (entry): entry is [string, ClassicPreset.Input<ClassicPreset.Socket>] => entry[1]?.socket.name === 'structure',
+  )
+  const structuralOutputs = Object.entries(node.outputs).filter(
+    (entry): entry is [string, ClassicPreset.Output<ClassicPreset.Socket>] => entry[1]?.socket.name === 'structure',
+  )
   const mainOutputs = fixedConditionalInterface
     ? Object.entries(node.outputs).filter((entry): entry is [string, ClassicPreset.Output<ClassicPreset.Socket>] => Boolean(entry[1]))
-    : outputClasses.main
+    : outputClasses.main.filter(([, output]) => output.socket.name !== 'structure')
   const geometryOutputs = outputClasses.dynamicGeometry
   const parameterOutputs = fixedConditionalInterface
     ? outputClasses.parameter.filter(([key]) => key !== 'result')
@@ -642,6 +649,22 @@ function renderNode(
     trigger?.setAttribute('aria-expanded', 'true')
     trigger?.setAttribute('aria-haspopup', 'dialog')
     element.appendChild(renderParameterPopover(parameterPopoverControl))
+  }
+
+  // The fixed For boundary is deliberately the final physical row on both
+  // cards. It stays below every ordinary Number/Geometry port (including the
+  // current variadic extension slot), so dynamic child additions and restored
+  // slot ordering move the result endpoint with the node's actual bottom.
+  if (structuralInputs.length > 0 || structuralOutputs.length > 0) {
+    const structuralRow = document.createElement('div')
+    structuralRow.className = 'node-structural-row'
+    for (const [key, input] of structuralInputs) {
+      structuralRow.appendChild(renderPort(area, node.id, 'input', key, input.label, input.socket.name))
+    }
+    for (const [key, output] of structuralOutputs) {
+      structuralRow.appendChild(renderPort(area, node.id, 'output', key, output.label, output.socket.name))
+    }
+    element.appendChild(structuralRow)
   }
 }
 
@@ -1008,6 +1031,7 @@ function renderPort(
   // is omitted, so screen readers/tooltips never lose the socket's meaning.
   socket.title = accessibleName
   socket.setAttribute('aria-label', accessibleName)
+  if (socketName === 'structure') socket.setAttribute('role', 'img')
   row.appendChild(socket)
 
   // A label that just restates the socket's data type (e.g. a lone

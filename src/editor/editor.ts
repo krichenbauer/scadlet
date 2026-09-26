@@ -83,6 +83,9 @@ export interface SCADletEditor {
    * affecting the normal (no-argument) evaluation in any way.
    */
   evaluate(rootNodeId?: string): Promise<string>
+  /** Whether evaluation intentionally omitted a structurally valid bodyless
+   * For result at or upstream of the requested Geometry root. */
+  isBodylessForResultRoot(rootNodeId?: string): boolean
   /** Evaluates an inspect root as either geometry source or a typed OpenSCAD expression. */
   evaluateInspect(nodeId: string): Promise<InspectEvaluation>
   /** Commits the successful Geometry Inspect which just replaced the viewer preview. */
@@ -2183,6 +2186,38 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     addNodeAt,
     addModuleCallAt,
     evaluate: (rootNodeId?: string) => evaluateOpenSCAD(editor, engine, rootNodeId, definitions),
+    isBodylessForResultRoot: (rootNodeId?: string) => {
+      const bodyless = (node: Schemes['Node']): boolean => node instanceof ForResultNode
+        && !editor.getConnections().some((edge) => edge.target === node.id && String(edge.targetInput).startsWith('child:'))
+      const incoming = new Map<string, string[]>()
+      for (const edge of editor.getConnections()) {
+        incoming.set(edge.target, [...(incoming.get(edge.target) ?? []), edge.source])
+      }
+      const dependsOnBodylessResult = (rootIds: readonly string[]): boolean => {
+        const seen = new Set<string>()
+        const pending = [...rootIds]
+        while (pending.length > 0) {
+          const id = pending.pop()!
+          if (seen.has(id)) continue
+          seen.add(id)
+          const node = editor.getNode(id)
+          if (node && bodyless(node)) return true
+          pending.push(...(incoming.get(id) ?? []))
+        }
+        return false
+      }
+      if (rootNodeId !== undefined) return dependsOnBodylessResult([rootNodeId])
+      const mainIds = new Set(editor.getNodes()
+        .filter((node) => definitions.scopeOf(node.id) === null)
+        .map((node) => node.id))
+      const consumed = new Set(editor.getConnections()
+        .filter((edge) => mainIds.has(edge.source) && mainIds.has(edge.target))
+        .map((edge) => edge.source))
+      const roots = editor.getNodes()
+        .filter((node) => mainIds.has(node.id) && !consumed.has(node.id) && Boolean(node.outputs.geometry))
+        .map((node) => node.id)
+      return dependsOnBodylessResult(roots)
+    },
     evaluateInspect: (nodeId) => evaluateInspectNode(editor, engine, nodeId, definitions),
     commitGeometryInspect: (nodeId) => inspect.commitGeometry(nodeId),
     commitValueInspect: (nodeId, value) => inspect.commitValue(nodeId, value),

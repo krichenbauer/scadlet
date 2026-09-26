@@ -618,7 +618,9 @@ structural output `loop`. A known literal zero step is invalid.
 empty extension slot, and its normal `geometry` output represents the complete
 loop. Its structural `loop` input accepts only the matching header's fixed
 connection. All connected Geometry child statements are emitted, in slot
-order, inside `for (name = [start : step : end]) { ... }`.
+order, inside `for (name = [start : step : end]) { ... }`. A structurally
+valid result with no connected Geometry child is a valid persisted editing
+state and emits no source at all; it does not emit an empty `for` block.
 
 ### Value and math nodes
 
@@ -1028,7 +1030,8 @@ in roughly this order:
 12. Every For pair has exactly one header, result, and fixed structural
     connection in Main or one Module; pair/binding membership, iterator names,
     references, nested scope, zero fallback steps, and dependency escapes are
-    validated as one graph invariant.
+    validated as one graph invariant. A complete pair is not invalid merely
+    because no Geometry child is connected to its result.
 13. `editor.viewport` and `viewer.camera` are validated as described
    above.
 

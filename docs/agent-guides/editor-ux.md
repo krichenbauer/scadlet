@@ -52,11 +52,16 @@ Expose OpenSCAD semantics without forcing a value graph for literals:
   definitions.
 - The **For** palette action is available in Main and Module scopes and creates
   a header/result pair at a useful horizontal separation. Its thick structural
-  wire and anchors are not ordinary sockets and cannot be picked, rewired, or
-  selected. The header has Number fallback rows for Start, Step, and End plus
-  one iterator Number output/reference action. The result uses stable ordered,
-  variadic Geometry child rows. Either member's Delete or Duplicate action
-  applies to the complete pair; members otherwise move independently.
+  wire and muted neutral-grey anchors are not ordinary sockets and cannot be
+  picked, rewired, or selected. Each anchor occupies the final row at the
+  physical bottom of its card: below End on the header and below every current
+  Geometry child row, including the extension control, on the result. The
+  header has Number fallback rows for Start, Step, and End plus one iterator
+  Number output/reference action. The result uses stable ordered, variadic
+  Geometry child rows. Either member's Delete or Duplicate action applies to
+  the complete pair; members otherwise move independently. A structurally
+  valid pair with no connected result body is a normal draft and remains
+  absent from generated source until Geometry is connected.
 
 Do not build a generic signature DSL prematurely. Reuse small, explicit
 mechanisms for optional parameters, typed inputs, alternative editors, and

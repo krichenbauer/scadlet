@@ -42,6 +42,9 @@ The result's ordered Geometry slots use the existing stable child-ID pattern.
 No migration rewrite is needed because pre-For v8 and older migrated projects
 simply contain none of these records. Validation rejects incomplete, duplicate,
 cross-scope, mismatched, or escaping pairs before restore.
+A complete persisted pair remains valid when none of the result's Geometry
+slots is connected; restore preserves that editable draft, and code generation
+omits it until a valid body connection exists.
 Existing parameter shapes and port IDs are compatibility
 contracts. Prefer small explicit migrations; reject unsupported newer formats,
 unknown semantic node types, and incompatible state with useful errors rather

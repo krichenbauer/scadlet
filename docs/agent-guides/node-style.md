@@ -282,12 +282,15 @@ socket and family styling communicate the type.
 
 `For` and `For result` are ordinary node cards with the shared loop icon,
 header actions, spacing, and Geometry-family treatment where applicable. Their
-fixed boundary is the only structural-wire exception: small gold rectangular
-anchors and a thick dashed gold path distinguish it from typed dataflow. The
-path is non-interactive and never receives selection styling. Both cards expose
-the same durable pair state to assistive technology. Number and ordered
-Geometry rows otherwise use the normal socket, fallback, collapse, and
-extension-slot conventions.
+fixed boundary is the only structural-wire exception: small muted neutral-grey
+rectangular anchors and a thick dashed neutral-grey path distinguish it from
+typed dataflow without resembling Number or Geometry. The endpoint is the last
+physical row of each card, below End on `For` and below every ordered Geometry
+row plus the extension control on `For result`; it therefore follows dynamic
+or restored result rows. The path and anchors are non-interactive and never
+receive selection styling. Both cards expose the same durable pair state to
+assistive technology. Number and ordered Geometry rows otherwise use the
+normal socket, fallback, collapse, and extension-slot conventions.
 
 ## Implementation and review checklist
 

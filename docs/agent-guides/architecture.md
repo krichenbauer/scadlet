@@ -121,6 +121,10 @@ to the result, while the result wraps its ordered Geometry inputs in one
 OpenSCAD `for` block. Iterator wires and references are validated by downstream
 reachability and may cross only the matching result boundary. Nested results
 therefore compose as normal Geometry without a second loop AST or evaluator.
+A structurally complete result with no connected valid Geometry body evaluates
+to an empty fragment, so the entire pair is omitted rather than emitting an
+empty `for` block. This draft convention does not relax structural, scope,
+iterator, connection-type, or zero-step validation.
 
 ## Viewer contract
 

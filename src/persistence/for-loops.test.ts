@@ -48,6 +48,34 @@ async function restore(raw: unknown) {
 }
 
 describe('numeric For persistence and source generation', () => {
+  it('round-trips a structurally valid empty pair and omits it from source and Inspect', async () => {
+    const raw = structuredClone(project())
+    raw.graph.nodes = raw.graph.nodes.filter((node: { type: string }) => node.type === 'for' || node.type === 'for-result')
+    raw.graph.nodes.find((node: { type: string }) => node.type === 'for-result').parameters.children = [
+      { id: 'later' }, { id: 'body' }, { id: 'next' },
+    ]
+    raw.graph.connections = raw.graph.connections.filter((edge: { id: string }) => edge.id === 'boundary')
+
+    const { editor, engine, definitions } = await restore(raw)
+    await expect(evaluateOpenSCAD(editor, engine, undefined, definitions)).resolves.toBe('')
+    await expect(evaluateInspectNode(editor, engine, 'for-result', definitions)).resolves.toEqual({ kind: 'geometry', source: '' })
+    expect(Object.keys(editor.getNode('for-result')!.inputs)).toEqual([
+      'loop', 'child:later', 'child:body', 'child:next',
+    ])
+
+    const saved = serializeProject({
+      editor, metadata: { name: 'Empty For loop' }, getNodePosition: () => ({ x: 0, y: 0 }), viewport: { x: 0, y: 0, k: 1 },
+      viewerCamera: camera, definitions: definitions.list(), getNodeScope: (id) => definitions.scopeOf(id), now: () => '2026-09-26T00:00:00.000Z',
+    })
+    expect(saved.graph.connections).toEqual([
+      expect.objectContaining({ sourceOutput: 'loop', targetInput: 'loop' }),
+    ])
+    expect(saved.graph.nodes.find((node) => node.type === 'for-result')?.parameters).toEqual({
+      pairId: 'pair', children: [{ id: 'later' }, { id: 'body' }, { id: 'next' }],
+    })
+    expect(parseScadletProject(saved).graph.nodes).toHaveLength(2)
+  })
+
   it('restores a fixed pair and generates the iterator range around its Geometry body', async () => {
     const { editor, engine, definitions } = await restore(project())
     expect(await evaluateOpenSCAD(editor, engine, undefined, definitions)).toBe(
@@ -167,6 +195,10 @@ describe('numeric For persistence and source generation', () => {
     const duplicate = structuredClone(project())
     duplicate.graph.nodes.push({ id: 'other-result', type: 'for-result', position: { x: 0, y: 0 }, parameters: { pairId: 'pair', children: [{ id: 'slot' }] } })
     expect(() => parseScadletProject(duplicate)).toThrow('exactly one header and one result')
+
+    const missingBoundary = structuredClone(project())
+    missingBoundary.graph.connections = missingBoundary.graph.connections.filter((edge: { id: string }) => edge.id !== 'boundary')
+    expect(() => parseScadletProject(missingBoundary)).toThrow('missing its fixed structural connection')
 
     const zero = structuredClone(project())
     zero.graph.nodes.find((node: { id: string }) => node.id === 'for-header')!.parameters.step = 0

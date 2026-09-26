@@ -189,10 +189,6 @@ function assertNoIncompleteReachableBranch(editor: NodeEditor<Schemes>, roots: r
       const connected = new Set(editor.getConnections().filter((item) => item.target === id).map((item) => item.targetInput))
       if (!connected.has('condition') || !connected.has('then')) throw new Error(t('if.incomplete'))
     }
-    if (node instanceof ForResultNode) {
-      const hasBody = editor.getConnections().some((item) => item.target === id && item.targetInput.startsWith('child:'))
-      if (!hasBody) throw new Error(t('for.invalidPair'))
-    }
     pending.push(...(incoming.get(id) ?? []))
   }
 }
