@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from './fixtures'
+import { waitForAutosave, waitForBoundingBox } from './support'
 
 async function ready(page: Page): Promise<void> {
   await page.goto('/')
@@ -18,9 +19,8 @@ async function dropPaletteNode(page: Page, type: string, point: { x: number; y: 
 }
 
 async function connect(page: Page, source: Locator, target: Locator): Promise<void> {
-  const start = await source.boundingBox()
-  const end = await target.boundingBox()
-  if (!start || !end) throw new Error('Expected socket bounds')
+  const start = await waitForBoundingBox(source)
+  const end = await waitForBoundingBox(target)
   await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2)
   await page.mouse.down()
   await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 8 })
@@ -36,8 +36,7 @@ async function fileAction(page: Page, name: string): Promise<Locator> {
 test('For creates an accessible fixed pair, composes a numeric Geometry body, duplicates jointly, and is refused in Functions', async ({ page }) => {
   await ready(page)
   const editor = page.locator('node-editor')
-  const canvas = await editor.boundingBox()
-  if (!canvas) throw new Error('Expected editor bounds')
+  const canvas = await waitForBoundingBox(editor)
 
   const paletteEntry = page.locator('node-palette .node-item[data-node-type="for"]')
   await expect(paletteEntry).toContainText('For')
@@ -69,19 +68,16 @@ test('For creates an accessible fixed pair, composes a numeric Geometry body, du
   expect(await structural.evaluate((wire) => getComputedStyle(wire).pointerEvents)).toBe('none')
   await expect(structural.locator('.connection-hit-path')).toHaveCSS('pointer-events', 'none')
 
-  const headerBox = await header.boundingBox()
-  const resultBox = await result.boundingBox()
-  if (!headerBox || !resultBox) throw new Error('Expected For node bounds')
+  const headerBox = await waitForBoundingBox(header)
+  const resultBox = await waitForBoundingBox(result)
   expect(resultBox.x - headerBox.x).toBeGreaterThan(250)
-  const headerTitle = await header.locator('.node-title').boundingBox()
-  if (!headerTitle) throw new Error('Expected For header title')
+  const headerTitle = await waitForBoundingBox(header.locator('.node-title'))
   await page.mouse.move(headerTitle.x + 8, headerTitle.y + 8)
   await page.mouse.down()
   await page.mouse.move(headerTitle.x + 8, headerTitle.y + 68, { steps: 8 })
   await page.mouse.up()
-  const movedHeaderBox = await header.boundingBox()
-  const unmovedResultBox = await result.boundingBox()
-  if (!movedHeaderBox || !unmovedResultBox) throw new Error('Expected moved For node bounds')
+  const movedHeaderBox = await waitForBoundingBox(header)
+  const unmovedResultBox = await waitForBoundingBox(result)
   expect(movedHeaderBox.y - headerBox.y).toBeGreaterThan(40)
   expect(Math.abs(unmovedResultBox.y - resultBox.y)).toBeLessThan(2)
 
@@ -134,8 +130,7 @@ test('For creates an accessible fixed pair, composes a numeric Geometry body, du
   await moduleDialog.getByLabel('Module name').fill('loop_module')
   await moduleDialog.getByRole('button', { name: 'Create', exact: true }).click()
   const moduleFrame = editor.locator('.definition-frame').filter({ hasText: 'loop_module' })
-  const moduleBox = await moduleFrame.boundingBox()
-  if (!moduleBox) throw new Error('Expected Module frame')
+  const moduleBox = await waitForBoundingBox(moduleFrame)
   await dropPaletteNode(page, 'for', { x: moduleBox.x + moduleBox.width / 2, y: moduleBox.y + moduleBox.height / 2 })
   await expect(editor.locator('.node[data-node-type="for"]')).toHaveCount(2)
   await expect(editor.locator('.node[data-node-type="for-result"]')).toHaveCount(2)
@@ -145,13 +140,12 @@ test('For creates an accessible fixed pair, composes a numeric Geometry body, du
   await dialog.getByLabel('Function name').fill('value_only')
   await dialog.getByRole('button', { name: 'Create', exact: true }).click()
   const functionFrame = editor.locator('.definition-frame').filter({ hasText: 'value_only' })
-  const functionBox = await functionFrame.boundingBox()
-  if (!functionBox) throw new Error('Expected Function frame')
+  const functionBox = await waitForBoundingBox(functionFrame)
   await dropPaletteNode(page, 'for', { x: functionBox.x + functionBox.width / 2, y: functionBox.y + functionBox.height / 2 })
   await expect(editor.locator('.node[data-node-type="for"]')).toHaveCount(2)
   await expect(editor.locator('.editor-feedback')).toContainText('Only value/math and Function Call nodes')
 
-  await page.waitForTimeout(1_000)
+  await waitForAutosave(page)
   await page.reload()
   await expect(page.getByRole('textbox', { name: 'Project name' })).toBeEnabled()
   await expect(editor.locator('.node[data-node-type="for"]')).toHaveCount(2)

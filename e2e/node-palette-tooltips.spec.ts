@@ -1,16 +1,9 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './fixtures'
 
 async function waitForLocalLibrary(page: Page): Promise<void> {
   await page.goto('/')
   await expect(page.locator('scadlet-app .project-name')).toBeEnabled()
 }
-
-test.beforeEach(async ({ context }) => {
-  await context.addInitScript(() => {
-    Object.defineProperty(window, 'showOpenFilePicker', { value: undefined, configurable: true })
-    Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, configurable: true })
-  })
-})
 
 test('every ordinary palette node exposes the shared accessible tooltip', async ({ page }) => {
   await waitForLocalLibrary(page)
@@ -42,7 +35,7 @@ test('every ordinary palette node exposes the shared accessible tooltip', async 
   await expect(tooltip).toBeHidden()
 })
 
-test('hover and keyboard focus show the same English explanation and cleanly dismiss it', async ({ page }) => {
+test('hover and keyboard focus show the same English explanation and cleanly dismiss it', async ({ page }, testInfo) => {
   await waitForLocalLibrary(page)
   const palette = page.locator('node-palette')
   const cube = palette.locator('.node-item[data-node-type="cube"]')
@@ -63,7 +56,7 @@ test('hover and keyboard focus show the same English explanation and cleanly dis
   expect(normalIconSize).toEqual({ width: '18px', height: '18px' })
   expect(tooltipIconSize).toEqual({ width: '44px', height: '44px' })
   await expect(tooltip).toHaveCSS('pointer-events', 'none')
-  await page.screenshot({ path: 'test-results/palette-tooltip-cube.png' })
+  await page.screenshot({ path: testInfo.outputPath('palette-tooltip-cube.png') })
 
   await page.locator('node-editor').hover({ position: { x: 100, y: 100 } })
   await expect(tooltip).toBeHidden()
@@ -88,7 +81,7 @@ test('hover and keyboard focus show the same English explanation and cleanly dis
   await expect(tooltip).toBeHidden()
 })
 
-test('Math copy names its operations and an edge tooltip stays inside the viewport, outside the palette clip', async ({ page }) => {
+test('Math copy names its operations and an edge tooltip stays inside the viewport, outside the palette clip', async ({ page }, testInfo) => {
   await waitForLocalLibrary(page)
   const palette = page.locator('node-palette')
   const trigonometry = palette.locator('.node-item[data-node-type="trigonometry"]')
@@ -116,5 +109,5 @@ test('Math copy names its operations and an edge tooltip stays inside the viewpo
   expect(tooltipBox.x + tooltipBox.width).toBeLessThanOrEqual(viewport.width - 8)
   expect(tooltipBox.y + tooltipBox.height).toBeLessThanOrEqual(viewport.height - 8)
 
-  await page.screenshot({ path: 'test-results/palette-tooltip-edge.png' })
+  await page.screenshot({ path: testInfo.outputPath('palette-tooltip-edge.png') })
 })

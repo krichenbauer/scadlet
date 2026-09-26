@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 test('keeps the small-screen notice absent on a normal desktop viewport', async ({ page }) => {
   await page.goto('/')

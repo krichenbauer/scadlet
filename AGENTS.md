@@ -77,6 +77,11 @@ without an explicit product decision.
   application mounted but replace it visually and accessibly with the
   non-dismissible larger-screen notice. Crossing that boundary must update
   immediately without resetting editor or project state.
+- Every ordinary Playwright test owns its browser/application/persistence
+  state and must pass in any order and worker. Keep independent tests fully
+  parallel; express one stateful journey as one test with `test.step`, and use
+  a documented, minimal serial group only when a single independent test
+  cannot represent the case. Never use worker reuse as test setup.
 
 ## Read the relevant reference before changing its area
 

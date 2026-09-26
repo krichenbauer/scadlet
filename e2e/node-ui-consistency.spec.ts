@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './fixtures'
+import { waitForBoundingBox } from './support'
 
 /**
  * Covers the shared node-UI-consistency work (node-style.md): the shared
@@ -68,13 +69,6 @@ async function connect(page: Page, source: Locator, target: Locator): Promise<vo
   await page.mouse.up()
 }
 
-test.beforeEach(async ({ context }) => {
-  await context.addInitScript(() => {
-    Object.defineProperty(window, 'showOpenFilePicker', { value: undefined, configurable: true })
-    Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, configurable: true })
-  })
-})
-
 test('shared header exposes icon, title, More, and Collapse in order with accessible names and keyboard focus', async ({ page }) => {
   await waitForLocalLibrary(page)
   await dropPaletteNode(page, 'translate')
@@ -117,6 +111,8 @@ test('Module and Function Calls show only their definition names while retaining
     await dialog.getByLabel(`${kind === 'module' ? 'Module' : 'Function'} name`).fill(name)
     await dialog.getByRole('button', { name: 'Create', exact: true }).click()
     const frame = page.locator('node-editor .definition-frame').filter({ hasText: name })
+    await expect(frame).toBeVisible()
+    await waitForBoundingBox(frame)
     const definitionId = await frame.getAttribute('data-definition-id')
     if (!definitionId) throw new Error(`Expected ${kind} definition id`)
     return { frame, definitionId }
@@ -130,9 +126,7 @@ test('Module and Function Calls show only their definition names while retaining
 
   const functionDefinition = await createDefinition('function', 'taper')
   await addNumberParameter(await definitionInputs(page, functionDefinition.definitionId), 'ratio')
-  await expect.poll(async () => Boolean(await functionDefinition.frame.boundingBox())).toBe(true)
-  const functionFrameBox = await functionDefinition.frame.boundingBox()
-  if (!functionFrameBox) throw new Error('Expected Function definition frame')
+  const functionFrameBox = await waitForBoundingBox(functionDefinition.frame)
   await dropPaletteNode(page, 'number', { x: functionFrameBox.x + functionFrameBox.width / 2, y: functionFrameBox.y + functionFrameBox.height / 2 })
   const functionValue = page.locator('node-editor .node').filter({ has: page.locator('.node-title[aria-label="Number Name"]') })
   const outputNodeId = await page.locator('node-editor').evaluate((element, id) => {
@@ -214,7 +208,7 @@ test('More menu exposes only the actions applicable to each node kind', async ({
   await expect(output.locator('.node-more-menu')).toHaveCount(0)
 })
 
-test('palette entries show a matching icon immediately before every readable node-type label', async ({ page }) => {
+test('palette entries show a matching icon immediately before every readable node-type label', async ({ page }, testInfo) => {
   await waitForLocalLibrary(page)
   const palette = page.locator('node-palette')
   for (const [type, label] of [['cube', 'Cube'], ['translate', 'Translate'], ['union', 'Union'], ['number', 'Number'], ['compare', 'Compare'], ['conditional', 'Conditional']] as const) {
@@ -261,7 +255,7 @@ test('palette entries show a matching icon immediately before every readable nod
   ))
   expect(paintGeometry.every((part) => part.namespace === 'http://www.w3.org/2000/svg')).toBe(true)
   expect(paintGeometry.every((part) => part.width > 0 && part.height > 0)).toBe(true)
-  await palette.screenshot({ path: 'test-results/boolean-palette-after.png' })
+  await palette.screenshot({ path: testInfo.outputPath('boolean-palette-after.png') })
 
   for (const type of ['cube', 'union', 'number']) {
     const iconSize = await palette.locator(`.node-item[data-node-type="${type}"] .node-item-icon`).evaluate((icon) => {

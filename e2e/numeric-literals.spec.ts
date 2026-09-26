@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './fixtures'
+import { waitForAutosave } from './support'
 
 /**
  * A cleared or half-typed numeric field reads back as `NaN` through
@@ -111,22 +112,9 @@ async function generatedSource(page: Page): Promise<string> {
   return ((await output.textContent()) ?? '').trim()
 }
 
-/** Autosave debounces for 750ms, so a failed write would surface shortly
- * after an edit rather than synchronously. */
 async function expectAutosaveHealthy(page: Page): Promise<void> {
-  await page.waitForTimeout(1_500)
-  await expect(page.locator('scadlet-app .persistence-status')).toHaveCount(0)
-  await expect(page.locator('scadlet-app .dirty-indicator')).toBeHidden()
+  await waitForAutosave(page)
 }
-
-test.beforeEach(async ({ context }) => {
-  // Exercise the baseline file-input/download implementation; a native
-  // picker cannot be driven portably in headless CI.
-  await context.addInitScript(() => {
-    Object.defineProperty(window, 'showOpenFilePicker', { value: undefined, configurable: true })
-    Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, configurable: true })
-  })
-})
 
 test('an emptied numeric literal keeps its last valid value and never becomes NaN', async ({ page }) => {
   await seedActiveProject(page, transformProject(), 'numeric-literals')

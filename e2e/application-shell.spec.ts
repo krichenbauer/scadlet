@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 async function dropCube(page: import('@playwright/test').Page, offset: { x: number; y: number }): Promise<void> {
   await page.evaluate(({ x, y }) => {

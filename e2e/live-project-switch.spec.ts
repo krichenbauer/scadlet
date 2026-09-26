@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './fixtures'
 
 const CAMERA = { position: [80, 80, 60], target: [0, 0, 0] }
 

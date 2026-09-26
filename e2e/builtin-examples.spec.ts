@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './fixtures'
 
 async function openProjects(page: Page): Promise<void> {
   const menu = page.locator('scadlet-app .project-menu-list')

@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from './fixtures'
+import { waitForAutosave, waitForBoundingBox, waitForUiCommit } from './support'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const HISTORICAL_MODULE_PARAMETERS = JSON.parse(readFileSync(join(ROOT, 'src/persistence/fixtures/pre-phase4-module-parameters-v3.scadlet'), 'utf8'))
@@ -277,11 +278,6 @@ async function fileAction(page: Page, name: string) {
   return page.getByRole('menuitem', { name, exact: true })
 }
 
-/** Successful autosaves are intentionally silent in the completed shell. */
-async function waitForAutosave(page: Page): Promise<void> {
-  await page.waitForTimeout(800)
-}
-
 async function renameProject(page: Page, name: string) {
   const input = page.locator('scadlet-app .project-name')
   await input.fill(name)
@@ -454,25 +450,6 @@ async function connectNodePorts(page: Page, source: string, sourceOutput: string
   if (!result.created) throw new Error(`Live Rete connection rejected: ${JSON.stringify(result)}`)
 }
 
-async function waitForBoundingBox(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
-  let bounds: { x: number; y: number; width: number; height: number } | null = null
-  await expect.poll(async () => {
-    bounds = await locator.boundingBox()
-    return bounds !== null
-  }).toBe(true)
-  if (!bounds) throw new Error('Expected stable element bounds after render')
-  return bounds
-}
-
-test.beforeEach(async ({ context }) => {
-  await context.addInitScript(() => {
-    // Exercise SCADlet's baseline file-input/download implementation;
-    // native picker UI cannot be driven portably in headless CI.
-    Object.defineProperty(window, 'showOpenFilePicker', { value: undefined, configurable: true })
-    Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, configurable: true })
-  })
-})
-
 test('header exposes the SCADlet GitHub link', async ({ page }) => {
   await waitForLocalLibrary(page)
   const link = page.getByRole('link', { name: 'SCADlet on GitHub' })
@@ -530,7 +507,8 @@ test('isolates a broken active record from the usable local library and never au
   await expect(page.locator('scadlet-app .persistence-status')).toContainText('Could not load local project "Broken recovery project"')
   await expect(page.locator('scadlet-app .persistence-status')).toContainText('node dataflow cycle')
   await expect(page.locator('scadlet-app .persistence-status')).not.toContainText('storage is unavailable')
-  await page.waitForTimeout(1_100)
+  await waitForUiCommit(page)
+  await expect.poll(() => page.locator('scadlet-app').evaluate((element) => (element as unknown as { dirty: boolean }).dirty)).toBe(false)
   expect(await readLocalRecord(page, 'broken-project')).toEqual(brokenRecord)
 
   page.once('dialog', (dialog) => dialog.accept())
@@ -709,15 +687,14 @@ test('builds, autosaves, reloads, and renders acyclic nested Function Calls', as
     await dialog.getByLabel('Function name').fill(name)
     await dialog.getByRole('button', { name: 'Create', exact: true }).click()
     const frame = page.locator('node-editor .definition-frame').filter({ hasText: name })
-    await expect(frame).toHaveCount(1)
+    await expect(frame).toBeVisible()
     const id = await frame.getAttribute('data-definition-id')
     if (!id) throw new Error(`Expected ${name} definition id`)
     return { frame, id, ...(await definitionRuntime(page, id)) }
   }
 
   const inner = await createFunction('inner')
-  const innerBox = await inner.frame.boundingBox()
-  if (!innerBox) throw new Error('Expected inner Function frame')
+  const innerBox = await waitForBoundingBox(inner.frame)
   await dropPaletteNode(page, 'number', { x: innerBox.x + innerBox.width / 2 - 70, y: innerBox.y + innerBox.height / 2 })
   const innerValue = page.locator('node-editor .node').filter({ has: page.locator('.node-title[aria-label="Number Name"]') })
   const innerOutput = page.locator(`node-editor .node[data-node-id="${inner.outputNodeId}"]`)
@@ -726,16 +703,14 @@ test('builds, autosaves, reloads, and renders acyclic nested Function Calls', as
 
   // Make room for the second definition while keeping the first frame in
   // view while making room for the second definition.
-  const innerTitle = await inner.frame.locator('.definition-frame-title').boundingBox()
-  if (!innerTitle) throw new Error('Expected inner frame title')
+  const innerTitle = await waitForBoundingBox(inner.frame.locator('.definition-frame-title'))
   await page.mouse.move(innerTitle.x + 20, innerTitle.y + innerTitle.height / 2)
   await page.mouse.down()
   await page.mouse.move(innerTitle.x - 150, innerTitle.y - 170, { steps: 8 })
   await page.mouse.up()
 
   const outer = await createFunction('outer')
-  const outerBox = await outer.frame.boundingBox()
-  if (!outerBox) throw new Error('Expected outer Function frame')
+  const outerBox = await waitForBoundingBox(outer.frame)
   await dropFunctionCall(page, inner.id, { x: outerBox.x + outerBox.width / 2 - 70, y: outerBox.y + outerBox.height / 2 })
   const nestedInnerIds = await callNodeIdsInScope(page, 'inner', outer.id)
   expect(nestedInnerIds).toHaveLength(1)
@@ -790,6 +765,7 @@ test('builds a terminating self-recursive Function visibly and renders it after 
   await dialog.getByLabel('Function name').fill('factorial')
   await dialog.getByRole('button', { name: 'Create', exact: true }).click()
   const frame = page.locator('node-editor .definition-frame').filter({ hasText: 'factorial' })
+  await expect(frame).toBeVisible()
   const definitionId = await frame.getAttribute('data-definition-id')
   if (!definitionId) throw new Error('Expected factorial definition id')
   const definitionFrame = page.locator(`node-editor .definition-frame[data-definition-id="${definitionId}"]`)
@@ -803,8 +779,7 @@ test('builds a terminating self-recursive Function visibly and renders it after 
   await inputs.getByLabel('Default').fill('5')
   await inputs.locator('.node-parameter-popover').getByRole('button', { name: 'Add', exact: true }).click()
 
-  const initialFrameBox = await definitionFrame.boundingBox()
-  if (!initialFrameBox) throw new Error('Expected factorial frame')
+  const initialFrameBox = await waitForBoundingBox(definitionFrame)
   const insidePoint = { x: initialFrameBox.x + initialFrameBox.width / 2, y: initialFrameBox.y + initialFrameBox.height / 2 }
   const dropInside = (type: string, parameters?: Record<string, unknown>) => dropPaletteNode(page, type, insidePoint, parameters)
   await dropInside('number', { value: 1, name: 'One' })
@@ -1196,7 +1171,6 @@ test('preselects palette/header operations with readable controls and safely cha
   await expect(trig.locator('.node-param-row')).toHaveCount(2)
   await expect(page.locator('node-editor svg.connection[data-real-connection="true"]')).toHaveCount(2)
   await waitForAutosave(page)
-  await page.waitForTimeout(700)
   expect((await readLocalRecord(page, projectId) as { revision: number }).revision).toBe(beforeCancel.revision)
   await page.evaluate(() => Object.defineProperty(window, 'confirm', { configurable: true, value: () => true }))
   await trig.locator('select.node-title').selectOption('cos')
@@ -2045,7 +2019,6 @@ test('rejects a visible node dataflow cycle without changing the valid graph, th
   await expect(cube).toHaveClass(/node--inspected/)
   await expect(source).toHaveText(sourceBefore ?? '')
   await waitForAutosave(page)
-  await page.waitForTimeout(1_000)
   expect(await readLocalRecord(page, projectId)).toEqual(storedBefore)
 
   await page.getByRole('button', { name: 'Render', exact: true }).click()
@@ -2472,11 +2445,10 @@ test('Vector3 connected rows retain canonical order', async ({ page }) => {
   const connectNumber = async (node: Locator, key: string) => {
     await dropPaletteNode(page, 'number')
     const number = numberSources.nth(numberIndex++)
-    const source = await number.locator('.node-port--output .node-socket').boundingBox()
-    const target = await node.locator(`[data-param-key="${key}"] .node-socket`).boundingBox()
-    if (!source || !target) throw new Error(`Expected Number output and ${key} socket`)
+    const source = await waitForBoundingBox(number.locator('.node-port--output .node-socket'))
+    const target = await waitForBoundingBox(node.locator(`[data-param-key="${key}"] .node-socket`))
     await page.mouse.click(source.x + source.width / 2, source.y + source.height / 2)
-    await page.waitForTimeout(50)
+    await expect(page.locator('node-editor svg.connection[data-real-connection="false"]')).toHaveCount(1)
     await page.mouse.click(target.x + target.width / 2, target.y + target.height / 2)
     await expect(node.locator(`[data-param-key="${key}"] input`)).toBeDisabled()
     await moveNode(number, -180, -100)
@@ -2526,11 +2498,10 @@ test('Cube XYZ connected rows retain canonical order', async ({ page }) => {
   await moveNode(cube, -190, 210)
   await dropPaletteNode(page, 'number')
   const number = page.locator('node-editor .node').filter({ has: page.locator('.node-title[aria-label="Number Name"]') })
-  const source = await number.locator('.node-port--output .node-socket').boundingBox()
-  const target = await cube.locator('[data-param-key="sizeZ"] .node-socket').boundingBox()
-  if (!source || !target) throw new Error('Expected Number output and Cube Z socket')
+  const source = await waitForBoundingBox(number.locator('.node-port--output .node-socket'))
+  const target = await waitForBoundingBox(cube.locator('[data-param-key="sizeZ"] .node-socket'))
   await page.mouse.click(source.x + source.width / 2, source.y + source.height / 2)
-  await page.waitForTimeout(50)
+  await expect(page.locator('node-editor svg.connection[data-real-connection="false"]')).toHaveCount(1)
   await page.mouse.click(target.x + target.width / 2, target.y + target.height / 2)
   await expect(cube.locator('[data-param-key="sizeZ"] input')).toBeDisabled()
   await cube.getByRole('button', { name: 'Collapse node' }).click()

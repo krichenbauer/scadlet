@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from './fixtures'
+import { waitForBoundingBox } from './support'
 
 const CAMERA = { position: [80, 80, 60], target: [0, 0, 0] }
 
@@ -20,9 +21,8 @@ async function dropPaletteNode(page: Page, type: string, point: { x: number; y: 
 }
 
 async function connect(page: Page, source: Locator, target: Locator): Promise<void> {
-  const start = await source.boundingBox()
-  const end = await target.boundingBox()
-  if (!start || !end) throw new Error('Expected socket bounds')
+  const start = await waitForBoundingBox(source)
+  const end = await waitForBoundingBox(target)
   await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2)
   await page.mouse.down()
   await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 8 })
@@ -90,17 +90,9 @@ async function fileAction(page: Page, name: string): Promise<Locator> {
   return page.getByRole('menuitem', { name, exact: true })
 }
 
-test.beforeEach(async ({ context }) => {
-  await context.addInitScript(() => {
-    Object.defineProperty(window, 'showOpenFilePicker', { value: undefined, configurable: true })
-    Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, configurable: true })
-  })
-})
-
 test('palette creation uses the header Add menu, unique optional rows, and one node per supported scope', async ({ page }) => {
   await ready(page)
-  const canvas = await page.locator('node-editor').boundingBox()
-  if (!canvas) throw new Error('Expected editor bounds')
+  const canvas = await waitForBoundingBox(page.locator('node-editor'))
   const paletteEntry = page.locator('node-palette .node-item[data-node-type="scad-settings"]')
   await expect(paletteEntry).toContainText('SCAD settings')
   await expect(paletteEntry.locator('.node-item-icon svg')).toHaveCount(1)
@@ -135,8 +127,7 @@ test('palette creation uses the header Add menu, unique optional rows, and one n
   await dialog.getByLabel('Module name').fill('local_quality')
   await dialog.getByRole('button', { name: 'Create', exact: true }).click()
   const frame = page.locator('node-editor .definition-frame').filter({ hasText: 'local_quality' })
-  const frameBox = await frame.boundingBox()
-  if (!frameBox) throw new Error('Expected Module frame')
+  const frameBox = await waitForBoundingBox(frame)
   await dropPaletteNode(page, 'scad-settings', { x: frameBox.x + frameBox.width / 2, y: frameBox.y + frameBox.height / 2 })
   await expect(settings).toHaveCount(2)
   const scopes = await page.locator('node-editor').evaluate((element) => {
@@ -151,8 +142,7 @@ test('palette creation uses the header Add menu, unique optional rows, and one n
   await functionDialog.getByLabel('Function name').fill('quality_value')
   await functionDialog.getByRole('button', { name: 'Create', exact: true }).click()
   const functionFrame = page.locator('node-editor .definition-frame').filter({ hasText: 'quality_value' })
-  const functionBox = await functionFrame.boundingBox()
-  if (!functionBox) throw new Error('Expected Function frame')
+  const functionBox = await waitForBoundingBox(functionFrame)
   await dropPaletteNode(page, 'scad-settings', { x: functionBox.x + functionBox.width / 2, y: functionBox.y + functionBox.height / 2 })
   await expect(settings).toHaveCount(2)
   await expect(page.locator('node-editor .editor-feedback')).toContainText('Only value/math and Function Call nodes')
@@ -176,8 +166,7 @@ test('connected expressions render through WASM, Module settings override Main, 
   if (!path) throw new Error('Expected downloaded SCAD path')
   expect(readFileSync(path, 'utf8').trim()).toBe(source)
 
-  const canvas = await page.locator('node-editor').boundingBox()
-  if (!canvas) throw new Error('Expected editor bounds')
+  const canvas = await waitForBoundingBox(page.locator('node-editor'))
   await dropPaletteNode(page, 'boolean', { x: canvas.x + 80, y: canvas.y + canvas.height - 80 })
   const boolean = page.locator('node-editor .node').filter({ has: page.locator('.node-title[aria-label="Boolean Name"]') })
   const settings = page.locator('node-editor .node[data-node-id="main-settings"]')

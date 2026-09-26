@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from './fixtures'
+import { waitForAutosave, waitForBoundingBox } from './support'
 
 const CAMERA = { position: [80, 80, 60], target: [0, 0, 0] }
 
@@ -20,9 +21,8 @@ async function dropPaletteNode(page: Page, type: string, point: { x: number; y: 
 }
 
 async function connect(page: Page, source: Locator, target: Locator): Promise<void> {
-  const start = await source.boundingBox()
-  const end = await target.boundingBox()
-  if (!start || !end) throw new Error('Expected socket bounds')
+  const start = await waitForBoundingBox(source)
+  const end = await waitForBoundingBox(target)
   await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2)
   await page.mouse.down()
   await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 8 })
@@ -149,20 +149,12 @@ function connectedValueProject() {
   }
 }
 
-test.beforeEach(async ({ context }) => {
-  await context.addInitScript(() => {
-    Object.defineProperty(window, 'showOpenFilePicker', { value: undefined, configurable: true })
-    Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, configurable: true })
-  })
-})
-
 test('reference controls support click-place, Escape, scope cancellation, drag creation, and definition cleanup', async ({ page }) => {
   test.setTimeout(60_000)
   await ready(page)
   await page.getByRole('switch', { name: 'Live render', exact: true }).click()
   const editor = page.locator('node-editor')
-  const bounds = await editor.boundingBox()
-  if (!bounds) throw new Error('Expected editor bounds')
+  const bounds = await waitForBoundingBox(editor)
   await dropPaletteNode(page, 'number', { x: bounds.x + 140, y: bounds.y + 160 })
   const number = editor.locator('.node[data-node-type="number"]').first()
   const createReference = number.getByRole('button', { name: 'Create variable reference', exact: true })
@@ -292,7 +284,7 @@ test('restored scoped references expose parameter controls, render and export id
   const stop = page.getByRole('button', { name: 'Stop', exact: true })
   if (await stop.isVisible()) await stop.click()
 
-  await page.waitForTimeout(1_000)
+  await waitForAutosave(page)
   await page.reload()
   await expect(editor.locator('.node[data-node-id="spacing-reference"] .node-title')).toHaveText('distance')
   await expect(editor.locator('.node[data-node-id="spacing-reference"]')).toHaveAttribute('data-node-type', 'variable-reference')
@@ -365,7 +357,7 @@ test('typed Value inputs override preserved fallbacks, survive restore, reject i
   await expect(valueRow('spacing').locator('input')).toHaveValue('99')
   expect(await evaluate()).toContain('spacing = 99;')
 
-  await page.waitForTimeout(1_000)
+  await waitForAutosave(page)
   await page.reload()
   await expect(valueRow('spacing')).toHaveAttribute('data-value-source', 'fallback')
   await expect(valueRow('spacing').locator('input')).toHaveValue('99')

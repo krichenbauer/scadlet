@@ -1,4 +1,5 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from './fixtures'
+import { waitForAutosave, waitForBoundingBox } from './support'
 
 async function createDefinition(page: Page, kind: 'module' | 'function', name: string): Promise<Locator> {
   await page.getByRole('button', { name: `+ New ${kind}`, exact: true }).click()
@@ -6,7 +7,8 @@ async function createDefinition(page: Page, kind: 'module' | 'function', name: s
   await dialog.getByLabel(`${kind === 'module' ? 'Module' : 'Function'} name`).fill(name)
   await dialog.getByRole('button', { name: 'Create', exact: true }).click()
   const frame = page.locator('node-editor .definition-frame').filter({ hasText: name })
-  await expect(frame).toHaveCount(1)
+  await expect(frame).toBeVisible()
+  await waitForBoundingBox(frame)
   return frame
 }
 
@@ -30,8 +32,7 @@ async function openParameterPopover(inputs: Locator): Promise<Locator> {
 }
 
 async function dropNumberInFrame(page: Page, frame: Locator): Promise<Locator> {
-  const bounds = await frame.boundingBox()
-  if (!bounds) throw new Error('Expected definition bounds')
+  const bounds = await waitForBoundingBox(frame)
   await page.locator('node-editor').evaluate((element, point) => {
     const canvas = element.shadowRoot?.querySelector('#canvas')
     if (!canvas) throw new Error('Expected canvas')
@@ -46,9 +47,8 @@ async function dropNumberInFrame(page: Page, frame: Locator): Promise<Locator> {
 }
 
 async function connect(page: Page, source: Locator, target: Locator): Promise<void> {
-  const start = await source.boundingBox()
-  const end = await target.boundingBox()
-  if (!start || !end) throw new Error('Expected socket bounds')
+  const start = await waitForBoundingBox(source)
+  const end = await waitForBoundingBox(target)
   await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2)
   await page.mouse.down()
   await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 8 })
@@ -62,12 +62,11 @@ test('Module and Function parameter popovers preserve Inputs layout and signatur
 
   const moduleFrame = await createDefinition(page, 'module', 'panel')
   const moduleInputs = await definitionInputs(page, moduleFrame)
-  const before = await moduleInputs.boundingBox()
-  if (!before) throw new Error('Expected Module Inputs bounds')
+  const before = await waitForBoundingBox(moduleInputs)
   const modulePopover = await openParameterPopover(moduleInputs)
   await expect(modulePopover.getByRole('heading', { name: 'New parameter' })).toBeVisible()
   await expect(modulePopover.getByLabel('Name', { exact: true })).toBeFocused()
-  const after = await moduleInputs.boundingBox()
+  const after = await waitForBoundingBox(moduleInputs)
   expect(after).toEqual(before)
 
   // Validation stays in the established creation lifecycle; it keeps this
@@ -117,7 +116,7 @@ test('Module and Function parameter popovers preserve Inputs layout and signatur
 
   // The normal dirty/autosave path is unchanged by the presentation-only
   // popover. Reload restores both signatures through the v7 project format.
-  await page.waitForTimeout(800)
+  await waitForAutosave(page)
   await page.reload()
   await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Inputs' }) }).locator('.node-socket[aria-label="width"]')).toHaveCount(1)
   await expect(page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Inputs' }) }).locator('.node-socket[aria-label="factor"]')).toHaveCount(1)

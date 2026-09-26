@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from './fixtures'
 
 async function openEmptyProject(page: Page): Promise<void> {
   await page.goto('/')
@@ -125,13 +125,6 @@ async function visibleInputPorts(node: Locator): Promise<{ key: string | undefin
     label: port.querySelector('.node-port-label')?.textContent ?? '',
   })))
 }
-
-test.beforeEach(async ({ context }) => {
-  await context.addInitScript(() => {
-    Object.defineProperty(window, 'showOpenFilePicker', { value: undefined, configurable: true })
-    Object.defineProperty(window, 'showSaveFilePicker', { value: undefined, configurable: true })
-  })
-})
 
 test('renders a restrained Geometry accent for live Geometry outputs and matching palette sources', async ({ page }) => {
   await openEmptyProject(page)

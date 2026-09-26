@@ -34,6 +34,30 @@ Browser persistence tests use Playwright (`pnpm test:e2e`) and the devShell
 Chromium exposed by `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`; generated browser
 reports stay ignored. Playwright serves the production build through Vite
 Preview, ensuring browser tests cover deployable bundled resources.
+
+Every ordinary E2E test starts from its own Playwright browser context and
+must establish the app, project, IndexedDB, storage, selection, and render
+state it needs. Tests may run in any order or worker and never depend on a
+previous test or a reused worker. Seeded projects and artifacts use test-owned
+state; multiple pages may share a context only within one test that explicitly
+verifies tab coordination. Repeated setup belongs in fixtures/helpers, not in
+an earlier test.
+
+Keep independent tests fully parallel. If assertions form one uninterrupted
+stateful user journey, keep them in one `test(...)` and use `test.step(...)`
+when subdivision improves reporting. `test.describe.serial(...)` is reserved
+for a narrowly documented case that cannot be represented as one independent
+test; serial tests still may not exchange browser or persistence state. Do not
+use retries, reduced worker counts, or broad serialization to mask a race.
+
+Wait for visible application state, persisted dirty-state completion, worker
+idle state, or stable rendered bounds. A fixed delay is acceptable only when
+the passage of a specified interval is itself the behavior under test, such as
+proving that no preview occurs inside/outside the documented debounce window.
+Worker-repeat diagnostics must use test-owned output paths. Retain failure
+traces, screenshots, videos, browser errors, generated source, render errors,
+and persistence status where available.
+
 Recursion regressions must exercise direct and mutual Function/Module source
 through the bundled OpenSCAD-WASM. Do not substitute JavaScript evaluation or
 assume OpenSCAD declaration-order behavior without a real runtime check.

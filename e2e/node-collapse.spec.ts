@@ -1,4 +1,5 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from './fixtures'
+import { waitForAutosave, waitForBoundingBox } from './support'
 
 async function dropPaletteNode(page: Page, type: string, point: { x: number; y: number }): Promise<void> {
   await page.locator('node-editor').evaluate((element, { type, x, y }) => {
@@ -18,9 +19,8 @@ async function node(page: Page, title: string): Promise<Locator> {
 }
 
 async function connect(page: Page, source: Locator, target: Locator): Promise<void> {
-  const sourceBox = await source.boundingBox()
-  const targetBox = await target.boundingBox()
-  if (!sourceBox || !targetBox) throw new Error('Expected visible sockets')
+  const sourceBox = await waitForBoundingBox(source)
+  const targetBox = await waitForBoundingBox(target)
   await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2)
   await page.mouse.down()
   await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, { steps: 8 })
@@ -30,8 +30,7 @@ async function connect(page: Page, source: Locator, target: Locator): Promise<vo
 test('explicit node collapse persists without changing wires or wire gestures', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('textbox', { name: 'Project name' })).toBeEnabled()
-  const canvas = await page.locator('node-editor').boundingBox()
-  if (!canvas) throw new Error('Expected node-editor canvas')
+  const canvas = await waitForBoundingBox(page.locator('node-editor'))
   await dropPaletteNode(page, 'cube', { x: canvas.x + 40, y: canvas.y + 40 })
   await dropPaletteNode(page, 'translate', { x: canvas.x + 220, y: canvas.y + 40 })
   const cube = await node(page, 'Cube')
@@ -95,7 +94,7 @@ test('explicit node collapse persists without changing wires or wire gestures', 
 
   await translate.getByRole('button', { name: 'Collapse node' }).press('Enter')
   await expect(translate.getByRole('button', { name: 'Expand node' })).toBeFocused()
-  await page.waitForTimeout(1_000)
+  await waitForAutosave(page)
   await page.reload()
   const restoredTranslate = await node(page, 'Translate')
   await expect(restoredTranslate.getByRole('button', { name: 'Expand node' })).toHaveAttribute('aria-expanded', 'false')

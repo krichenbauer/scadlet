@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './fixtures'
+import { waitForAutosave } from './support'
 
 const CAMERA = { position: [40, 40, 40], target: [0, 0, 0] }
 
@@ -55,7 +56,7 @@ async function setSubtractSize(page: Page, size: string) {
   const input = subtract.locator('[data-param-key="size"] input')
   await input.fill(size)
   await input.press('Tab')
-  await page.waitForTimeout(800)
+  await waitForAutosave(page)
 }
 
 async function viewerHasMesh(page: Page): Promise<boolean> {
