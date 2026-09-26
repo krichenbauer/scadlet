@@ -35,6 +35,13 @@ Number, Boolean, and Vector3 nodes. No parameter or migration field is needed:
 the existing direct values remain persisted fallbacks and ordinary stable-port
 connection records preserve an override. Older projects contain no such edge
 and therefore restore with unchanged fallback behavior.
+Numeric `For` is also additive within v8: `for` and `for-result` records carry
+the same stable `pairId`, the header carries its stable Number `bindingId`, and
+one persisted `loop`→`loop` connection is their fixed structural boundary.
+The result's ordered Geometry slots use the existing stable child-ID pattern.
+No migration rewrite is needed because pre-For v8 and older migrated projects
+simply contain none of these records. Validation rejects incomplete, duplicate,
+cross-scope, mismatched, or escaping pairs before restore.
 Existing parameter shapes and port IDs are compatibility
 contracts. Prefer small explicit migrations; reject unsupported newer formats,
 unknown semantic node types, and incompatible state with useful errors rather

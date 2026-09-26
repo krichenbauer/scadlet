@@ -114,6 +114,14 @@ one valid `let(...)` expression around the result. Missing, cross-scope, or
 circular bindings and ordinary Value-input dataflow cycles are errors and must
 never produce plausible but incorrect OpenSCAD.
 
+Numeric `For` iteration remains ordinary Rete dataflow. A dedicated structural
+socket fixes one header to one result: the header evaluates `start`, `step`,
+and `end` in the enclosing scope and carries the range plus iterator identity
+to the result, while the result wraps its ordered Geometry inputs in one
+OpenSCAD `for` block. Iterator wires and references are validated by downstream
+reachability and may cross only the matching result boundary. Nested results
+therefore compose as normal Geometry without a second loop AST or evaluator.
+
 ## Viewer contract
 
 Three.js consumes STL from memory via `STLLoader`. It provides orbit, zoom,

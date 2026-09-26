@@ -50,6 +50,13 @@ Expose OpenSCAD semantics without forcing a value graph for literals:
   whole vector subdues and overrides preserved X/Y/Z values and wires. These
   inputs behave identically for unnamed pass-through Values and named variable
   definitions.
+- The **For** palette action is available in Main and Module scopes and creates
+  a header/result pair at a useful horizontal separation. Its thick structural
+  wire and anchors are not ordinary sockets and cannot be picked, rewired, or
+  selected. The header has Number fallback rows for Start, Step, and End plus
+  one iterator Number output/reference action. The result uses stable ordered,
+  variadic Geometry child rows. Either member's Delete or Duplicate action
+  applies to the complete pair; members otherwise move independently.
 
 Do not build a generic signature DSL prematurely. Reuse small, explicit
 mechanisms for optional parameters, typed inputs, alternative editors, and

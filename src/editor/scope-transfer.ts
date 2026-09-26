@@ -6,9 +6,11 @@ import { ModuleCallNode } from './nodes/module-call-node'
 import { FUNCTION_GRAPH_ALLOWED_NODE_TYPES, identifyNodeType } from './node-catalog'
 import { isValueBindingNode } from './bindings'
 import { VariableReferenceNode } from './nodes/variable-reference-node'
+import { ForHeaderNode, ForResultNode } from './nodes/for-nodes'
 
 export type ScopeTransferProblem = 'protected' | 'module-call' | 'connection' | 'function-incompatible'
   | 'settings-duplicate' | 'binding-conflict' | 'variable-reference'
+  | 'loop-pair'
 
 /** Pure transaction preflight for a completed ordinary-node drag. It checks
  * the hypothetical final scopes for every touching connection as one set;
@@ -35,6 +37,14 @@ export function scopeTransferProblem(
       if (!type || !FUNCTION_GRAPH_ALLOWED_NODE_TYPES.has(type)) return 'function-incompatible'
     }
   }
+  for (const nodeId of moved) {
+    const node = editor.getNode(nodeId)
+    if (!(node instanceof ForHeaderNode) && !(node instanceof ForResultNode)) continue
+    const members = editor.getNodes().filter((candidate) =>
+      (candidate instanceof ForHeaderNode || candidate instanceof ForResultNode) && candidate.pairId === node.pairId,
+    )
+    if (members.length !== 2 || members.some((member) => !moved.has(member.id))) return 'loop-pair'
+  }
   const settingsInTarget = editor.getNodes().filter((node) => {
     if (identifyNodeType(node) !== 'scad-settings') return false
     const finalScope = moved.has(node.id) ? targetScope : registry.scopeOf(node.id)
@@ -53,11 +63,20 @@ export function scopeTransferProblem(
     names.add(node.getBindingName())
     namesByScope.set(scope, names)
   }
+  // Iterator names are local to their own bodies, so sibling pairs may reuse
+  // a name. They still cannot shadow a parameter or named Value in the scope
+  // they are entering.
+  for (const node of editor.getNodes()) {
+    if (!(node instanceof ForHeaderNode)) continue
+    if (namesByScope.get(finalScope(node.id))?.has(node.getBindingName())) return 'binding-conflict'
+  }
   for (const node of editor.getNodes()) {
     if (!(node instanceof VariableReferenceNode)) continue
     const scope = finalScope(node.id)
     const valueDefinition = editor.getNodes().find((candidate) =>
-      isValueBindingNode(candidate) && candidate.getBindingId() === node.bindingId && finalScope(candidate.id) === scope,
+      ((isValueBindingNode(candidate) && candidate.getBindingId() === node.bindingId)
+        || (candidate instanceof ForHeaderNode && candidate.bindingId === node.bindingId))
+        && finalScope(candidate.id) === scope,
     )
     const parameterDefinition = scope === null ? undefined : registry.get(scope)?.parameters?.find((parameter) => parameter.id === node.bindingId)
     if (!valueDefinition && !parameterDefinition) return 'variable-reference'

@@ -33,6 +33,9 @@ Implemented and stable:
   Module/Function parameters, with stable-ID compact references, safe rename
   and deletion, typed connected-expression overrides with preserved direct
   fallbacks, ordered Main/Module assignments, and Function `let(...)` code.
+- numeric Geometry iteration in Main and Module scopes through a fixed visual
+  `For`/`For result` pair, ordered body inputs, lexical iterator references,
+  nested loops, and idiomatic OpenSCAD `for` blocks.
 
 Current catalog/value semantics are intentionally limited. Geometry If is a
 statement-level node valid in Main/Module scopes, with required Boolean
@@ -45,23 +48,20 @@ evaluation errors; disconnected drafts do not create fake `undef` semantics.
 Implement later work in this order unless a concrete defect warrants a small,
 independent repair first.
 
-1. **Iteration / visual OpenSCAD `for`.** Add Geometry iteration in Main and
-   Module scopes using a fixed Header/Result pair with a structural wire and a
-   loop-local binding, built on the named-value/scope model.
-2. **Copy and paste.** Support copying and pasting selected nodes and their
+1. **Copy and paste.** Support copying and pasting selected nodes and their
    internal connections within the current semantic scope. Define clipboard,
    placement, protected-interface-node, and cross-scope behavior explicitly
    when this work begins.
-3. **Missing basic value nodes.** Add useful arithmetic, mathematical, and
+2. **Missing basic value nodes.** Add useful arithmetic, mathematical, and
    logical operators selectively, preserving the current typed value model and
    Function-scope rules.
-4. **Missing simple Geometry nodes.** Prioritize ordinary transformations such
+3. **Missing simple Geometry nodes.** Prioritize ordinary transformations such
    as Mirror and Resize, with the same scope, persistence, and effective-output
    rules as the existing Geometry catalog.
-5. **2D Geometry and extrusion.** Treat 2D primitives, 2D Boolean operations,
+4. **2D Geometry and extrusion.** Treat 2D primitives, 2D Boolean operations,
    and linear/rotational extrusion as one coherent extension rather than
    isolated nodes.
-6. **Remaining larger extensions.** A secondary geometry-oriented OpenSCAD
+5. **Remaining larger extensions.** A secondary geometry-oriented OpenSCAD
    code node with explicit parameter and possibly Geometry inputs, import of
    existing `.scad`, dedicated definition canvases, collaboration/sync, and
    broader OpenSCAD compatibility each require their own product design.

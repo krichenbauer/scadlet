@@ -40,6 +40,8 @@ describe('NODE_CATALOG', () => {
         'compare',
         'conditional',
         'if',
+        'for',
+        'for-result',
         'scad-settings',
       ].sort(),
     )
@@ -72,6 +74,9 @@ describe('NODE_CATALOG', () => {
     expect(findCatalogEntry('compare')?.category).toBe('math')
     expect(findCatalogEntry('conditional')?.category).toBe('math')
     expect(findCatalogEntry('if')?.category).toBe('control-flow')
+    expect(findCatalogEntry('for')?.category).toBe('control-flow')
+    expect(findCatalogEntry('for-result')?.palette).toBe(false)
+    expect(findCatalogEntry('for')?.allowedScopes).toEqual(['main', 'module'])
     expect(findCatalogEntry('scad-settings')?.category).toBe('settings')
   })
 
@@ -102,7 +107,7 @@ describe('NODE_CATALOG', () => {
 
   it('provides localized explanatory copy for every ordinary palette entry', () => {
     const paletteEntries = NODE_CATALOG.filter((entry) => entry.palette !== false)
-    expect(paletteEntries).toHaveLength(20)
+    expect(paletteEntries).toHaveLength(21)
     for (const entry of paletteEntries) {
       expect(entry.paletteDescriptionKey).toBeTruthy()
       const description = t(entry.paletteDescriptionKey!)

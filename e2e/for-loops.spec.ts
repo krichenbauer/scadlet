@@ -1,0 +1,162 @@
+import { readFileSync } from 'node:fs'
+import { expect, test, type Locator, type Page } from '@playwright/test'
+
+async function ready(page: Page): Promise<void> {
+  await page.goto('/')
+  await expect(page.getByRole('textbox', { name: 'Project name' })).toBeEnabled()
+}
+
+async function dropPaletteNode(page: Page, type: string, point: { x: number; y: number }): Promise<void> {
+  await page.locator('node-editor').evaluate((element, input) => {
+    const canvas = element.shadowRoot?.querySelector('#canvas')
+    if (!canvas) throw new Error('Expected node-editor canvas')
+    const dataTransfer = new DataTransfer()
+    dataTransfer.setData('application/x-scadlet-node-type', input.type)
+    canvas.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientX: input.x, clientY: input.y, dataTransfer }))
+    canvas.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX: input.x, clientY: input.y, dataTransfer }))
+  }, { type, ...point })
+}
+
+async function connect(page: Page, source: Locator, target: Locator): Promise<void> {
+  const start = await source.boundingBox()
+  const end = await target.boundingBox()
+  if (!start || !end) throw new Error('Expected socket bounds')
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 8 })
+  await page.mouse.up()
+}
+
+async function fileAction(page: Page, name: string): Promise<Locator> {
+  const trigger = page.locator('scadlet-app header').getByRole('button', { name: /^File\b/ })
+  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
+  return page.getByRole('menuitem', { name, exact: true })
+}
+
+test('For creates an accessible fixed pair, composes a numeric Geometry body, duplicates jointly, and is refused in Functions', async ({ page }) => {
+  await ready(page)
+  const editor = page.locator('node-editor')
+  const canvas = await editor.boundingBox()
+  if (!canvas) throw new Error('Expected editor bounds')
+
+  const paletteEntry = page.locator('node-palette .node-item[data-node-type="for"]')
+  await expect(paletteEntry).toContainText('For')
+  await paletteEntry.focus()
+  await expect(page.locator('node-palette [role="tooltip"]')).toContainText('numeric start, step, and end range')
+
+  await dropPaletteNode(page, 'for', { x: canvas.x + 120, y: canvas.y + 120 })
+  const header = editor.locator('.node[data-node-type="for"]')
+  const result = editor.locator('.node[data-node-type="for-result"]')
+  await expect(header).toHaveCount(1)
+  await expect(result).toHaveCount(1)
+  const pairId = await header.getAttribute('data-for-pair-id')
+  expect(pairId).toBeTruthy()
+  await expect(result).toHaveAttribute('data-for-pair-id', pairId!)
+  await expect(header).toHaveAttribute('aria-label', /Fixed loop boundary/)
+  await expect(result).toHaveAttribute('aria-label', /Fixed loop boundary/)
+
+  for (const [key, value] of [['start', '0'], ['step', '1'], ['end', '10']] as const) {
+    const row = header.locator(`.node-param-row[data-param-key="${key}"]`)
+    await expect(row.locator('.node-socket')).toHaveAttribute('data-socket-type', 'number')
+    await expect(row.locator('input')).toHaveValue(value)
+  }
+  await expect(header.locator('.node-create-variable-reference')).toHaveAttribute('aria-label', 'Create variable reference')
+  await expect(header.locator('.node-structural-anchor')).toHaveCount(1)
+  await expect(result.locator('.node-structural-anchor')).toHaveCount(1)
+  const structural = editor.locator('svg.connection[data-structural-connection="true"]')
+  await expect(structural).toHaveCount(1)
+  expect(await structural.locator('.connection-path').evaluate((path) => getComputedStyle(path).strokeWidth)).toBe('6px')
+  expect(await structural.evaluate((wire) => getComputedStyle(wire).pointerEvents)).toBe('none')
+  await expect(structural.locator('.connection-hit-path')).toHaveCSS('pointer-events', 'none')
+
+  const headerBox = await header.boundingBox()
+  const resultBox = await result.boundingBox()
+  if (!headerBox || !resultBox) throw new Error('Expected For node bounds')
+  expect(resultBox.x - headerBox.x).toBeGreaterThan(250)
+  const headerTitle = await header.locator('.node-title').boundingBox()
+  if (!headerTitle) throw new Error('Expected For header title')
+  await page.mouse.move(headerTitle.x + 8, headerTitle.y + 8)
+  await page.mouse.down()
+  await page.mouse.move(headerTitle.x + 8, headerTitle.y + 68, { steps: 8 })
+  await page.mouse.up()
+  const movedHeaderBox = await header.boundingBox()
+  const unmovedResultBox = await result.boundingBox()
+  if (!movedHeaderBox || !unmovedResultBox) throw new Error('Expected moved For node bounds')
+  expect(movedHeaderBox.y - headerBox.y).toBeGreaterThan(40)
+  expect(Math.abs(unmovedResultBox.y - resultBox.y)).toBeLessThan(2)
+
+  await result.locator('.node-more-summary').click()
+  await result.getByRole('menuitem', { name: 'Duplicate', exact: true }).click()
+  await expect(editor.locator('.node[data-node-type="for"]')).toHaveCount(2)
+  await expect(editor.locator('.node[data-node-type="for-result"]')).toHaveCount(2)
+  await expect(editor.locator('svg.connection[data-structural-connection="true"]')).toHaveCount(2)
+  const duplicateHeader = editor.locator('.node[data-node-type="for"]').nth(1)
+  await duplicateHeader.locator('.node-more-summary').click()
+  await duplicateHeader.getByRole('menuitem', { name: 'Delete', exact: true }).click()
+  await expect(editor.locator('.node[data-node-type="for"]')).toHaveCount(1)
+  await expect(editor.locator('.node[data-node-type="for-result"]')).toHaveCount(1)
+
+  await dropPaletteNode(page, 'cube', { x: canvas.x + 170, y: canvas.y + 390 })
+  await dropPaletteNode(page, 'translate', { x: canvas.x + 390, y: canvas.y + 390 })
+  const cube = editor.locator('.node[data-node-type="cube"]')
+  const translate = editor.locator('.node[data-node-type="translate"]')
+  await connect(page, cube.locator('.node-port--output .node-socket'), translate.locator('.node-socket[data-socket-side="input"][data-socket-key="geometry"]'))
+  await connect(page, translate.locator('.node-port--output .node-socket'), result.locator('.node-socket[data-socket-key^="child:"]'))
+  await connect(page, header.locator('.node-socket[data-socket-key="value"]'), translate.locator('.node-socket[data-socket-key="x"]'))
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('for (i = [0 : 1 : 10])', { timeout: 15_000 })
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('translate([i, 0, 0])')
+
+  await header.getByRole('button', { name: 'Create variable reference', exact: true }).click()
+  await page.mouse.click(canvas.x + canvas.width - 80, canvas.y + canvas.height - 80)
+  const iteratorReference = editor.locator('.node[data-node-type="variable-reference"]')
+  await expect(iteratorReference).toHaveCount(1)
+  await expect(iteratorReference.locator('.node-title')).toHaveText('i')
+
+  await header.locator('.node-more-summary').click()
+  await header.getByRole('menuitem', { name: 'Rename', exact: true }).click()
+  await header.locator('input.node-title').fill('index')
+  await header.locator('input.node-title').press('Enter')
+  await expect(iteratorReference.locator('.node-title')).toHaveText('index')
+  const source = page.locator('scadlet-app .scad-output')
+  await expect(source).toContainText('for (index = [0 : 1 : 10])', { timeout: 15_000 })
+  await expect(source).toContainText('translate([index, 0, 0])')
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    (await fileAction(page, 'Download .scad')).click(),
+  ])
+  const path = await download.path()
+  if (!path) throw new Error('Expected downloaded SCAD path')
+  expect(readFileSync(path, 'utf8').trim()).toBe(((await source.textContent()) ?? '').trim())
+
+  await page.getByRole('button', { name: '+ New module', exact: true }).click()
+  const moduleDialog = page.getByRole('form', { name: 'Create module' })
+  await moduleDialog.getByLabel('Module name').fill('loop_module')
+  await moduleDialog.getByRole('button', { name: 'Create', exact: true }).click()
+  const moduleFrame = editor.locator('.definition-frame').filter({ hasText: 'loop_module' })
+  const moduleBox = await moduleFrame.boundingBox()
+  if (!moduleBox) throw new Error('Expected Module frame')
+  await dropPaletteNode(page, 'for', { x: moduleBox.x + moduleBox.width / 2, y: moduleBox.y + moduleBox.height / 2 })
+  await expect(editor.locator('.node[data-node-type="for"]')).toHaveCount(2)
+  await expect(editor.locator('.node[data-node-type="for-result"]')).toHaveCount(2)
+
+  await page.getByRole('button', { name: '+ New function', exact: true }).click()
+  const dialog = page.getByRole('form', { name: 'Create function' })
+  await dialog.getByLabel('Function name').fill('value_only')
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+  const functionFrame = editor.locator('.definition-frame').filter({ hasText: 'value_only' })
+  const functionBox = await functionFrame.boundingBox()
+  if (!functionBox) throw new Error('Expected Function frame')
+  await dropPaletteNode(page, 'for', { x: functionBox.x + functionBox.width / 2, y: functionBox.y + functionBox.height / 2 })
+  await expect(editor.locator('.node[data-node-type="for"]')).toHaveCount(2)
+  await expect(editor.locator('.editor-feedback')).toContainText('Only value/math and Function Call nodes')
+
+  await page.waitForTimeout(1_000)
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: 'Project name' })).toBeEnabled()
+  await expect(editor.locator('.node[data-node-type="for"]')).toHaveCount(2)
+  await expect(editor.locator('.node[data-node-type="for-result"]')).toHaveCount(2)
+  await expect(editor.locator('svg.connection[data-structural-connection="true"]')).toHaveCount(2)
+  await expect(editor.locator('.node[data-node-type="variable-reference"] .node-title')).toHaveText('index')
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('for (index = [0 : 1 : 10])', { timeout: 15_000 })
+})

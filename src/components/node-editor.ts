@@ -895,6 +895,20 @@ export class NodeEditorElement extends LitElement {
       border-color: #555;
     }
 
+    .node-structural-anchor {
+      width: 10px;
+      height: 16px;
+      box-sizing: border-box;
+      border: 2px solid #e3d06a;
+      border-radius: 2px;
+      background: #554d22;
+      flex: none;
+      pointer-events: none;
+    }
+
+    .node-port--input .node-structural-anchor { margin-left: -6px; }
+    .node-port--output .node-structural-anchor { margin-right: -6px; }
+
     .node-socket--snap-target {
       outline: 3px solid rgb(255 255 255 / 0.8);
       outline-offset: 2px;
@@ -1210,6 +1224,13 @@ export class NodeEditorElement extends LitElement {
     .connection-path[data-socket-type='number'] { stroke: #f2b84b; }
     .connection-path[data-socket-type='vector3'] { stroke: #b07cff; }
     .connection-path[data-socket-type='boolean'] { stroke: #63c174; }
+    .connection--structural .connection-path {
+      stroke: #e3d06a;
+      stroke-width: 6px;
+      stroke-dasharray: 10 4;
+    }
+    .connection--structural .connection-hit-path { pointer-events: none; }
+    .connection--structural { pointer-events: none; }
 
     .connection-hit-path {
       fill: none;

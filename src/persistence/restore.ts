@@ -122,6 +122,11 @@ function prepareRestorePlan(project: ScadletProjectV1, deps: RestoreProjectDeps)
       const id = node.parameters.bindingId
       bindings.set(id, { id, name: String(node.parameters.name), type: node.type })
     }
+    for (const node of graphNodes) {
+      if (node.type !== 'for' || typeof node.parameters.bindingId !== 'string') continue
+      const id = node.parameters.bindingId
+      bindings.set(id, { id, name: String(node.parameters.name), type: 'number' })
+    }
     scopeBindings.set(scope, bindings)
   }
   collectBindings(null, project.graph.nodes)

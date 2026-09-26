@@ -28,6 +28,7 @@ import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interfa
 import { FunctionCallNode, type FunctionCallParams } from './nodes/function-call-node'
 import { ScadSettingsNode } from './nodes/scad-settings-node'
 import { VariableReferenceNode, validateVariableReferenceParams, type VariableBindingResolution } from './nodes/variable-reference-node'
+import { ForHeaderNode, ForResultNode, createDefaultForParams, validateForHeaderParams, validateForResultParams } from './nodes/for-nodes'
 import { validateScadSettingsParams, type ScadSettingsParams } from '../openscad/settings'
 import type { ModuleDefinition, ModuleParameterDefault } from './definitions'
 import type { CompactIconName } from '../components/icons'
@@ -77,6 +78,8 @@ export type NodeTypeId =
   | 'compare'
   | 'conditional'
   | 'if'
+  | 'for'
+  | 'for-result'
   | 'scad-settings'
   | 'module-inputs'
   | 'module-output'
@@ -114,6 +117,8 @@ const NODE_TYPE_ICON: Record<NodeTypeId, CompactIconName> = {
   compare: 'compare',
   conditional: 'conditional',
   if: 'conditional',
+  for: 'loop',
+  'for-result': 'loop',
   'scad-settings': 'settings',
   'module-inputs': 'input-port',
   'module-output': 'output-port',
@@ -351,6 +356,28 @@ export const FUNCTION_GRAPH_ALLOWED_NODE_TYPES: ReadonlySet<NodeTypeId> = new Se
  * comment for why this is done here rather than per node class.
  */
 const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
+  {
+    type: 'for', category: 'control-flow', labelKey: 'node.for', paletteDescriptionKey: 'palette.description.for',
+    allowedScopes: ['main', 'module'], inputs: ['start', 'step', 'end'], outputs: ['value', 'loop'],
+    inputSocketType: (port) => ['start', 'step', 'end'].includes(port) ? 'number' : undefined,
+    outputSocketType: (port) => port === 'value' ? 'number' : port === 'loop' ? 'structure' : undefined,
+    create: (_context, params) => new ForHeaderNode(params ? validateForHeaderParams(params) : createDefaultForParams().header),
+    matches: (node) => node instanceof ForHeaderNode,
+    serializeParams: (node) => (node as ForHeaderNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateForHeaderParams(value) as unknown as Record<string, unknown>,
+  },
+  {
+    type: 'for-result', category: 'control-flow', labelKey: 'node.forResult', palette: false,
+    allowedScopes: ['main', 'module'], inputs: ['loop'], outputs: ['geometry'],
+    isInputPort: (port, parameters) => validateForResultParams(parameters).children.some((child) => port === `child:${child.id}`),
+    inputSocketType: (port, parameters) => port === 'loop' ? 'structure'
+      : validateForResultParams(parameters).children.some((child) => port === `child:${child.id}`) ? 'geometry' : undefined,
+    outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
+    create: (_context, params) => new ForResultNode(params ? validateForResultParams(params) : createDefaultForParams().result),
+    matches: (node) => node instanceof ForResultNode,
+    serializeParams: (node) => (node as ForResultNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateForResultParams(value) as unknown as Record<string, unknown>,
+  },
   {
     type: 'variable-reference', category: 'values', labelKey: 'node.variableReference', palette: false, inputs: [], outputs: ['value'],
     inputSocketType: () => undefined,

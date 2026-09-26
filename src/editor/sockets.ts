@@ -21,11 +21,14 @@ export const booleanSocket = new ClassicPreset.Socket('boolean')
  * the Function's result is resolved and this port is swapped for a real
  * typed socket. */
 export const unresolvedSocket = new ClassicPreset.Socket('unresolved')
+/** A fixed relationship between two ordinary visible nodes. Structural
+ * sockets are rendered as anchors, not user-connectable data ports. */
+export const structureSocket = new ClassicPreset.Socket('structure')
 
 /** The small, closed socket vocabulary supported before Milestone 7 adds
  * production value nodes. Connections are deliberately diagonal only:
  * SCADlet never inserts an implicit OpenSCAD conversion. */
-export type SocketType = 'geometry' | 'number' | 'vector3' | 'boolean'
+export type SocketType = 'geometry' | 'number' | 'vector3' | 'boolean' | 'structure'
 
 export function socketType(socket: ClassicPreset.Socket | undefined): SocketType | undefined {
   switch (socket?.name) {
@@ -33,6 +36,7 @@ export function socketType(socket: ClassicPreset.Socket | undefined): SocketType
     case 'number':
     case 'vector3':
     case 'boolean':
+    case 'structure':
       return socket.name
     default:
       return undefined

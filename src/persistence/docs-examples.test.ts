@@ -100,6 +100,8 @@ describe('docs/scadlet-format.md documented node types stay in sync with the cat
     'compare',
     'conditional',
     'if',
+    'for',
+    'for-result',
     'module-inputs',
     'module-output',
     'module-call',

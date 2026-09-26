@@ -1,5 +1,6 @@
 import { findCatalogEntry, FUNCTION_GRAPH_ALLOWED_NODE_TYPES } from '../editor/node-catalog'
 import { firstDataflowCycle } from '../editor/dataflow-cycle'
+import { loopStructureProblem } from '../editor/for-validation'
 import { defaultModuleGeometryInput, isOpenSCADIdentifier, moduleGeometryInputPortId, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterPortId, moduleParameterNameProblem, type FunctionResultType, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterType } from '../editor/definitions'
 import {
   SCADLET_FORMAT,
@@ -273,7 +274,7 @@ function validateNode(raw: unknown, index: number, seenIds: Set<string>, graphKi
   if (typeof raw.type !== 'string') throw new ScadletProjectError(`Node "${raw.id}" is missing a "type".`)
   const entry = findCatalogEntry(raw.type)
   if (!entry) throw new ScadletProjectError(`Unknown node type: "${raw.type}"`)
-  const allowedNonPaletteNode = entry.type === 'module-call' || entry.type === 'function-call' || entry.type === 'variable-reference'
+  const allowedNonPaletteNode = entry.type === 'module-call' || entry.type === 'function-call' || entry.type === 'variable-reference' || entry.type === 'for-result'
   if (graphKind === 'main' && entry.palette === false && !allowedNonPaletteNode) {
     throw new ScadletProjectError(`Interface node "${raw.id}" belongs inside a definition, not Main.`)
   }
@@ -282,6 +283,9 @@ function validateNode(raw: unknown, index: number, seenIds: Set<string>, graphKi
   }
   if (graphKind === 'function' && !FUNCTION_GRAPH_ALLOWED_NODE_TYPES.has(entry.type)) {
     throw new ScadletProjectError(`Node "${raw.id}" (${entry.type}) is not a supported node type inside a Function definition.`)
+  }
+  if (entry.allowedScopes && !entry.allowedScopes.includes(graphKind)) {
+    throw new ScadletProjectError(`Node "${raw.id}" (${entry.type}) is not supported inside a ${graphKind === 'main' ? 'Main' : graphKind === 'module' ? 'Module' : 'Function'} scope.`)
   }
   if (graphKind === 'module' && (entry.type === 'function-inputs' || entry.type === 'function-output')) {
     throw new ScadletProjectError(`Node "${raw.id}" (${entry.type}) belongs inside a Function definition, not a Module.`)
@@ -415,6 +419,17 @@ function validateGraph(raw: unknown, graphKind: GraphKind, definition?: Definiti
   if (hasVariableBindingCycle(nodes, connections)) {
     throw new ScadletProjectError('Variable bindings contain a circular dependency.')
   }
+  const enclosingBindingNames = new Set<string>([
+    ...(definition?.parameters ?? []).map((parameter) => parameter.name),
+    ...nodes.filter((node) => (node.type === 'number' || node.type === 'boolean' || node.type === 'vector3') && typeof node.parameters.bindingId === 'string')
+      .map((node) => String(node.parameters.name)),
+  ])
+  const loopProblem = loopStructureProblem(nodes, connections, enclosingBindingNames)
+  if (loopProblem) throw new ScadletProjectError(loopProblem.message)
+  for (const header of nodes.filter((node) => node.type === 'for')) {
+    const connectedStep = connections.some((connection) => connection.target === header.id && connection.targetInput === 'step')
+    if (!connectedStep && header.parameters.step === 0) throw new ScadletProjectError(`For header "${header.id}" has a zero step.`)
+  }
 
   // Conditional's branch/result sockets are dynamic but their port IDs are
   // fixed. Validation therefore checks the persisted inference state as a
@@ -456,6 +471,17 @@ function validateScopeBindings(nodes: readonly ScadletNodeDTO[], parameters: rea
     if (names.has(name)) throw new ScadletProjectError(`Duplicate binding name "${name}" in one scope.`)
     bindings.set(bindingId, node.type === 'number' ? 'number' : node.type === 'boolean' ? 'boolean' : 'vector3')
     names.add(name)
+  }
+  for (const node of nodes) {
+    if (node.type !== 'for') continue
+    const bindingId = node.parameters.bindingId
+    const name = node.parameters.name
+    if (typeof bindingId !== 'string' || !bindingId || typeof name !== 'string' || !isOpenSCADIdentifier(name)) {
+      throw new ScadletProjectError(`For header "${node.id}" has an invalid iterator binding.`)
+    }
+    if (bindings.has(bindingId)) throw new ScadletProjectError(`Duplicate variable binding id "${bindingId}" in one scope.`)
+    if (names.has(name)) throw new ScadletProjectError(`For iterator "${name}" collides with a binding visible from its enclosing scope.`)
+    bindings.set(bindingId, 'number')
   }
   for (const node of nodes) {
     if (node.type !== 'variable-reference') continue

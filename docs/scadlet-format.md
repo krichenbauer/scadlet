@@ -6,7 +6,7 @@ This document specifies the `.scadlet` project file format as it is
 the code under `src/persistence/` and `src/editor/node-catalog.ts` is the
 source of truth until this document is updated to match it.
 
-## Version 8: scoped variable bindings and references
+## Version 8: scoped variable bindings, references, and numeric For pairs
 
 Version 8 adds an optional `bindingId` to Number, Boolean, and Vector3
 parameters plus the non-palette `variable-reference` node. A Value with no
@@ -41,6 +41,24 @@ port ID, and old records simply have no incoming override edge.
 The v7→v8 migration changes only the version number. It deliberately adds no
 binding IDs, so every pre-v8 Value name remains a generic label and generated
 OpenSCAD is unchanged.
+
+Numeric Geometry iteration is an additive v8 representation. A `for` header
+stores `{ "pairId", "bindingId", "name", "start", "step", "end" }`; its
+Number fallbacks are overridden by ordinary same-scope connections. Its paired
+`for-result` stores the same `pairId` plus stable ordered Geometry child slots.
+Exactly one persisted connection from the header's `loop` output to the
+result's `loop` input is the fixed structural boundary. It has the dedicated
+`structure` socket type, is rendered as a non-interactive thick wire, and is
+not ordinary Value or Geometry flow.
+
+Both members must be in the same Main or Module graph. Pair IDs and header
+binding IDs are unique in that graph. The iterator is a Number binding whose
+references and direct output may contribute only to dependencies entering the
+matching result body. Enclosing bindings remain visible, nested pairs are
+valid, nested iterators cannot shadow, and independent sibling pairs may reuse
+an iterator name. Invalid/orphaned pairs, stale references, zero fallback
+steps, and iterator escapes are rejected before restore. Existing v8 and
+migrated older projects contain no pair records and need no rewrite.
 
 ## Version 7: scoped SCAD settings
 
@@ -100,8 +118,9 @@ stores `"center": true` only when it changes the signature.
 Cylinder and Sphere similarly omit unset optional arguments. Connections are
 still stored separately and address the semantic parameter port (`size`,
 `vector`, `x`, `y`, `z`, `h`, `r`, `center`, and so on), never a DOM
-control. The current socket vocabulary is Geometry, Number, Vector3, and
-Boolean; a connection is valid only when both ports have the same type.
+control. The ordinary data socket vocabulary is Geometry, Number, Vector3,
+and Boolean; a connection is valid only when both ports have the same type.
+For pairs additionally use a dedicated, fixed Structure boundary socket.
 
 Union and Intersection use `parameters.children`, an ordered non-empty list
 of `{ "id": "..." }` stable child-slot identities. Their target input ports
@@ -305,6 +324,8 @@ exponential-log
 compare
 conditional
 if
+for
+for-result
 module-inputs
 module-output
 module-call
@@ -584,6 +605,20 @@ contain at most one, and Function graphs reject it. Code generation still
 roots it once for its scope and emits `$fn`, `$fa`, `$fs` assignments in that
 canonical order before the scope body. There is no arbitrary-name or generic
 special-variable representation.
+
+### `for` and `for-result`
+
+`for` stores a stable pair ID, stable iterator binding ID, valid OpenSCAD
+identifier name, and finite Number fallbacks for `start`, `step`, and `end`.
+Its ports are Number inputs `start`/`step`/`end`, Number output `value`, and
+structural output `loop`. A known literal zero step is invalid.
+
+`for-result` stores the matching pair ID and a non-empty ordered
+`children: [{ id }]` list. Geometry inputs use `child:<id>`, retaining one
+empty extension slot, and its normal `geometry` output represents the complete
+loop. Its structural `loop` input accepts only the matching header's fixed
+connection. All connected Geometry child statements are emitted, in slot
+order, inside `for (name = [start : step : end]) { ... }`.
 
 ### Value and math nodes
 
@@ -865,6 +900,8 @@ exponential-log: input: x (Number)           outputs: value (Number)
 compare:       inputs: a, b (Number)         outputs: value (Boolean)
 conditional:   inputs: condition + true/false; output: result (resolved value type)
 if:            inputs: condition + then/else; output: geometry
+for:           inputs: start, step, end (Number); outputs: value (Number), loop (structure)
+for-result:    inputs: loop (structure) + dynamic child:<id> (Geometry); output: geometry
 scad-settings: dynamic optional inputs: fn, fa, fs (Number); outputs: none
 module-inputs: dynamic outputs: parameter:<id> (Number|Boolean|Vector3)
 module-call:   dynamic inputs: parameter:<id> (referenced signature); outputs: geometry (Geometry); parameters: definitionId, arguments
@@ -988,7 +1025,11 @@ in roughly this order:
     that same scope, and variable-dependency cycles are rejected.
 11. Main and each Module contain at most one `scad-settings` node; Function
     graphs contain none.
-12. `editor.viewport` and `viewer.camera` are validated as described
+12. Every For pair has exactly one header, result, and fixed structural
+    connection in Main or one Module; pair/binding membership, iterator names,
+    references, nested scope, zero fallback steps, and dependency escapes are
+    validated as one graph invariant.
+13. `editor.viewport` and `viewer.camera` are validated as described
    above.
 
 **Strictness is not uniform across the format**, and this is

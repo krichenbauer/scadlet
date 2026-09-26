@@ -16,13 +16,13 @@ test('every ordinary palette node exposes the shared accessible tooltip', async 
   await waitForLocalLibrary(page)
   const palette = page.locator('node-palette')
   const entries = palette.locator('.node-item[data-node-type]')
-  await expect(entries).toHaveCount(20)
+  await expect(entries).toHaveCount(21)
 
   expect(await entries.evaluateAll((items) => items.map((item) => item.getAttribute('data-node-type')))).toEqual([
     'cube', 'cylinder', 'sphere',
     'translate', 'rotate', 'scale',
     'difference', 'union', 'intersection',
-    'if',
+    'for', 'if',
     'scad-settings',
     'number', 'boolean', 'vector3',
     'arithmetic', 'trigonometry', 'basic-math', 'exponential-log', 'compare', 'conditional',

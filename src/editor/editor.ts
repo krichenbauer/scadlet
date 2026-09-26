@@ -35,6 +35,8 @@ import { analyzeFunctionDependencies } from './function-dependencies'
 import { bindingNamesInScope, isValueBindingNode, referencesToBinding, resolveBindingInScope } from './bindings'
 import { VariableReferenceNode } from './nodes/variable-reference-node'
 import { VARIABLE_REFERENCE_DRAG_MIME_TYPE } from './node-catalog'
+import { ForHeaderNode, ForResultNode, createDefaultForParams } from './nodes/for-nodes'
+import { loopStructureProblem } from './for-validation'
 
 /** The displayed Geometry Inspect source is rooted at one node, so its
  * participating canvas nodes are exactly that root plus its incoming graph
@@ -273,6 +275,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     container.classList.add('variable-reference-placement-active')
   }
   let showDataflowCycleFeedback: () => void = () => {}
+  let showLoopFeedback: (escape: boolean) => void = () => {}
   const canCreateConnection = (
     from: Pick<SocketData, 'nodeId' | 'key' | 'side'>,
     to: Pick<SocketData, 'nodeId' | 'key' | 'side'>,
@@ -391,6 +394,35 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // `ClassicPreset.Connection` directly cannot insert Geometry→Number,
   // Geometry→Vector3, Geometry→Boolean, or any other implicit conversion.
   attachSocketCompatibilityGuard(editor, () => showDataflowCycleFeedback())
+  editor.addPipe((context) => {
+    if (context.type !== 'connectioncreate') return context
+    const scope = definitions.scopeOf(context.data.source)
+    if (scope !== definitions.scopeOf(context.data.target)) return context
+    const scopedNodes = editor.getNodes().filter((node) => definitions.scopeOf(node.id) === scope)
+    const nodes = scopedNodes.flatMap((node) => {
+      const type = identifyNodeType(node)
+      const entry = type ? findCatalogEntry(type) : undefined
+      return type && entry ? [{ id: node.id, type, parameters: entry.serializeParams(node) }] : []
+    })
+    if (!nodes.some((node) => node.type === 'for' || node.type === 'for-result')) return context
+    const ids = new Set(nodes.map((node) => node.id))
+    const connections = editor.getConnections().filter((edge) => ids.has(edge.source) && ids.has(edge.target)).map((edge) => ({
+      id: edge.id, source: edge.source, sourceOutput: String(edge.sourceOutput), target: edge.target, targetInput: String(edge.targetInput),
+    }))
+    connections.push({
+      id: context.data.id, source: context.data.source, sourceOutput: String(context.data.sourceOutput),
+      target: context.data.target, targetInput: String(context.data.targetInput),
+    })
+    const enclosingNames = new Set<string>([
+      ...(scope ? definitions.get(scope)?.parameters?.map((parameter) => parameter.name) ?? [] : []),
+      ...nodes.filter((node) => (node.type === 'number' || node.type === 'boolean' || node.type === 'vector3') && typeof node.parameters.bindingId === 'string')
+        .map((node) => String(node.parameters.name)),
+    ])
+    const problem = loopStructureProblem(nodes, connections, enclosingNames)
+    if (!problem) return context
+    showLoopFeedback(problem.code === 'escape')
+    return undefined
+  })
   let showScopeTransferFeedback: (problem: ScopeTransferProblem) => void = () => {}
 
   /** Builds the effective dependency graph. Calls participate only when they
@@ -599,7 +631,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
         presentation.setConnectedInputs(node.id, connectedParamInputs)
       }
       for (const node of editor.getNodes()) {
-        if (!(node instanceof BooleanOpNode)) continue
+        if (!(node instanceof BooleanOpNode) && !(node instanceof ForResultNode)) continue
         const connected = new Set(editor.getConnections().filter((item) => item.target === node.id).map((item) => item.targetInput))
         if (node.synchronizeChildren(connected)) void area.update('node', node.id)
       }
@@ -639,13 +671,29 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
 
   async function renameValueBinding(nodeId: string, rawName: string): Promise<boolean> {
     const node = editor.getNode(nodeId)
-    if (!isValueBindingNode(node)) return false
+    if (!isValueBindingNode(node) && !(node instanceof ForHeaderNode)) return false
     const scope = definitions.scopeOf(nodeId)
     const name = rawName.trim()
     const problem = moduleParameterNameProblem(name, bindingNamesInScope(editor, definitions, scope, node.getBindingId()))
     if (problem) {
       showFeedback(problem === 'duplicate' ? 'variable.duplicateName' : 'variable.invalidName')
       return false
+    }
+    if (node instanceof ForHeaderNode) {
+      const scopedNodes = editor.getNodes().filter((candidate) => definitions.scopeOf(candidate.id) === scope).flatMap((candidate) => {
+        const type = identifyNodeType(candidate)
+        const entry = type ? findCatalogEntry(type) : undefined
+        if (!type || !entry) return []
+        const parameters = entry.serializeParams(candidate)
+        return [{ id: candidate.id, type, parameters: candidate.id === node.id ? { ...parameters, name } : parameters }]
+      })
+      const ids = new Set(scopedNodes.map((candidate) => candidate.id))
+      const edges = editor.getConnections().filter((edge) => ids.has(edge.source) && ids.has(edge.target)).map((edge) => ({
+        id: edge.id, source: edge.source, sourceOutput: String(edge.sourceOutput), target: edge.target, targetInput: String(edge.targetInput),
+      }))
+      const enclosingNames = new Set(bindingNamesInScope(editor, definitions, scope, node.bindingId))
+      const loopProblem = loopStructureProblem(scopedNodes, edges, enclosingNames)
+      if (loopProblem?.code === 'name') { showFeedback('variable.duplicateName'); return false }
     }
     if (node.getBindingId() && node.getBindingName() === name) return true
     node.renameBinding(name)
@@ -664,6 +712,35 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const node = editor.getNode(nodeId)
     if (!node) return false
     const scope = definitions.scopeOf(nodeId)
+    if (node instanceof ForHeaderNode || node instanceof ForResultNode) {
+      const pairIds = editor.getNodes()
+        .filter((candidate) => (candidate instanceof ForHeaderNode || candidate instanceof ForResultNode) && candidate.pairId === node.pairId)
+        .map((candidate) => candidate.id)
+      const header = editor.getNodes().find((candidate): candidate is ForHeaderNode => candidate instanceof ForHeaderNode && candidate.pairId === node.pairId)
+      if (pairIds.length !== 2 || !header) return false
+      const references = referencesToBinding(editor, definitions, header.bindingId, scope)
+      const external = editor.getConnections().filter((edge) =>
+        (pairIds.includes(edge.source) || pairIds.includes(edge.target)) && !(edge.source === header.id && edge.sourceOutput === 'loop'),
+      )
+      if (external.length > 0 || references.length > 0) {
+        let confirmed = false
+        try {
+          confirmed = window.confirm(t('for.confirmDeletePair')
+            .replace('{connections}', String(external.length))
+            .replace('{references}', String(references.length)))
+        } catch { confirmed = false }
+        if (!confirmed) return false
+      }
+      const previousDirtySuspended = dirtySuspended
+      dirtySuspended = true
+      try {
+        connection.drop(); connectionGesture.cancel()
+        for (const reference of references) await removeNodeWithConnections(editor, reference.id, canDeleteNode)
+        for (const id of pairIds) if (editor.getNode(id)) await removeNodeWithConnections(editor, id, canDeleteNode)
+      } finally { dirtySuspended = previousDirtySuspended }
+      if (!previousDirtySuspended) notifySemanticDirty()
+      return true
+    }
     const bindingNode = isValueBindingNode(node) ? node : undefined
     const references = bindingNode?.getBindingId()
       ? referencesToBinding(editor, definitions, bindingNode.getBindingId()!, scope)
@@ -688,6 +765,40 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     }
     if (!previousDirtySuspended) notifySemanticDirty()
     return true
+  }
+
+  async function duplicateForPair(nodeId: string): Promise<void> {
+    const member = editor.getNode(nodeId)
+    if (!(member instanceof ForHeaderNode) && !(member instanceof ForResultNode)) return
+    const header = editor.getNodes().find((node): node is ForHeaderNode => node instanceof ForHeaderNode && node.pairId === member.pairId)
+    const result = editor.getNodes().find((node): node is ForResultNode => node instanceof ForResultNode && node.pairId === member.pairId)
+    if (!header || !result) return
+    const defaults = createDefaultForParams()
+    const prior = header.getPersistedParams()
+    const nextHeader = findCatalogEntry('for')!.create(creationContext, {
+      ...prior, pairId: defaults.header.pairId, bindingId: defaults.header.bindingId,
+    }) as ForHeaderNode
+    const nextResult = findCatalogEntry('for-result')!.create(creationContext, defaults.result as unknown as Record<string, unknown>) as ForResultNode
+    const scope = definitions.scopeOf(header.id)
+    const previousDirtySuspended = dirtySuspended
+    dirtySuspended = true
+    try {
+      if (scope) { definitions.assignNode(scope, nextHeader.id); definitions.assignNode(scope, nextResult.id) }
+      if (!await editor.addNode(nextHeader) || !await editor.addNode(nextResult)) throw new Error('Could not duplicate For pair.')
+      if (!await editor.addConnection(new ClassicPreset.Connection(nextHeader, 'loop', nextResult, 'loop') as Schemes['Connection'])) throw new Error('Could not duplicate For boundary.')
+      const headerPosition = area.nodeViews.get(header.id)?.position ?? { x: 0, y: 0 }
+      const resultPosition = area.nodeViews.get(result.id)?.position ?? { x: headerPosition.x + 360, y: headerPosition.y }
+      await area.translate(nextHeader.id, { x: headerPosition.x + 40, y: headerPosition.y + 40 })
+      await area.translate(nextResult.id, { x: resultPosition.x + 40, y: resultPosition.y + 40 })
+    } catch {
+      if (editor.getNode(nextHeader.id)) await removeNodeWithConnections(editor, nextHeader.id)
+      if (editor.getNode(nextResult.id)) await removeNodeWithConnections(editor, nextResult.id)
+      dirtySuspended = previousDirtySuspended
+      showFeedback('for.invalidPair')
+      return
+    }
+    dirtySuspended = previousDirtySuspended
+    if (!previousDirtySuspended) notifySemanticDirty()
   }
 
   async function syncBindingReferences(bindingId: string, scope: string | null): Promise<void> {
@@ -726,6 +837,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     },
     selectConnection,
     (nodeId) => { void removeNodeAndReferences(nodeId) },
+    (nodeId) => { void duplicateForPair(nodeId) },
     renameValueBinding,
     beginReferencePlacement,
   )
@@ -1604,6 +1716,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     )
   }
   showDataflowCycleFeedback = () => showFeedback('connection.dataflowCycle')
+  showLoopFeedback = (escape) => showFeedback(escape ? 'for.iteratorEscape' : 'for.invalidPair')
   const updateScopeDestination = (graphPosition: Position): void => {
     if (!activeScopeDrag) return
     const definitionId = definitionAtGraphPosition(graphPosition, activeScopeDrag.sourceFrameBounds)
@@ -1686,6 +1799,39 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       identifyNodeType(node) === 'scad-settings' && definitions.scopeOf(node.id) === owner,
     )) {
       showFeedback('settings.onePerScope')
+      return
+    }
+
+    if (type === 'for') {
+      const pair = createDefaultForParams()
+      const headerEntry = findCatalogEntry('for')!
+      const resultEntry = findCatalogEntry('for-result')!
+      const header = headerEntry.create(creationContext, pair.header as unknown as Record<string, unknown>) as ForHeaderNode
+      const result = resultEntry.create(creationContext, pair.result as unknown as Record<string, unknown>) as ForResultNode
+      const previousDirtySuspended = dirtySuspended
+      dirtySuspended = true
+      try {
+        if (owner !== null) {
+          definitions.assignNode(owner, header.id)
+          definitions.assignNode(owner, result.id)
+        }
+        if (!await editor.addNode(header) || !await editor.addNode(result)) throw new Error('Could not create For pair.')
+        const structural = new ClassicPreset.Connection(header, 'loop', result, 'loop') as Schemes['Connection']
+        if (!await editor.addConnection(structural)) throw new Error('Could not create fixed For boundary.')
+        const rect = area.container.getBoundingClientRect()
+        const position = clientToGraphPosition(clientPosition, rect, area.area.transform)
+        await area.translate(header.id, position)
+        await area.translate(result.id, { x: position.x + 360, y: position.y })
+      } catch {
+        if (editor.getNode(header.id)) await removeNodeWithConnections(editor, header.id)
+        if (editor.getNode(result.id)) await removeNodeWithConnections(editor, result.id)
+        dirtySuspended = previousDirtySuspended
+        showFeedback('for.invalidPair')
+        return
+      }
+      dirtySuspended = previousDirtySuspended
+      endInspect()
+      if (!previousDirtySuspended) notifySemanticDirty()
       return
     }
 

@@ -26,6 +26,16 @@ scope. Binding identity is stable ID plus scope; editable names are unique only
 within their scope, and identical names remain independent across Main and
 different definitions. OpenSCAD `$` variables remain a separate design.
 
+A numeric `For` inside Main or a Module introduces one narrower lexical
+iterator region without creating another definition registry scope. The body
+is the dependency subgraph entering that pair's `For result`, never nodes
+inside a visual rectangle. Enclosing bindings remain readable; the iterator
+binding may not escape its result or shadow an enclosing binding/iterator.
+Sibling loops are independent and may reuse an iterator name. A pair transfers
+between Main/Module scopes only as a complete set, together with whatever
+references/connections are needed to remain valid. Functions reject both pair
+members because they produce Geometry.
+
 SCAD settings is the narrow exception to Output-rooted scope configuration,
 not to connection scoping: Main and each Module may contain at most one such
 node, while Functions contain none. Its Number dependencies remain ordinary

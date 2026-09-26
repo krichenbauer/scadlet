@@ -4,6 +4,7 @@ import type { DefinitionRegistry, ModuleParameterType } from './definitions'
 import { BooleanNode, NumberNode, Vector3Node } from './nodes/value-nodes'
 import { VariableReferenceNode, type VariableBindingResolution } from './nodes/variable-reference-node'
 import type { Schemes } from './schemes'
+import { ForHeaderNode } from './nodes/for-nodes'
 
 export type ValueBindingNode = NumberNode | BooleanNode | Vector3Node
 
@@ -24,6 +25,11 @@ export function resolveBindingInScope(
   bindingId: string,
   scope: string | null,
 ): VariableBindingResolution | undefined {
+  for (const node of editor.getNodes()) {
+    if (!(node instanceof ForHeaderNode) || node.bindingId !== bindingId) continue
+    if ((definitions?.scopeOf(node.id) ?? null) !== scope) continue
+    return { id: bindingId, name: node.getBindingName(), type: 'number' }
+  }
   for (const node of editor.getNodes()) {
     if (!isValueBindingNode(node) || node.getBindingId() !== bindingId) continue
     if ((definitions?.scopeOf(node.id) ?? null) !== scope) continue

@@ -28,6 +28,7 @@ import { canConnectSocketData } from './connection-compatibility'
 import { hasGeometryOutput } from './geometry-accent'
 import { compactIconElement, type CompactIconName } from '../components/icons'
 import { identifyNodeType, nodeTypeIcon, VARIABLE_REFERENCE_DRAG_MIME_TYPE } from './node-catalog'
+import { ForHeaderNode, ForResultNode } from './nodes/for-nodes'
 
 type Position = { x: number; y: number }
 type Side = 'input' | 'output'
@@ -89,7 +90,7 @@ export function classifyOutputPorts<T extends { socket: { name: string } }>(
   const parameter: [string, T][] = []
   for (const [key, output] of Object.entries(outputs)) {
     if (!output) continue
-    if (key === 'geometry' || key === 'value') { main.push([key, output]); continue }
+    if (key === 'geometry' || key === 'value' || key === 'loop') { main.push([key, output]); continue }
     if (key.startsWith('geometry:')) { dynamicGeometry.push([key, output]); continue }
     if (output.socket.name !== 'geometry') parameter.push([key, output])
   }
@@ -104,6 +105,11 @@ export function geometryInputPresentation(node: Schemes['Node'], key: string): P
   }
   if (node instanceof FunctionOutputNode && key === 'result') {
     return { visibleLabel: t('input.functionResult'), accessibleLabel: t('input.functionResult') }
+  }
+  if (node instanceof ForResultNode && node.isInputPort(key)) {
+    return node.isExtensionPort(key)
+      ? { visibleLabel: '+', accessibleLabel: t('input.addGeometryChild') }
+      : { visibleLabel: '', accessibleLabel: t('input.geometryChild') }
   }
   if (!(node instanceof BooleanOpNode) || !node.isInputPort(key)) return undefined
   return node.isExtensionPort(key)
@@ -153,6 +159,7 @@ export function attachRenderer(
   onNodeInteraction: (nodeId: string) => void,
   onConnectionInteraction: (connectionId: string) => void,
   onDeleteNode: (nodeId: string) => void,
+  onDuplicateNode: (nodeId: string) => void,
   onRenameValue: (nodeId: string, name: string) => Promise<boolean>,
   onBeginReferencePlacement: (bindingId: string, sourceNodeId: string) => void,
 ): () => void {
@@ -229,7 +236,7 @@ export function attachRenderer(
       const { data } = context
 
       if (data.type === 'node') {
-        renderNode(editor, area, data.element, data.payload, presentation, inspect, connectionGesture, nodeListenersWired, notifyDirty, onInspect, onNodeInteraction, renamingNodeIds, onDeleteNode, onRenameValue, onBeginReferencePlacement)
+        renderNode(editor, area, data.element, data.payload, presentation, inspect, connectionGesture, nodeListenersWired, notifyDirty, onInspect, onNodeInteraction, renamingNodeIds, onDeleteNode, onDuplicateNode, onRenameValue, onBeginReferencePlacement)
       } else if (data.type === 'connection') {
         updateConnection(
           area,
@@ -259,7 +266,7 @@ export function attachRenderer(
         // re-rendering a node in place; a deleted node never re-renders,
         // so its sockets must be released here instead to avoid leaking
         // stale entries in the position tracker.
-        for (const socket of element.querySelectorAll<HTMLElement>('.node-socket')) {
+        for (const socket of element.querySelectorAll<HTMLElement>('.node-socket, .node-structural-anchor')) {
           void area.emit({ type: 'unmount', data: { element: socket } })
         }
       }
@@ -289,6 +296,7 @@ function renderNode(
   onNodeInteraction: (nodeId: string) => void,
   renamingNodeIds: Set<string>,
   onDeleteNode: (nodeId: string) => void,
+  onDuplicateNode: (nodeId: string) => void,
   onRenameValue: (nodeId: string, name: string) => Promise<boolean>,
   onBeginReferencePlacement: (bindingId: string, sourceNodeId: string) => void,
 ): void {
@@ -304,6 +312,15 @@ function renderNode(
 
   const nodeType = identifyNodeType(node)
   element.dataset.nodeType = nodeType ?? ''
+  if (node instanceof ForHeaderNode || node instanceof ForResultNode) {
+    element.dataset.forPairId = node.pairId
+    element.dataset.forPairRole = node instanceof ForHeaderNode ? 'header' : 'result'
+    element.setAttribute('aria-label', `${node.label}. ${t('for.structure')}.`)
+  } else {
+    delete element.dataset.forPairId
+    delete element.dataset.forPairRole
+    element.removeAttribute('aria-label')
+  }
   const iconName = nodeTypeIcon(nodeType)
 
   const inspected = inspect.isInspected(node.id)
@@ -343,7 +360,7 @@ function renderNode(
     // (like Module Output's `geometry` input) is structural interface
     // infrastructure that must stay visible regardless of compact state,
     // not a collapsible parameter row.
-    if (input.socket.name === 'geometry' || (node instanceof FunctionOutputNode && key === 'result')) {
+    if (input.socket.name === 'geometry' || input.socket.name === 'structure' || (node instanceof FunctionOutputNode && key === 'result')) {
       geometryInputs.push([key, input])
     } else {
       parameterInputs.push([key, input])
@@ -439,7 +456,7 @@ function renderNode(
     })
   }
 
-  for (const socket of element.querySelectorAll<HTMLElement>('.node-socket')) {
+  for (const socket of element.querySelectorAll<HTMLElement>('.node-socket, .node-structural-anchor')) {
     void area.emit({ type: 'unmount', data: { element: socket } })
   }
 
@@ -477,6 +494,7 @@ function renderNode(
     isDefinitionInterfaceNode,
     onInspect,
     onDeleteNode,
+    onDuplicateNode,
     onRenameValue,
     () => void area.update('node', node.id),
   ))
@@ -649,6 +667,7 @@ function renderHeader(
   isDefinitionInterfaceNode: boolean,
   onInspect: (nodeId: string) => void,
   onDeleteNode: (nodeId: string) => void,
+  onDuplicateNode: (nodeId: string) => void,
   onRenameValue: (nodeId: string, name: string) => Promise<boolean>,
   rerender: () => void,
 ): HTMLElement {
@@ -766,7 +785,7 @@ function renderHeader(
 
   if (!isDefinitionInterfaceNode) {
     const actions: MoreMenuAction[] = []
-    if (!(node instanceof ScadSettingsNode)) actions.push(
+    if (!(node instanceof ScadSettingsNode) && !(node instanceof ForHeaderNode)) actions.push(
       { id: 'inspect', icon: 'eye', label: t('menu.inspect'), run: () => onInspect(node.id) },
     )
     if (sourceNameControl) {
@@ -779,6 +798,9 @@ function renderHeader(
           rerender()
         },
       })
+    }
+    if (node instanceof ForHeaderNode || node instanceof ForResultNode) {
+      actions.push({ id: 'duplicate', icon: 'copy', label: t('menu.duplicate'), run: () => onDuplicateNode(node.id) })
     }
     actions.push({
       id: 'delete',
@@ -825,6 +847,7 @@ interface ReferenceCreationPresentation {
 }
 
 function referenceCreationForOutput(node: Schemes['Node'], key: string): ReferenceCreationPresentation | undefined {
+  if (key === 'value' && node instanceof ForHeaderNode) return { bindingId: node.bindingId }
   if (key === 'value' && (node instanceof NumberNode || node instanceof BooleanNode || node instanceof Vector3Node)) {
     return node.getBindingId() ? { bindingId: node.getBindingId() } : { disabledReason: t('variable.nameRequired') }
   }
@@ -973,7 +996,7 @@ function renderPort(
   const accessibleName = presentation?.accessibleLabel ?? label ?? key
 
   const socket = document.createElement('div')
-  socket.className = 'node-socket'
+  socket.className = socketName === 'structure' ? 'node-structural-anchor' : 'node-socket'
   // Presentation hook for socket type (AGENTS.md section 4): color is the
   // primary way a socket's data type is communicated, driven by this data
   // attribute in CSS (`node-editor.ts`) rather than by permanently showing
@@ -992,7 +1015,7 @@ function renderPort(
   // type; a label that disambiguates sibling ports on the same side (e.g.
   // Difference's "Base"/"Subtract") stays visible, since position alone
   // can't tell those apart.
-  const visibleLabel = presentation?.visibleLabel ?? (!isRedundantTypeLabel(label, socketName) ? accessibleName : undefined)
+  const visibleLabel = socketName === 'structure' ? undefined : presentation?.visibleLabel ?? (!isRedundantTypeLabel(label, socketName) ? accessibleName : undefined)
   if (visibleLabel) {
     const text = document.createElement('span')
     text.className = 'node-port-label'
@@ -1523,10 +1546,17 @@ function updateConnection(
     hitPath.classList.add('connection-hit-path')
     const sourceNode = payload.source ? area.nodeViews.get(payload.source) : undefined
     const sourceSocket = sourceNode?.element?.querySelector<HTMLElement>(
-      `.node-socket[data-socket-side="output"][data-socket-key="${String(payload.sourceOutput)}"]`,
+      `[data-socket-side="output"][data-socket-key="${String(payload.sourceOutput)}"]`,
     )
     if (sourceSocket?.dataset.socketType) path.dataset.socketType = sourceSocket.dataset.socketType
     if (sourceSocket?.dataset.socketType) hitPath.dataset.socketType = sourceSocket.dataset.socketType
+    const structural = sourceSocket?.dataset.socketType === 'structure'
+    svg.classList.toggle('connection--structural', structural)
+    svg.dataset.structuralConnection = String(structural)
+    if (structural) {
+      svg.setAttribute('role', 'img')
+      svg.setAttribute('aria-label', t('for.structure'))
+    }
     const selectConnection = (event: Event): void => {
       if (!payload.source || !payload.target) return
       event.preventDefault()

@@ -40,6 +40,9 @@ assume OpenSCAD declaration-order behavior without a real runtime check.
 Scope-level SCAD settings regressions must cover the normal generated-source,
 WASM preview, and `.scad` export route so no alternate render-option path can
 silently diverge from exported code.
+Numeric For regressions must cover the fixed pair lifecycle, iterator lexical
+boundary, nested Main/Module source, persistence rejection, and the normal
+WASM preview/export path; JavaScript must never evaluate the range itself.
 Transient-popup browser coverage must cross the application, graph-editor,
 and viewer shadow roots, including outside pointer/wheel interactions, popup
 switching, inside controls, Escape focus restoration, and expanded-state

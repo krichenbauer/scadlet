@@ -156,9 +156,9 @@ For applicable ordinary nodes, the menu contains:
 - **Duplicate** where an existing duplication lifecycle already supports it;
 - a separated destructive **Delete** action.
 
-No current ordinary node has a working Duplicate lifecycle yet, so today's
-menus omit it rather than call an invented/placeholder action; it appears once
-a real duplication lifecycle exists for that node kind.
+Only the paired For nodes currently have a working Duplicate lifecycle, so
+their menus duplicate both members with fresh pair/binding/slot identities.
+Other ordinary-node menus omit Duplicate rather than expose a placeholder.
 
 The menu may grow later with copy/paste-related actions, but it must not become
 a substitute for direct parameter controls or the Add menu.
@@ -277,6 +277,17 @@ socket and family styling communicate the type.
 - Existing accessibility, keyboard operation, touch behaviour, selection,
   Inspect, error, and Geometry-accent behaviour remain supported when a node
   is restyled.
+
+## For pair
+
+`For` and `For result` are ordinary node cards with the shared loop icon,
+header actions, spacing, and Geometry-family treatment where applicable. Their
+fixed boundary is the only structural-wire exception: small gold rectangular
+anchors and a thick dashed gold path distinguish it from typed dataflow. The
+path is non-interactive and never receives selection styling. Both cards expose
+the same durable pair state to assistive technology. Number and ordered
+Geometry rows otherwise use the normal socket, fallback, collapse, and
+extension-slot conventions.
 
 ## Implementation and review checklist
 

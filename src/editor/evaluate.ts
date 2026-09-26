@@ -13,6 +13,9 @@ import { ScadSettingsNode, type ScadSettingsValue } from './nodes/scad-settings-
 import { t } from '../i18n/translate'
 import { isValueBindingNode, resolveBindingInScope } from './bindings'
 import { VariableReferenceNode } from './nodes/variable-reference-node'
+import { ForHeaderNode, ForResultNode } from './nodes/for-nodes'
+import { identifyNodeType, findCatalogEntry } from './node-catalog'
+import { loopStructureProblem } from './for-validation'
 
 /**
  * Evaluates the graph into a single OpenSCAD source string: one statement
@@ -35,6 +38,7 @@ export async function evaluateOpenSCAD(
   rootNodeId?: string,
   definitions?: DefinitionRegistry,
 ): Promise<string> {
+  assertValidForLoops(editor, definitions)
   if (rootNodeId !== undefined) {
     if (!editor.getNode(rootNodeId)) return ''
     const scope = definitions?.scopeOf(rootNodeId)
@@ -185,7 +189,38 @@ function assertNoIncompleteReachableBranch(editor: NodeEditor<Schemes>, roots: r
       const connected = new Set(editor.getConnections().filter((item) => item.target === id).map((item) => item.targetInput))
       if (!connected.has('condition') || !connected.has('then')) throw new Error(t('if.incomplete'))
     }
+    if (node instanceof ForResultNode) {
+      const hasBody = editor.getConnections().some((item) => item.target === id && item.targetInput.startsWith('child:'))
+      if (!hasBody) throw new Error(t('for.invalidPair'))
+    }
     pending.push(...(incoming.get(id) ?? []))
+  }
+}
+
+function assertValidForLoops(editor: NodeEditor<Schemes>, definitions?: DefinitionRegistry): void {
+  const scopes = new Set<string | null>([null, ...(definitions?.list().map((definition) => definition.id) ?? [])])
+  for (const scope of scopes) {
+    const liveNodes = editor.getNodes().filter((node) => (definitions?.scopeOf(node.id) ?? null) === scope)
+    const nodes = liveNodes.flatMap((node) => {
+      const type = identifyNodeType(node)
+      const entry = type ? findCatalogEntry(type) : undefined
+      return type && entry ? [{ id: node.id, type, parameters: entry.serializeParams(node) }] : []
+    })
+    const ids = new Set(nodes.map((node) => node.id))
+    const connections = editor.getConnections().filter((edge) => ids.has(edge.source) && ids.has(edge.target)).map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      sourceOutput: String(edge.sourceOutput),
+      target: edge.target,
+      targetInput: String(edge.targetInput),
+    }))
+    const enclosingNames = new Set<string>([
+      ...(scope ? definitions?.get(scope)?.parameters?.map((parameter) => parameter.name) ?? [] : []),
+      ...nodes.filter((node) => (node.type === 'number' || node.type === 'boolean' || node.type === 'vector3') && typeof node.parameters.bindingId === 'string')
+        .map((node) => String(node.parameters.name)),
+    ])
+    const problem = loopStructureProblem(nodes, connections, enclosingNames)
+    if (problem) throw new Error(problem.code === 'escape' ? t('for.iteratorEscape') : t('for.invalidPair'))
   }
 }
 
@@ -303,6 +338,9 @@ export async function evaluateInspectNode(
 ): Promise<InspectEvaluation> {
   const node = editor.getNode(nodeId)
   if (!node) return { kind: 'missing' }
+  if (inspectDependsOnEscapedIterator(editor, nodeId)) {
+    throw new Error(t('for.iteratorEscape'))
+  }
   engine.reset()
   if (node.outputs.geometry) return { kind: 'geometry', source: await evaluateOpenSCAD(editor, engine, nodeId, definitions) }
   const output = (await engine.fetch(nodeId)) as { value?: NumberValue | BooleanValue | Vector3Value }
@@ -319,6 +357,30 @@ export async function evaluateInspectNode(
     : definitions
       ? { kind: 'value', expression: output.value.code, source: joinDefinitions(await evaluateDefinitions(editor, engine, definitions), joinScopeSource(variables.statements, settings, echo)) }
       : { kind: 'value', expression: output.value.code }
+}
+
+function inspectDependsOnEscapedIterator(editor: NodeEditor<Schemes>, rootNodeId: string): boolean {
+  const headers = editor.getNodes().filter((node): node is ForHeaderNode => node instanceof ForHeaderNode)
+  const iteratorBindings = new Set(headers.map((node) => node.bindingId))
+  const root = editor.getNode(rootNodeId)
+  const allowedBindingId = root instanceof ForResultNode
+    ? headers.find((header) => header.pairId === root.pairId)?.bindingId
+    : undefined
+  const seen = new Set<string>()
+  const visit = (nodeId: string, isRoot = false): boolean => {
+    if (seen.has(nodeId)) return false
+    seen.add(nodeId)
+    const node = editor.getNode(nodeId)
+    // A completed upstream result encapsulates its iterator. The result being
+    // inspected is different: walk its body/range while permitting only its
+    // own iterator, so an enclosing iterator cannot leak into standalone
+    // Inspect source for a nested loop.
+    if (node instanceof ForResultNode && !isRoot) return false
+    if (node instanceof ForHeaderNode && node.bindingId !== allowedBindingId) return true
+    if (node instanceof VariableReferenceNode && iteratorBindings.has(node.bindingId) && node.bindingId !== allowedBindingId) return true
+    return editor.getConnections().filter((edge) => edge.target === nodeId).some((edge) => visit(edge.source))
+  }
+  return visit(rootNodeId, true)
 }
 
 function moduleParameterDeclaration(parameters: readonly ModuleParameter[]): string {

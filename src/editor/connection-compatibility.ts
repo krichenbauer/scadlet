@@ -6,6 +6,7 @@ import { definitionScopeOf, shareDefinitionScope } from './definitions'
 import { FunctionOutputNode } from './nodes/function-interface-nodes'
 import { ConditionalNode } from './nodes/value-nodes'
 import { wouldCreateDataflowCycle } from './dataflow-cycle'
+import { ForHeaderNode, ForResultNode } from './nodes/for-nodes'
 
 /** The sole semantic compatibility rule used for Rete creation and snap
  * acquisition: existing opposite-direction ports with identical types.
@@ -26,6 +27,11 @@ export function canConnectSocketData(
   if (!shareDefinitionScope(editor, sourceData.nodeId, targetData.nodeId)) return false
   const sourceSocket = editor.getNode(sourceData.nodeId)?.outputs[sourceData.key]?.socket
   const targetNode = editor.getNode(targetData.nodeId)
+  if (sourceSocket?.name === 'structure' || targetNode?.inputs[targetData.key]?.socket.name === 'structure') {
+    const sourceNode = editor.getNode(sourceData.nodeId)
+    return sourceNode instanceof ForHeaderNode && targetNode instanceof ForResultNode
+      && sourceData.key === 'loop' && targetData.key === 'loop' && sourceNode.pairId === targetNode.pairId
+  }
   if (targetNode instanceof FunctionOutputNode && targetData.key === 'result') {
     const type = socketType(sourceSocket)
     return type === 'number' || type === 'boolean' || type === 'vector3'

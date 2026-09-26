@@ -45,6 +45,10 @@ without an explicit product decision.
   Value input while retaining their direct editor value as the persisted
   fallback. A connected whole Vector3 overrides preserved component inputs
   and fallbacks; disconnect restores them.
+- Numeric Geometry iteration uses one fixed `For`/`For result` pair in Main
+  or Module scopes. Its structural connection is persistent and immutable;
+  the stable iterator binding is readable only by dependencies that enter the
+  matching result body. Function scopes never contain the pair.
 - Use stable, language-independent IDs for persistent graph entities. Labels,
   localized text, names, positions, and DOM details are never semantic IDs.
 - Make the smallest change that fulfills the current task. Do not implement
@@ -99,9 +103,9 @@ The working baseline includes scoped SCAD settings (`$fn`, `$fa`, `$fs`),
 scoped named Values and compact Variable references, primitives (Cube,
 Cylinder, Sphere), transforms
 (Translate, Rotate, Scale), Boolean composition (Difference, variadic Union
-and Intersection), typed values/math/conditionals, project persistence,
+and Intersection), numeric Geometry `For` iteration, typed values/math/conditionals, project persistence,
 intermediate inspection, and reusable Modules/Functions. Keep it educational
-and geometry-led. Iteration, a geometry code node, broader OpenSCAD coverage,
+and geometry-led. A geometry code node, broader OpenSCAD coverage,
 and teaching refinements remain future work.
 
 OpenSCAD source import is not a current requirement. The development source
