@@ -106,15 +106,15 @@ test('palette creation uses the header Add menu, unique optional rows, and one n
     .toEqual(['node-header-icon', 'node-title', 'node-add-menu', 'node-more-menu'])
 
   await settings.locator('.node-add-summary').click()
-  await settings.getByRole('button', { name: 'Fragment count ($fn)', exact: true }).click()
+  await settings.locator('.node-add-options').getByRole('button', { name: 'Fragment count ($fn)', exact: true }).click()
   const fnRow = settings.locator('.node-param-row[data-param-key="fn"]')
   await expect(fnRow).toContainText('Fragment count ($fn)')
   await expect(fnRow.locator('.node-param-remove')).toHaveAttribute('aria-label', 'Remove Fragment count ($fn)')
   const headerOrder = await settings.locator('.node-header').evaluate((header) => Array.from(header.children).map((item) => item.className))
   expect(headerOrder).toEqual(['node-header-icon', 'node-title', 'node-add-menu', 'node-more-menu', 'node-collapse'])
   await settings.locator('.node-add-summary').click()
-  await expect(settings.getByRole('button', { name: 'Fragment count ($fn)', exact: true })).toHaveCount(0)
-  await settings.getByRole('button', { name: 'Minimum size ($fs)', exact: true }).click()
+  await expect(settings.locator('.node-add-options').getByRole('button', { name: 'Fragment count ($fn)', exact: true })).toHaveCount(0)
+  await settings.locator('.node-add-options').getByRole('button', { name: 'Minimum size ($fs)', exact: true }).click()
   await settings.locator('.node-param-row[data-param-key="fs"] .node-param-remove').click()
   await expect(settings.locator('.node-param-row[data-param-key="fs"]')).toHaveCount(0)
 

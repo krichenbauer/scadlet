@@ -851,12 +851,57 @@ export class NodeEditorElement extends LitElement {
     }
 
     .node-socket {
+      --socket-fill: var(--geometry-socket-color);
+      --socket-edge: #2a6fb0;
       width: 10px;
       height: 10px;
       flex: none;
-      border-radius: 50%;
-      border: 1px solid #2a6fb0;
+      position: relative;
+      box-sizing: border-box;
+      border: 0;
+      background: var(--socket-edge);
+      cursor: default;
+    }
+
+    .node-socket::after {
+      content: '';
+      position: absolute;
+      inset: 1px;
+      background: var(--socket-fill);
+      clip-path: inherit;
+    }
+
+    /* Outputs emit a point away from the node. Inputs use the inverse
+       silhouette: a transparent inward notch receives that point. Both keep
+       the historical 10px box, socket type colour, and border overlap. */
+    .node-socket[data-connector-shape='output-arrow'] {
+      clip-path: polygon(0 0, 48% 0, 100% 50%, 48% 100%, 0 100%, 30% 50%);
       cursor: crosshair;
+    }
+
+    .node-socket[data-connector-shape='input-notch'] {
+      clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 42% 50%);
+    }
+
+    #canvas.connection-gesture--active .node-socket[data-connector-shape='input-notch'] {
+      cursor: crosshair;
+    }
+
+    .node-socket:hover:not([aria-disabled='true']),
+    .node-socket--connection-origin,
+    .node-socket[data-connected='true'] {
+      filter: brightness(1.18) drop-shadow(0 0 2px rgb(255 255 255 / 0.4));
+    }
+
+    .node-socket:focus {
+      outline: 2px solid #fff;
+      outline-offset: 3px;
+      filter: brightness(1.18) drop-shadow(0 0 2px rgb(255 255 255 / 0.5));
+    }
+
+    .node-socket[aria-disabled='true'] {
+      cursor: not-allowed;
+      opacity: 0.48;
     }
 
     /*
@@ -869,30 +914,31 @@ export class NodeEditorElement extends LitElement {
      * full type-color framework.
      */
     .node-socket[data-socket-type='geometry'] {
-      background: var(--geometry-socket-color);
+      --socket-fill: var(--geometry-socket-color);
+      --socket-edge: #2a6fb0;
     }
 
     .node-socket[data-socket-type='number'] {
-      background: #f2b84b;
-      border-color: #9d6a12;
+      --socket-fill: #f2b84b;
+      --socket-edge: #9d6a12;
     }
 
     .node-socket[data-socket-type='vector3'] {
-      background: #b07cff;
-      border-color: #6f42b5;
+      --socket-fill: #b07cff;
+      --socket-edge: #6f42b5;
     }
 
     .node-socket[data-socket-type='boolean'] {
-      background: #63c174;
-      border-color: #2f8240;
+      --socket-fill: #63c174;
+      --socket-edge: #2f8240;
     }
 
     /* Function Output and Conditional branch/result ports before their type
        is resolved use this deliberately neutral/grey socket, distinct from
        every real value type. */
     .node-socket[data-socket-type='unresolved'] {
-      background: #888;
-      border-color: #555;
+      --socket-fill: #888;
+      --socket-edge: #555;
     }
 
     .node-structural-anchor {
@@ -931,7 +977,7 @@ export class NodeEditorElement extends LitElement {
       cursor: copy;
     }
 
-    /* Pulls just the socket circle to straddle the node's outer border, keeping the label anchored beside it. */
+    /* Pulls just the compact connector to straddle the node's outer border, keeping the label anchored beside it. */
     .node-port--input .node-socket {
       margin-left: -6px;
     }

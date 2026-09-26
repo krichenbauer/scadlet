@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { ConnectionGestureManager, nearestSnapTarget } from './connection-gesture'
+import { canStartConnectionGesture, ConnectionGestureManager, nearestSnapTarget } from './connection-gesture'
 
 const numberOrigin = { nodeId: 'number', socketKey: 'value', side: 'output' as const, socketType: 'number' as const }
 const numberTarget = { nodeId: 'cube', socketKey: 'size', side: 'input' as const }
@@ -12,12 +12,13 @@ describe('ConnectionGestureManager', () => {
     expect(gesture.active).toEqual({ origin: numberOrigin, snapTarget: null })
   })
 
-  it('replaces an old gesture when another socket is picked', () => {
-    const gesture = new ConnectionGestureManager()
-    gesture.begin(numberOrigin)
-    const inputOrigin = { nodeId: 'cube', socketKey: 'size', side: 'input' as const, socketType: 'number' as const }
-    gesture.begin(inputOrigin)
-    expect(gesture.active?.origin).toEqual(inputOrigin)
+  it('permits typed outputs but never inputs or unresolved outputs as origins', () => {
+    for (const type of ['geometry', 'number', 'vector3', 'boolean']) {
+      expect(canStartConnectionGesture('output', type)).toBe(true)
+      expect(canStartConnectionGesture('input', type)).toBe(false)
+    }
+    expect(canStartConnectionGesture('output', 'unresolved')).toBe(false)
+    expect(canStartConnectionGesture('output', 'structure')).toBe(false)
   })
 
   it('tracks a visible compatible snap target without changing the origin', () => {
@@ -115,7 +116,7 @@ describe('nearestSnapTarget', () => {
     expect(nearestSnapTarget(numberOrigin, candidates, { x: 118, y: 100 })).toMatchObject({ nodeId: 'other-number-target', socketKey: 'b' })
   })
 
-  it('rejects incompatible and same-direction sockets', () => {
+  it('rejects incompatible and output-side sockets', () => {
     expect(nearestSnapTarget(numberOrigin, candidates.slice(2), { x: 101, y: 100 })).toBeNull()
   })
 

@@ -79,6 +79,15 @@ interaction. Palette configuration selects are native controls and never begin
 a drag; dragging any other part creates the selected operation through the
 shared creation path.
 
+Ordinary connection gestures are output-origin only. Pointer, touch, Enter,
+or Space on a resolved output may start a draft; a compatible input may only
+complete that active draft. An input interaction with no active output is a
+quiet no-op and must not detach an existing wire, create preview state, or
+surface an error. Rewiring an occupied input starts from the replacement
+output and then targets that input. Existing wires remain independently
+selectable and removable. The fixed `For` boundary anchors remain outside this
+interaction model.
+
 Rete remains selection authority: a plain interaction with an unselected node
 replaces the selection, Shift/Ctrl/Cmd-click toggles selection membership,
 Shift-drag empty canvas creates a marquee, and dragging a selected member moves

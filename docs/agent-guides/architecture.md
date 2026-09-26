@@ -19,6 +19,11 @@ The renderer listens to Rete area render/connection/socket signals, uses
 and draws SVG paths. Follow `render.ts`/`controls.ts` patterns (including
 `area.update('node', id)` for progressive disclosure) instead of introducing a
 second renderer. Lit does not render individual canvas nodes or connections.
+The Rete connection preset is deliberately instantiated only for an ordinary
+output socket. Inputs remain completion targets, including the occupied-input
+replacement path; they never initialize Rete's classic input-pick/detach flow.
+Directional arrow/notch styling and accessibility metadata are renderer state,
+not socket types or graph semantics. Structural `For` anchors bypass both.
 
 ## Program and render flow
 

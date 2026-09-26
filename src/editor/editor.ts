@@ -16,8 +16,8 @@ import { attachRenderer } from './render'
 import type { AreaExtra, Schemes } from './schemes'
 import { attachNodeSelection } from './selection'
 import { BooleanOpNode } from './nodes/boolean-op-node'
-import { ConnectionGestureManager, type ConnectionGestureOrigin } from './connection-gesture'
-import { socketType, type SocketType } from './sockets'
+import { canStartConnectionGesture, ConnectionGestureManager, type ConnectionGestureOrigin } from './connection-gesture'
+import { socketType } from './sockets'
 import { guardPortRemoval, hasConnectedInputs, removeInputSafely, removeOutputSafely } from './port-lifecycle'
 import { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData, wouldCreateNodeDataflowCycle } from './connection-compatibility'
@@ -303,9 +303,14 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // metadata. SCADlet has a closed semantic socket vocabulary, so enforce
   // its diagonal-only compatibility here for drag/click creation as well as
   // the editor `connectioncreate` guard below for programmatic creation.
-  connection.addPreset(() => new ClassicFlow({
-    canMakeConnection: (from, to) => canCreateConnection(from, to),
-  }))
+  connection.addPreset((socket) => {
+    const type = socket.side === 'output'
+      ? socketType(editor.getNode(socket.nodeId)?.outputs[socket.key]?.socket)
+      : undefined
+    return canStartConnectionGesture(socket.side, type)
+      ? new ClassicFlow({ canMakeConnection: (from, to) => canCreateConnection(from, to) })
+      : undefined
+  })
 
   // Rete emits these signals for both drag and click connection flows. They
   // reconcile temporary disclosure with its actual completion; the capture
@@ -313,12 +318,11 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   const syncConnectionGesture = (context: { type: string, data?: unknown }) => {
     if (context.type === 'connectionpick') {
       const { socket } = context.data as { socket: SocketData }
+      if (socket.side !== 'output') return
       const node = editor.getNode(socket.nodeId)
-      const reteSocket = socket.side === 'output'
-        ? node?.outputs[socket.key]?.socket
-        : node?.inputs[socket.key]?.socket
+      const reteSocket = node?.outputs[socket.key]?.socket
       const type = socketType(reteSocket)
-      if (type) connectionGesture.begin({ nodeId: socket.nodeId, socketKey: socket.key, side: socket.side, socketType: type })
+      if (type) connectionGesture.begin({ nodeId: socket.nodeId, socketKey: socket.key, side: 'output', socketType: type })
     } else if (context.type === 'connectiondrop') {
       const { created, socket } = context.data as { created?: boolean; socket?: SocketData | null }
       // ClassicFlow can reject an attempted direct socket drop before it
@@ -353,13 +357,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const active = connectionGesture.active
     const snap = active?.snapTarget
     if (!active || !snap) return false
-    const source = active.origin.side === 'output'
-      ? { nodeId: active.origin.nodeId, key: active.origin.socketKey }
-      : { nodeId: snap.nodeId, key: snap.socketKey }
-    const target = active.origin.side === 'input'
-      ? { nodeId: active.origin.nodeId, key: active.origin.socketKey }
-      : { nodeId: snap.nodeId, key: snap.socketKey }
-    if (editor.getConnections().some((connection) => connection.target === target.nodeId && connection.targetInput === target.key)) return false
+    const source = { nodeId: active.origin.nodeId, key: active.origin.socketKey }
+    const target = { nodeId: snap.nodeId, key: snap.socketKey }
     const from = editor.getNode(source.nodeId)
     const to = editor.getNode(target.nodeId)
     if (!from || !to || !canCreateConnection(
@@ -372,10 +371,19 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     // explicit snapped connection. Otherwise its still-running pseudo-flow
     // can race a just-created real connection on the same release.
     window.setTimeout(() => {
-      void editor.addConnection(new ClassicPreset.Connection(from, source.key, to, target.key) as Schemes['Connection'])
-        .then((created) => {
-        if (created) void area.update('node', target.nodeId)
-        })
+      void (async () => {
+        const input = to.inputs[target.key]
+        const replaced = input && !input.multipleConnections
+          ? editor.getConnections().filter((item) => item.target === target.nodeId && item.targetInput === target.key)
+          : []
+        for (const item of replaced) await editor.removeConnection(item.id)
+        const created = await editor.addConnection(new ClassicPreset.Connection(from, source.key, to, target.key) as Schemes['Connection'])
+        if (!created) {
+          for (const item of replaced) await editor.addConnection(item)
+          return
+        }
+        void area.update('node', target.nodeId)
+      })()
     })
     return true
   }
@@ -383,6 +391,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     container,
     connectionGesture,
     commitSnappedConnection,
+    () => { connection.drop(); connectionGesture.cancel() },
     (origin, target) => {
       if (!wouldCreateNodeDataflowCycle(editor, {
         nodeId: origin.nodeId, key: origin.socketKey, side: origin.side,
@@ -620,6 +629,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   editor.addPipe((context) => {
     if (context.type === 'connectioncreated' || context.type === 'connectionremoved') {
       if (context.type === 'connectionremoved') connectionSelection.remove(context.data.id)
+      void area.update('node', context.data.source)
+      void area.update('node', context.data.target)
       // Recompute which parameter inputs (non-geometry) are connected for each node.
       // Only parameter sockets (number, vector3) force a partial expansion; geometry
       // connections never do - that was the bug that prevented Translate/Rotate/Scale
@@ -2322,6 +2333,7 @@ function attachConnectionGestureEvents(
   container: HTMLElement,
   gesture: ConnectionGestureManager,
   commitSnap: () => boolean,
+  resetConnection: () => void,
   rejectDataflowCycle: (origin: ConnectionGestureOrigin, target: { nodeId: string; key: string; side: 'input' | 'output' }) => boolean,
 ): () => void {
   let initiatingPointerId: number | null = null
@@ -2329,8 +2341,6 @@ function attachConnectionGestureEvents(
 
   const findSocket = (target: EventTarget | null): HTMLElement | null =>
     target instanceof Element ? target.closest<HTMLElement>('.node-socket') : null
-  const isSocketType = (value: string | undefined): value is SocketType =>
-    value === 'geometry' || value === 'number' || value === 'vector3' || value === 'boolean'
 
   const onPointerDown = (event: PointerEvent): void => {
     const socket = findSocket(event.target)
@@ -2354,19 +2364,20 @@ function attachConnectionGestureEvents(
         window.setTimeout(() => {
           // Rete may replace its internal pick object while completing an
           // exact socket click. The second socket click is still terminal
-          // for SCADlet's presentation gesture either way.
-          gesture.complete()
+          // for SCADlet's presentation gesture either way. Dropping here is
+          // also the keyboard path's pointerup equivalent when compatibility
+          // rejected the target and Rete kept its pseudo-flow active.
+          resetConnection()
         })
       } else gesture.cancel()
       return
     }
-    if (!socket || !isSocketType(socket.dataset.socketType)) return
+    if (!socket || socket.dataset.socketSide !== 'output' || !canStartConnectionGesture('output', socket.dataset.socketType)) return
     const root = socket.closest<HTMLElement>('.node')
     const socketKey = socket.dataset.socketKey
-    const side = socket.dataset.socketSide
     const nodeId = root?.dataset.nodeId
-    if (!nodeId || !socketKey || (side !== 'input' && side !== 'output')) return
-    gesture.begin({ nodeId, socketKey, side, socketType: socket.dataset.socketType })
+    if (!nodeId || !socketKey) return
+    gesture.begin({ nodeId, socketKey, side: 'output', socketType: socket.dataset.socketType })
     initiatingPointerId = event.pointerId
     movedSincePick = false
   }
@@ -2412,6 +2423,35 @@ function attachConnectionGestureEvents(
     }
   }
 
+  const onKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    const socket = findSocket(event.target)
+    if (!socket) return
+    const side = socket.dataset.socketSide
+    const socketType = socket.dataset.socketType
+    if (side === 'input' && !gesture.active) {
+      event.preventDefault()
+      return
+    }
+    if (side !== 'input' && side !== 'output') return
+    if (side === 'output' && !canStartConnectionGesture(side, socketType)) return
+    if (side === 'output' && gesture.active) resetConnection()
+    const rect = socket.getBoundingClientRect()
+    const init = {
+      bubbles: true,
+      composed: true,
+      cancelable: true,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+      pointerId: -1,
+      pointerType: 'keyboard',
+      button: 0,
+      buttons: 1,
+    }
+    event.preventDefault()
+    socket.dispatchEvent(new PointerEvent('pointerdown', init))
+  }
+
   container.addEventListener('pointerdown', onPointerDown, { capture: true })
   container.addEventListener('pointermove', onPointerMove, { capture: true })
   // Window capture runs before Rete's area-level pointerup listener. This
@@ -2419,11 +2459,13 @@ function attachConnectionGestureEvents(
   // ended near (rather than directly on) its destination socket.
   window.addEventListener('pointerup', onPointerUp, { capture: true })
   window.addEventListener('pointercancel', onPointerCancel, { capture: true })
+  container.addEventListener('keydown', onKeyDown)
   return () => {
     container.removeEventListener('pointerdown', onPointerDown, { capture: true })
     container.removeEventListener('pointermove', onPointerMove, { capture: true })
     window.removeEventListener('pointerup', onPointerUp, { capture: true })
     window.removeEventListener('pointercancel', onPointerCancel, { capture: true })
+    container.removeEventListener('keydown', onKeyDown)
   }
 }
 

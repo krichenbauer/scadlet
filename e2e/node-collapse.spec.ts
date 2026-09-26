@@ -54,23 +54,20 @@ test('explicit node collapse persists without changing wires or wire gestures', 
   await expect(translate.locator('[data-param-key="x"]')).toBeHidden()
   await expect(page.locator('node-editor .connection')).toHaveCount(1)
 
-  // Reconnecting from the occupied structural Geometry input also leaves
-  // every collapsed node closed; only the already-visible compatible target
-  // socket can highlight and accept the reconnected wire.
+  // Replacing a connection starts from the new output and targets the
+  // occupied input. The output-origin rewire leaves every collapsed node
+  // closed and keeps exactly one incoming Geometry wire.
   await dropPaletteNode(page, 'rotate', { x: canvas.x + 40, y: canvas.y + 300 })
   const rotate = await node(page, 'Rotate')
   await rotate.getByRole('button', { name: 'Collapse node' }).click()
   const occupiedGeometry = await translate.locator('.node-port--input .node-socket').boundingBox()
-  const rotateHeader = await rotate.locator('.node-header').boundingBox()
-  if (!occupiedGeometry || !rotateHeader) throw new Error('Expected reconnect endpoints')
-  await page.mouse.click(occupiedGeometry.x + occupiedGeometry.width / 2, occupiedGeometry.y + occupiedGeometry.height / 2)
-  await page.mouse.move(rotateHeader.x + 20, rotateHeader.y + rotateHeader.height / 2, { steps: 6 })
+  const replacementOutput = await rotate.locator('.node-port--output .node-socket').boundingBox()
+  if (!occupiedGeometry || !replacementOutput) throw new Error('Expected reconnect endpoints')
+  await page.mouse.click(replacementOutput.x + replacementOutput.width / 2, replacementOutput.y + replacementOutput.height / 2)
   await expect(rotate.getByRole('button', { name: 'Expand node' })).toHaveAttribute('aria-expanded', 'false')
   await expect(rotate.locator('[data-param-key="x"]')).toBeHidden()
   await expect(translate.getByRole('button', { name: 'Expand node' })).toHaveAttribute('aria-expanded', 'false')
-  const rotateGeometry = await rotate.locator('.node-port--input .node-socket').boundingBox()
-  if (!rotateGeometry) throw new Error('Expected visible Rotate Geometry input')
-  await page.mouse.click(rotateGeometry.x + rotateGeometry.width / 2, rotateGeometry.y + rotateGeometry.height / 2)
+  await page.mouse.click(occupiedGeometry.x + occupiedGeometry.width / 2, occupiedGeometry.y + occupiedGeometry.height / 2)
   await expect(page.locator('node-editor .connection')).toHaveCount(1)
 
   // The control is focusable and can expand a compact target while the real

@@ -104,9 +104,20 @@ their catalog entry and visible browser coverage.
 ## Ports and parameter rows
 
 - Rows use a shared vertical rhythm and a consistent label/control alignment.
-- Input sockets are on the left and outputs are on the right. Socket keys,
-  types, ordering, and connection semantics are defined by the node model and
-  are not changed for visual consistency.
+- Input sockets are on the left and outputs are on the right. Every ordinary
+  output uses a compact arrowhead pointing away from its node; every ordinary
+  input uses the inverse cut-out/notched silhouette that receives that point.
+  The two shapes retain the established per-type fill/edge colours, 10px
+  layout box, border overlap, hover, connected, disabled/unresolved, and
+  visible keyboard-focus treatments. Shape communicates direction and colour
+  communicates type; neither replaces the other.
+- Ordinary connectors retain their port-specific accessible names. Their
+  accessible descriptions identify outputs as **Connection source** and inputs
+  as **Connection target**. They are keyboard focusable: Enter or Space starts
+  a connection only on a resolved output and completes an active connection
+  on an input. Focusing or activating an input by itself never starts a draft.
+- Socket keys, types, ordering, and connection semantics are defined by the
+  node model and are not changed for visual consistency.
 - A direct fallback control belongs beside its corresponding unconnected input
   according to the established value-control convention.
 - A removable optional parameter has a compact **Remove parameter** icon button
@@ -290,7 +301,10 @@ row plus the extension control on `For result`; it therefore follows dynamic
 or restored result rows. The path and anchors are non-interactive and never
 receive selection styling. Both cards expose the same durable pair state to
 assistive technology. Number and ordered Geometry rows otherwise use the
-normal socket, fallback, collapse, and extension-slot conventions.
+normal directional connector, fallback, collapse, and extension-slot
+conventions. The structural anchors never receive arrow/notch shapes,
+ordinary connector roles, tab stops, hover/focus states, or connection-start
+behavior.
 
 ## Implementation and review checklist
 

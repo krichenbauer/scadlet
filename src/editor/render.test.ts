@@ -1,6 +1,26 @@
 import { describe, expect, it } from 'vitest'
 
-import { parameterRowPresentation } from './render'
+import { ordinaryConnectorPresentation, parameterRowPresentation } from './render'
+
+describe('ordinary connector presentation', () => {
+  it('uses inverse directional shapes without changing socket type semantics', () => {
+    expect(ordinaryConnectorPresentation('input', 'geometry')).toEqual({
+      shape: 'input-notch',
+      accessibleDescription: 'Connection target',
+      disabled: false,
+    })
+    expect(ordinaryConnectorPresentation('output', 'geometry')).toEqual({
+      shape: 'output-arrow',
+      accessibleDescription: 'Connection source',
+      disabled: false,
+    })
+  })
+
+  it('keeps unresolved direction visible while disabling only an unresolved output source', () => {
+    expect(ordinaryConnectorPresentation('input', 'unresolved')).toMatchObject({ shape: 'input-notch', disabled: false })
+    expect(ordinaryConnectorPresentation('output', 'unresolved')).toMatchObject({ shape: 'output-arrow', disabled: true })
+  })
+})
 
 const visibleKeys = (rows: ReturnType<typeof parameterRowPresentation>) =>
   rows.filter((row) => row.visible).map((row) => row.key)

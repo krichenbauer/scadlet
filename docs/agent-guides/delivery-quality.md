@@ -67,6 +67,11 @@ silently diverge from exported code.
 Numeric For regressions must cover the fixed pair lifecycle, iterator lexical
 boundary, nested Main/Module source, persistence rejection, and the normal
 WASM preview/export path; JavaScript must never evaluate the range itself.
+Directional-connector browser regressions must cover output-origin creation,
+input-origin pointer/touch/keyboard no-ops, output-origin replacement of an
+occupied input, wire selection/removal, representative static and dynamic
+ports, accessible source/target descriptions, retained type colours and
+compact bounds, and the visual/behavioral separation of fixed `For` anchors.
 Transient-popup browser coverage must cross the application, graph-editor,
 and viewer shadow roots, including outside pointer/wheel interactions, popup
 switching, inside controls, Escape focus restoration, and expanded-state

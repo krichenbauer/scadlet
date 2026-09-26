@@ -3,7 +3,7 @@ import type { SocketType } from './sockets'
 export interface ConnectionGestureOrigin {
   nodeId: string
   socketKey: string
-  side: 'input' | 'output'
+  side: 'output'
   socketType: SocketType
 }
 
@@ -15,10 +15,13 @@ export interface ActiveConnectionGesture {
 export interface ConnectionSnapTarget {
   nodeId: string
   socketKey: string
-  side: 'input' | 'output'
+  side: 'input'
 }
 
-export interface SnapCandidate extends ConnectionSnapTarget {
+export interface SnapCandidate {
+  nodeId: string
+  socketKey: string
+  side: 'input' | 'output'
   socketType: SocketType
   x: number
   y: number
@@ -29,15 +32,31 @@ export interface SnapCandidate extends ConnectionSnapTarget {
  * the interaction forgiving and consistent while the canvas zooms. */
 export const CONNECTION_SNAP_RADIUS_PX = 28
 
+/** Ordinary connection creation is deliberately directional: only a typed
+ * output may become a source. Inputs remain completion targets and unresolved
+ * outputs remain visible but unavailable until their semantic type resolves. */
+export function canStartConnectionGesture(
+  side: 'input' | 'output',
+  socketType: string | undefined,
+): socketType is SocketType {
+  return side === 'output' && (
+    socketType === 'geometry'
+    || socketType === 'number'
+    || socketType === 'vector3'
+    || socketType === 'boolean'
+  )
+}
+
 export function nearestSnapTarget(
   origin: ConnectionGestureOrigin,
   candidates: readonly SnapCandidate[],
   pointer: { x: number; y: number },
   radius = CONNECTION_SNAP_RADIUS_PX,
 ): ConnectionSnapTarget | null {
-  const opposite = origin.side === 'output' ? 'input' : 'output'
   return candidates
-    .filter((candidate) => candidate.side === opposite && candidate.socketType === origin.socketType && candidate.canConnect)
+    .filter((candidate): candidate is SnapCandidate & { side: 'input' } =>
+      candidate.side === 'input' && candidate.socketType === origin.socketType && candidate.canConnect,
+    )
     .map((candidate) => ({ candidate, distance: Math.hypot(candidate.x - pointer.x, candidate.y - pointer.y) }))
     .filter(({ distance }) => distance <= radius)
     .sort((a, b) => a.distance - b.distance || a.candidate.nodeId.localeCompare(b.candidate.nodeId) || a.candidate.socketKey.localeCompare(b.candidate.socketKey))[0]

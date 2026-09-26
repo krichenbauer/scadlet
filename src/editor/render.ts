@@ -38,6 +38,23 @@ interface PortPresentation {
   accessibleLabel?: string
 }
 
+export interface OrdinaryConnectorPresentation {
+  shape: 'input-notch' | 'output-arrow'
+  accessibleDescription: string
+  disabled: boolean
+}
+
+/** Direction is presentation and interaction metadata, never socket type or
+ * graph identity. Unresolved outputs stay visibly directional but cannot
+ * source a connection until their type becomes known. */
+export function ordinaryConnectorPresentation(side: Side, socketName: string): OrdinaryConnectorPresentation {
+  return {
+    shape: side === 'input' ? 'input-notch' : 'output-arrow',
+    accessibleDescription: t(side === 'input' ? 'connection.target' : 'connection.source'),
+    disabled: side === 'output' && socketName === 'unresolved',
+  }
+}
+
 export interface ParameterRowPresentation {
   key: string
   visible: boolean
@@ -197,14 +214,11 @@ export function attachRenderer(
         (socketType !== 'geometry' && socketType !== 'number' && socketType !== 'vector3' && socketType !== 'boolean')) continue
       if (nodeId === active.origin.nodeId && socketKey === active.origin.socketKey && side === active.origin.side) continue
       const endpoint: { nodeId: string; key: string; side: 'input' | 'output' } = { nodeId, key: socketKey, side }
-      // Do not advertise a target that the current single-input interaction
-      // would replace rather than add to.
-      const occupied = side === 'input' && editor.getConnections().some((connection) => connection.target === nodeId && connection.targetInput === socketKey)
       const rect = socket.getBoundingClientRect()
       candidates.push({
         nodeId, socketKey, side, socketType,
         x: rect.left + rect.width / 2, y: rect.top + rect.height / 2,
-        canConnect: !occupied && canConnectSocketData(editor, {
+        canConnect: canConnectSocketData(editor, {
           nodeId: active.origin.nodeId, key: active.origin.socketKey, side: active.origin.side,
         }, endpoint),
       })
@@ -217,8 +231,20 @@ export function attachRenderer(
   }
   area.container.addEventListener('pointermove', handlePointerMove, { capture: true })
   const syncSnapPresentation = (): void => {
-    for (const socket of area.container.querySelectorAll<HTMLElement>('.node-socket--snap-target')) socket.classList.remove('node-socket--snap-target')
-    const snap = connectionGesture.active?.snapTarget
+    for (const socket of area.container.querySelectorAll<HTMLElement>('.node-socket')) {
+      socket.classList.remove('node-socket--snap-target', 'node-socket--connection-origin')
+      if (socket.dataset.socketSide === 'output') socket.setAttribute('aria-pressed', 'false')
+    }
+    const active = connectionGesture.active
+    area.container.classList.toggle('connection-gesture--active', Boolean(active))
+    if (active) {
+      const origin = area.nodeViews.get(active.origin.nodeId)?.element.querySelector<HTMLElement>(
+        `.node-socket[data-socket-side="output"][data-socket-key="${CSS.escape(active.origin.socketKey)}"]`,
+      )
+      origin?.classList.add('node-socket--connection-origin')
+      origin?.setAttribute('aria-pressed', 'true')
+    }
+    const snap = active?.snapTarget
     if (!snap) {
       area.container.classList.remove('connection-gesture--snapped')
       return
@@ -278,7 +304,7 @@ export function attachRenderer(
   return () => {
     area.container.removeEventListener('pointermove', handlePointerMove, { capture: true })
     unsubscribeGesture()
-    area.container.classList.remove('connection-gesture--snapped')
+    area.container.classList.remove('connection-gesture--active', 'connection-gesture--snapped')
   }
 }
 
@@ -368,6 +394,9 @@ function renderNode(
     }
   }
   const outputClasses = classifyOutputPorts(node.outputs)
+  const nodeConnections = editor.getConnections()
+  const connectedInputKeysForNode = new Set(nodeConnections.filter((item) => item.target === node.id).map((item) => item.targetInput))
+  const connectedOutputKeysForNode = new Set(nodeConnections.filter((item) => item.source === node.id).map((item) => item.sourceOutput))
   const structuralInputs = Object.entries(node.inputs).filter(
     (entry): entry is [string, ClassicPreset.Input<ClassicPreset.Socket>] => entry[1]?.socket.name === 'structure',
   )
@@ -439,7 +468,7 @@ function renderNode(
   // an area re-render races the connection-created presentation update.
   const connectedInputKeys = new Set([
     ...presentation.getConnectedInputKeys(node.id),
-    ...editor.getConnections()
+    ...nodeConnections
       .filter((connection) => connection.target === node.id && parameterInputs.some(([key]) => key === connection.targetInput))
       .map((connection) => connection.targetInput),
   ])
@@ -479,7 +508,7 @@ function renderNode(
     const inputs = document.createElement('div')
     inputs.className = 'node-inputs'
     for (const [key, input] of mainInputs) {
-      inputs.appendChild(renderPort(area, node.id, 'input', key, input.label, input.socket.name, geometryInputPresentation(node, key)))
+      inputs.appendChild(renderPort(area, node.id, 'input', key, input.label, input.socket.name, geometryInputPresentation(node, key), connectedInputKeysForNode.has(key)))
     }
     main.appendChild(inputs)
   }
@@ -511,7 +540,7 @@ function renderNode(
     const outputs = document.createElement('div')
     outputs.className = 'node-outputs'
     for (const [key, output] of mainOutputs) {
-      const row = renderPort(area, node.id, 'output', key, output.label, output.socket.name, key === 'value' ? { visibleLabel: '', accessibleLabel: output.label } : undefined)
+      const row = renderPort(area, node.id, 'output', key, output.label, output.socket.name, key === 'value' ? { visibleLabel: '', accessibleLabel: output.label } : undefined, connectedOutputKeysForNode.has(key))
       const reference = referenceCreationForOutput(node, key)
       if (reference) insertReferenceCreationControl(row, renderReferenceCreationControl(reference, node.id, onBeginReferencePlacement))
       outputs.appendChild(row)
@@ -581,7 +610,7 @@ function renderNode(
     const rows = document.createElement('div')
     rows.className = 'node-param-output-rows node-geometry-output-rows'
     for (const [key, output] of geometryOutputs) {
-      const row = renderPort(area, node.id, 'output', key, output.label, output.socket.name)
+      const row = renderPort(area, node.id, 'output', key, output.label, output.socket.name, undefined, connectedOutputKeysForNode.has(key))
       row.classList.add('node-param-output-row')
       const reference = referenceCreationForOutput(node, key)
       if (reference) insertReferenceCreationControl(row, renderReferenceCreationControl(reference, node.id, onBeginReferencePlacement))
@@ -606,7 +635,7 @@ function renderNode(
     const rows = document.createElement('div')
     rows.className = 'node-param-output-rows'
     for (const [key, output] of parameterOutputs) {
-      const row = renderPort(area, node.id, 'output', key, output.label, output.socket.name)
+      const row = renderPort(area, node.id, 'output', key, output.label, output.socket.name, undefined, connectedOutputKeysForNode.has(key))
       row.classList.add('node-param-output-row')
       const reference = referenceCreationForOutput(node, key)
       if (reference) insertReferenceCreationControl(row, renderReferenceCreationControl(reference, node.id, onBeginReferencePlacement))
@@ -665,6 +694,14 @@ function renderNode(
       structuralRow.appendChild(renderPort(area, node.id, 'output', key, output.label, output.socket.name))
     }
     element.appendChild(structuralRow)
+  }
+
+  if (connectionGesture.active?.origin.nodeId === node.id) {
+    const origin = element.querySelector<HTMLElement>(
+      `.node-socket[data-socket-side="output"][data-socket-key="${CSS.escape(connectionGesture.active.origin.socketKey)}"]`,
+    )
+    origin?.classList.add('node-socket--connection-origin')
+    origin?.setAttribute('aria-pressed', 'true')
   }
 }
 
@@ -1012,6 +1049,7 @@ function renderPort(
   label: string | undefined,
   socketName: string,
   presentation?: PortPresentation,
+  connected = false,
 ): HTMLElement {
   const row = document.createElement('div')
   row.className = `node-port node-port--${side}`
@@ -1024,14 +1062,18 @@ function renderPort(
   // primary way a socket's data type is communicated, driven by this data
   // attribute in CSS (`node-editor.ts`) rather than by permanently showing
   // type text beside every connector.
-  socket.dataset.socketType = socketName
-  socket.dataset.socketSide = side
-  socket.dataset.socketKey = key
   // The accessible name is always set, even when the visible label below
   // is omitted, so screen readers/tooltips never lose the socket's meaning.
-  socket.title = accessibleName
-  socket.setAttribute('aria-label', accessibleName)
-  if (socketName === 'structure') socket.setAttribute('role', 'img')
+  if (socketName === 'structure') {
+    socket.dataset.socketType = socketName
+    socket.dataset.socketSide = side
+    socket.dataset.socketKey = key
+    socket.title = accessibleName
+    socket.setAttribute('aria-label', accessibleName)
+    socket.setAttribute('role', 'img')
+  } else {
+    configureOrdinarySocket(socket, side, key, socketName, accessibleName, connected)
+  }
   row.appendChild(socket)
 
   // A label that just restates the socket's data type (e.g. a lone
@@ -1059,6 +1101,29 @@ function renderPort(
   })
 
   return row
+}
+
+function configureOrdinarySocket(
+  socket: HTMLElement,
+  side: Side,
+  key: string,
+  socketName: string,
+  accessibleName: string,
+  connected: boolean,
+): void {
+  const directional = ordinaryConnectorPresentation(side, socketName)
+  socket.dataset.socketType = socketName
+  socket.dataset.socketSide = side
+  socket.dataset.socketKey = key
+  socket.dataset.connectorShape = directional.shape
+  socket.dataset.connected = String(connected)
+  socket.title = `${accessibleName}. ${directional.accessibleDescription}.`
+  socket.setAttribute('aria-label', accessibleName)
+  socket.setAttribute('aria-description', directional.accessibleDescription)
+  socket.setAttribute('role', 'button')
+  socket.tabIndex = 0
+  if (side === 'output') socket.setAttribute('aria-pressed', 'false')
+  if (directional.disabled) socket.setAttribute('aria-disabled', 'true')
 }
 
 /**
@@ -1097,11 +1162,7 @@ function renderParamRow(
 
   const socket = document.createElement('div')
   socket.className = 'node-socket'
-  socket.dataset.socketType = socketName
-  socket.dataset.socketSide = 'input'
-  socket.dataset.socketKey = key
-  socket.title = label
-  socket.setAttribute('aria-label', label)
+  configureOrdinarySocket(socket, 'input', key, socketName, label, connected)
   row.appendChild(socket)
 
   void area.emit({ type: 'render', data: { type: 'socket', element: socket, nodeId, side: 'input', key } })
