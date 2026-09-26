@@ -2,8 +2,10 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e',
-  fullyParallel: false,
-  workers: 1,
+  fullyParallel: true,
+  // OpenSCAD/WASM renders are CPU-heavy, so retain capacity for the browser
+  // and Vite Preview while allowing independent browser contexts to run.
+  workers: '50%',
   use: {
     baseURL: 'http://127.0.0.1:4173',
     headless: true,
