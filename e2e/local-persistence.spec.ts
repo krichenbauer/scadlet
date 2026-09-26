@@ -455,10 +455,13 @@ async function connectNodePorts(page: Page, source: string, sourceOutput: string
 }
 
 async function waitForBoundingBox(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
-  await expect.poll(async () => Boolean(await locator.boundingBox())).toBe(true)
-  const box = await locator.boundingBox()
-  if (!box) throw new Error('Expected stable element bounds after render')
-  return box
+  let bounds: { x: number; y: number; width: number; height: number } | null = null
+  await expect.poll(async () => {
+    bounds = await locator.boundingBox()
+    return bounds !== null
+  }).toBe(true)
+  if (!bounds) throw new Error('Expected stable element bounds after render')
+  return bounds
 }
 
 test.beforeEach(async ({ context }) => {
@@ -1477,8 +1480,7 @@ test('propagates nested Function result transitions and safely renames/deletes t
   // outer result type, but only disconnects outer's now-incompatible Main
   // Cube Size wire. Cancellation is a complete no-op.
   const innerFrame = page.locator('node-editor .definition-frame[data-definition-id="inner"]')
-  const innerBox = await innerFrame.boundingBox()
-  if (!innerBox) throw new Error('Expected inner frame')
+  const innerBox = await waitForBoundingBox(innerFrame)
   await dropPaletteNode(page, 'boolean', { x: innerBox.x + innerBox.width / 2, y: innerBox.y + innerBox.height - 35 })
   const boolean = page.locator('node-editor .node').filter({ has: page.locator('.node-title[aria-label="Boolean Name"]') })
   const innerOutput = page.locator('node-editor .node[data-node-id="inner-out"]')
@@ -1566,14 +1568,14 @@ test('transfers ordinary nodes between Main and Module scopes only on drop', asy
   await dialog.getByLabel('Module name').fill('wheel')
   await dialog.getByRole('button', { name: 'Create', exact: true }).click()
   const wheel = page.locator('node-editor .definition-frame').filter({ hasText: 'wheel' })
+  await expect(wheel).toBeVisible()
   const wheelId = await wheel.getAttribute('data-definition-id')
   if (!wheelId) throw new Error('Expected wheel definition id')
 
   // Create Sphere directly inside the Module. Its initial scope makes this a
   // regression test for the former "own frame follows the node" trap: moving
   // it away must leave a stable source boundary and permit a Main drop.
-  const initialWheelBox = await wheel.boundingBox()
-  if (!initialWheelBox) throw new Error('Expected Module frame')
+  const initialWheelBox = await waitForBoundingBox(wheel)
   await dropPaletteNode(page, 'sphere', { x: initialWheelBox.x + initialWheelBox.width / 2, y: initialWheelBox.y + initialWheelBox.height / 2 })
   const sphere = page.locator('node-editor .node').filter({ has: page.locator('.node-title', { hasText: 'Sphere' }) })
   await wheel.locator('.definition-frame-title').click()
@@ -1584,11 +1586,8 @@ test('transfers ordinary nodes between Main and Module scopes only on drop', asy
   await page.mouse.click(editorBox.x + editorBox.width - 12, editorBox.y + editorBox.height - 12)
   // Selection clearing re-renders both the frame and node. Wait through that
   // brief unmount/remount instead of sampling a transient null box.
-  await expect.poll(async () => Boolean(await wheel.boundingBox())).toBe(true)
-  await expect.poll(async () => Boolean(await sphere.locator('.node-header').boundingBox())).toBe(true)
-  const wheelBox = await wheel.boundingBox()
-  const header = await sphere.locator('.node-header').boundingBox()
-  if (!wheelBox || !header) throw new Error('Expected Sphere and Module frame')
+  const wheelBox = await waitForBoundingBox(wheel)
+  const header = await waitForBoundingBox(sphere.locator('.node-header'))
   const mainDrop = { x: editorBox.x + 40, y: editorBox.y + editorBox.height - 80 }
   await page.mouse.move(header.x + 20, header.y + header.height / 2)
   await page.mouse.down()
@@ -1608,9 +1607,7 @@ test('transfers ordinary nodes between Main and Module scopes only on drop', asy
 
   // The inverse path remains supported: after its successful Main drop, the
   // same ordinary node can be assigned back to the Module by a later drag.
-  await expect.poll(async () => Boolean(await wheel.boundingBox())).toBe(true)
-  const currentWheelBox = await wheel.boundingBox()
-  if (!currentWheelBox) throw new Error('Expected Module frame')
+  const currentWheelBox = await waitForBoundingBox(wheel)
   await dragNodeTo(page, sphere, { x: currentWheelBox.x + currentWheelBox.width / 2, y: currentWheelBox.y + currentWheelBox.height / 2 })
   await wheel.locator('.definition-frame-title').click()
   await expect(sphere).toHaveClass(/node--selected/)
@@ -2571,6 +2568,7 @@ test('keeps different projects active independently per tab and detects same-pro
   await expectActiveProject(second, 'Project A')
   await openProjects(second)
   await second.getByRole('button', { name: 'New project', exact: true }).click()
+  await expect(second.locator('scadlet-app .project-name')).toHaveValue('Untitled Project')
   await renameProject(second, 'Project B')
   await dropPaletteNode(second, 'sphere')
   await waitForAutosave(second)

@@ -141,12 +141,13 @@ test('definition More and parameter popovers dismiss consistently while preservi
   const frameTrigger = frame.locator('summary[aria-label="More actions"]')
   await frameTrigger.click()
   await expect(frameMore).toHaveAttribute('open', '')
-  await inputs.locator('.node-body').click()
+  await page.locator('geometry-viewer #canvas-host').click({ position: { x: 50, y: 50 } })
   await expect(frameMore).not.toHaveAttribute('open', '')
   await expect(frameTrigger).toHaveAttribute('aria-expanded', 'false')
 
   const addTrigger = inputs.locator('.node-add-summary')
   await addTrigger.click()
+  await expect(inputs.locator('.node-add-menu')).toHaveAttribute('open', '')
   await inputs.getByRole('button', { name: 'Parameter', exact: true }).click()
   let popover = inputs.locator('.node-parameter-popover')
   await expect(popover).toBeVisible()
@@ -161,6 +162,7 @@ test('definition More and parameter popovers dismiss consistently while preservi
   await expect(inputs.locator('.node-add-summary')).toHaveAttribute('aria-expanded', 'false')
 
   await inputs.locator('.node-add-summary').click()
+  await expect(inputs.locator('.node-add-menu')).toHaveAttribute('open', '')
   await inputs.getByRole('button', { name: 'Parameter', exact: true }).click()
   popover = inputs.locator('.node-parameter-popover')
   await expect(popover.getByLabel('Name', { exact: true })).toBeFocused()

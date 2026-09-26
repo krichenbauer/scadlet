@@ -49,6 +49,7 @@ test('production bundle exposes immutable examples separately and copies one int
     'Boolean Operations',
     'House',
     'Parametric Bowl',
+    'Recursive Tree',
   ])
   await expect(examplesSection).not.toContainText('example_')
 
