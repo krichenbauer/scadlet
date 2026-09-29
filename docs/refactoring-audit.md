@@ -36,9 +36,6 @@ problems are concentrated, not systemic:
 3. **Module and Function lifecycles are duplicated**, as are the four
    type-inference transition protocols. The copies have already diverged in
    rollback behaviour (RF-05, RF-06).
-4. **Generated source uses two numeric literal policies.** The same Cube size
-   emits different source depending on whether an unrelated input is wired
-   (RF-10).
 
 **Defects confirmed during the audit.** Each was reproduced with throwaway
 scratch tests outside the repository.
@@ -48,12 +45,12 @@ scratch tests outside the repository.
 | D-1 | Deleting the inspected node leaves Inspect active. The stale ID stays and the remaining nodes stay dimmed as out of scope, although [Editor and UX](agent-guides/editor-ux.md) requires deletion to clear it | Chromium: Delete on an inspected Cube; `getInspectedNodeId()` still returns the deleted ID and the Sphere keeps `node--inspect-out-of-scope` | RF-02 | Fixed (section 9) |
 | D-2 | Renaming a Value to an existing For iterator name in the same scope is accepted, then autosave fails ("Local saving failed; recent changes may be lost."). Pasting a Value named like an iterator and naming a parameter like an iterator hit the same gap | Chromium: For plus Number, rename the Number to `i` | RF-03 | Fixed (section 9) |
 | D-3 | Typing `0` into a For Step field is accepted, then autosave fails. Explicit Save As would write the same project unvalidated | Chromium plus unit reproduction (`serializeProject` → `parseScadletProject` throws "zero step") | RF-11 | Fixed (section 9) |
-| D-4 | A literal can lose precision: Cube size `1.23456789` emits `cube(1.234568);` unwired but `cube(1.23456789, center=true);` once Center is wired. `1e-7` emits `cube(0);` | Direct `data()` calls on `CubeNode`, `SphereNode`, `NumberNode`, `TranslateNode` | RF-10 | Open, needs a decision |
+| D-4 | Two numeric literal formats coexist: Cube size `1.23456789` emits `cube(1.234568);` unwired but `cube(1.23456789, center=true);` once Center is wired. Output differs only beyond six decimals | Direct `data()` calls on `CubeNode`, `SphereNode`, `NumberNode`, `TranslateNode` | RF-10 | Reclassified: not a defect (section 9.3) |
 
 **Recommended degree of refactoring:** incremental and medium-sized. Fix the
-four defects in their own behaviour changes (D-1, D-2, and D-3 are done). Then centralize duplicated
-policies (bindings, scope snapshots, transactions, the Module/Function
-lifecycle). Split `createEditor` only after those seams exist. No new AST,
+three defects in their own behaviour changes (D-1, D-2, and D-3 are done).
+Then centralize duplicated policies (bindings, scope snapshots, transactions,
+the Module/Function lifecycle). Split `createEditor` only after those seams exist. No new AST,
 command framework, or folder reorganization is warranted.
 
 **Main risk of doing nothing:** each new cross-cutting feature (Lists and
@@ -588,9 +585,10 @@ Geometry-input operations, which are reached only through the internal
   `inputSocketType`.
 - **Depends on:** none.
 
-### RF-10 — Two numeric-literal policies in generated OpenSCAD
+### RF-10 — Two numeric-literal formats in generated OpenSCAD
 
-- **Category:** evaluation and code generation (D-4).
+- **Category:** code generation consistency (D-4, reclassified as not a
+  defect; see section 9.3).
 - **Evidence:** `formatNumber` in [format.ts](../src/openscad/format.ts)
   rounds non-integers to 6 decimals. It is used by `cubeToOpenSCAD`, Sphere,
   Cylinder, settings, and transforms. Node `data()` paths use `String(value)`:
@@ -608,24 +606,29 @@ Geometry-input operations, which are reached only through the internal
   | Cube size `1e-7` | `cube(0);` |
 
 - **Affected:** `openscad/*.ts`, `editor/nodes/*.ts`, `evaluate.ts`.
-- **Why it matters:** [Architecture](agent-guides/architecture.md) forbids
-  silently lowering explicit detail, and learners see emitted source change
-  when an unrelated input is wired.
-- **Failure modes:** silent precision loss; a zero-size primitive from a tiny
-  value; confusing learner-visible source differences.
-- **Recommended direction:** one literal formatter in `openscad/format.ts`
-  used by every emitter. OpenSCAD accepts exponent notation, so a lossless
-  `String`-based form is viable. This changes generated source and needs an
-  explicit decision; afterwards, update the affected expectations in
-  `openscad/*.test.ts` and round-trip tests.
-- **Keep unchanged:** integer output, vector formatting, `$fn` never lowered.
-- **Risk / Benefit / Scope:** Medium / Medium / Small.
+- **Why it matters (limited):** the source pane can show the same value in
+  two formats depending on which code path emits it. The practical effect is
+  negligible: differences start below 0.000001 model units, far beneath print
+  or preview resolution, and only a value no learner would type (such as
+  `1e-7`) rounds to zero. The 6-decimal formatting is deliberate:
+  `formatNumber` avoids scientific notation so generated source stays readable
+  for learners. The Architecture rule against lowering explicit detail
+  concerns settings such as `$fn`, not literal decimals.
+- **Failure modes:** a learner comparing source panes sees different digits
+  for an identical value; a tiny non-zero value becomes `0` in primitives.
+- **Recommended direction (optional, not scheduled):** route every emitter
+  through the existing `formatNumber`, optionally adjusted so a non-zero value
+  never formats as `0`. Keep the readable, exponent-free format. Do not switch
+  the application to `String(value)` output. Saved files are unaffected;
+  only generated source for values with more than six decimals would change.
+- **Keep unchanged:** integer output, vector formatting, the exponent-free
+  readable format.
+- **Risk / Benefit / Scope:** Low / Low / Small.
 - **Currently protected by:** `openscad/*.test.ts`, `round-trip.test.ts`,
   E2E `numeric-literals.spec.ts`.
-- **Characterization needed first:** a snapshot of the emitted literal for each
-  emitter at the values `1.5`, `1.23456789`, `1e-7`, and `-0`, pinning current
-  output before the decision.
-- **Depends on:** a product decision.
+- **Characterization needed first:** a snapshot of each emitter's literal at
+  `1.5`, `1.23456789`, and `-0`.
+- **Depends on:** none.
 
 ### RF-11 — No single "persistable graph" gate; write paths validate inconsistently
 
@@ -958,7 +961,7 @@ contract. Characterization tests pin current behaviour everywhere else.
 | 1 | Extract the live scope snapshot helper (upstream-closure helper optional) | RF-04 | new `editor/scope-snapshot.ts`; `editor.ts`, `evaluate.ts` call sites | Section 7 | Unit and E2E For, clipboard, variables |
 | 2 | Consolidate E2E helpers into `e2e/support.ts` | RF-15 | `e2e/*.spec.ts` | Record test titles and count (109) | Same titles and count after |
 | 3 | Remove verified-dead facade members and template assets; refresh stale comments | RF-18 | `editor.ts`, `src/assets/*`, `public/icons.svg`, comments | Search proof per item | `pnpm build` output lists no removed asset |
-| 4 | Catalog/node port parity and literal snapshot tests (tests only) | RF-09, RF-10 | new unit tests | — | — |
+| 4 | Catalog/node port parity tests (tests only) | RF-09 | new unit tests | — | — |
 
 **Group 2 — Centralize duplicated policies**
 
@@ -967,7 +970,7 @@ contract. Characterization tests pin current behaviour everywhere else.
 | 5 | **Done** (section 9): clear Inspect on committed deletion | RF-02 | `editor.ts` `noderemoved` pipe | New D-1 E2E; failed-switch Inspect E2E | `inspect-dismissal.spec.ts` |
 | 6 | Single scope binding authority (D-2 already fixed, section 9) | RF-03 | `scope-bindings.ts`, `bindings.ts`, `scope-transfer.ts`, `validate.ts`, `restore.ts`, `editor.ts` | Binding verdict matrix (RF-03) | Fixture corpus parses identically |
 | 7 | **Done** (section 9): validate before file save; refuse zero Step live | RF-11 | `file-service.ts`, `for-nodes.ts`, `for-validation.ts`, `validate.ts` | D-3 unit and E2E | `file-service.test.ts` |
-| 8 | **(behaviour change, needs decision)** One literal formatter | RF-10 | `openscad/format.ts`, emitters | WP 4 snapshot | Real OpenSCAD-WASM render E2E |
+| 8 | **(optional, low priority)** Route all emitters through `formatNumber` | RF-10 | `openscad/format.ts`, emitters | Literal snapshot (RF-10) | Real OpenSCAD-WASM render E2E |
 | 9 | Value-type constants and `producesGeometry` helper | RF-17 | `sockets.ts`, `definitions.ts`, `evaluate.ts`, `editor.ts`, `render.ts` | RF-17 classification test | — |
 | 10 | Catalog entry factories, derived predicates, context spread | RF-09 | `node-catalog.ts`, `graph-clipboard.ts` | WP 4 parity test | `round-trip.test.ts` |
 | 11 | `validate.ts` internal consolidation | RF-12 | `validate.ts` | Fixture corpus test | `docs-examples.test.ts` |
@@ -1098,10 +1101,11 @@ git-ignored `dist/` and `test-results/` directories only.
 | `git diff --check` | Pass. Exit 0, no output |
 
 **Baseline classification:** no failing checks; no flakes observed in one
-full run. The four defects in section 1 are reproducible baseline defects that
-the existing suites do not cover. They were confirmed with temporary Vitest
-and Playwright specs kept outside the repository (served from the built
-`dist` on a separate port) and are not part of this change.
+full run. D-1 to D-3 in section 1 are reproducible baseline defects that the
+existing suites do not cover (D-4 was later reclassified, section 9.3). They
+were confirmed with temporary Vitest and Playwright specs kept outside the
+repository (served from the built `dist` on a separate port) and are not part
+of this change.
 
 **Confidence limits:** a single E2E run cannot prove the absence of flakes.
 Performance remarks (per-connection scope snapshots, O(N·E) presentation sync)
@@ -1173,7 +1177,7 @@ never writes, a project the loader refuses.
   but confusing.
 - The zero-fallback edge case and the unused `'step'` problem code (RF-11)
   are still open.
-- D-4 is unchanged. D-1 is fixed in 9.2.
+- D-1 is fixed in 9.2. D-4 is reclassified in 9.3.
 
 ### 9.2 Stale Inspect after deleting the inspected node (D-1)
 
@@ -1230,3 +1234,17 @@ preview.
 - A transaction that deletes the inspected node and then rolls back after an
   unexpected Rete failure also ends Inspect. That is acceptable, but an
   explicit transaction helper (RF-01) should decide it deliberately.
+
+### 9.3 Reclassification of D-4
+
+On review, the audit had overstated D-4:
+
+- The rounding affects only digits beyond six decimals, which is below any
+  practical model resolution.
+- The zero case needs an input no learner would enter.
+- The 6-decimal, exponent-free format is an intentional readability choice.
+- The cited Architecture rule concerns detail settings such as `$fn`.
+
+D-4 is therefore no longer a defect. RF-10 is rated Low / Low / Small and
+kept as an optional consistency cleanup (WP 8). No code changed; the
+counts in this report now stand at three confirmed defects, all fixed.
