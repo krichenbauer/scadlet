@@ -131,6 +131,31 @@ to an empty fragment, so the entire pair is omitted rather than emitting an
 empty `for` block. This draft convention does not relax structural, scope,
 iterator, connection-type, or zero-step validation.
 
+## Graph clipboard and placement flow
+
+Copy and Duplicate snapshot selected Rete nodes as detached plain data; only
+ordinary connections whose endpoints are both in the snapshot are included.
+The session-local payload records its exact active-project identity and one
+semantic scope. It is not the operating-system clipboard and is never an
+alternate graph, AST, evaluator, or persistence format.
+
+Paste and Duplicate first show a transient placement ghost. Nothing is added
+to Rete until a primary canvas click. Commit plans the complete subgraph with
+fresh node and connection IDs, fresh named-Value binding IDs, fresh For
+pair/iterator IDs, and fresh dynamic Geometry-slot IDs, then validates the
+combined target scope before changing the editor. Successful commit adds the
+whole subgraph atomically, selects exactly its new nodes, and emits one
+semantic change. Failure rolls back without replacing the retained clipboard.
+Repeated Paste creates a fresh plan each time.
+
+A copied Variable reference follows its copied binding when that binding is in
+the payload; otherwise it retains a valid existing binding in the same scope.
+Selecting either For member expands the payload to the complete pair and every
+reference to its iterator. The fixed structural connection is reconstructed,
+not treated as ordinary clipboard data. Protected definition interface nodes,
+mixed scopes, project changes, scope changes, and singleton SCAD settings are
+preflight boundaries, not repair-after-creation cases.
+
 ## Viewer contract
 
 Three.js consumes STL from memory via `STLLoader`. It provides orbit, zoom,

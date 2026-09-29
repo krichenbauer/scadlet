@@ -3,7 +3,7 @@ import { html, svg, type TemplateResult } from 'lit'
 /** Small local SVG vocabulary for compact shell controls. Keeping these inline
  * avoids an icon dependency and ships no external assets. */
 export type CompactIconName =
-  | 'plus' | 'copy' | 'trash' | 'sort-alpha' | 'clock' | 'chevron-up' | 'chevron-down'
+  | 'plus' | 'copy' | 'cut' | 'paste' | 'trash' | 'sort-alpha' | 'clock' | 'chevron-up' | 'chevron-down'
   // Node-family/header icons (node-style.md "Icons in nodes and palette").
   | 'cube' | 'cylinder' | 'sphere'
   | 'translate' | 'rotate' | 'scale'
@@ -16,6 +16,8 @@ export type CompactIconName =
 const paths: Record<CompactIconName, string> = {
   plus: 'M12 5v14M5 12h14',
   copy: 'M9 8h10v11H9zM5 16H4V5h11v1',
+  cut: 'M8 8a3 3 0 1 1-2-2.83L19 18M8 16a3 3 0 1 0-2 2.83L19 6M12 12l2 2',
+  paste: 'M8 5h2a2 2 0 0 1 4 0h2v3H8ZM6 7H4v14h14V7h-2M8 12h6M8 16h6',
   trash: 'M5 7h14M9 7V4h6v3M8 7l1 13h6l1-13M11 11v5M13 11v5',
   'sort-alpha': 'M5 5h8M5 10h6M5 15h4M17 5v14M14 16l3 3 3-3',
   clock: 'M12 5a7 7 0 1 1 0 14 7 7 0 0 1 0-14ZM12 8v4l3 2',

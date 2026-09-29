@@ -61,8 +61,9 @@ Expose OpenSCAD semantics without forcing a value graph for literals:
   Geometry child row, including the extension control, on the result. The
   header has Number fallback rows for Start, Step, and End plus one iterator
   Number output/reference action. The result uses stable ordered, variadic
-  Geometry child rows. Either member's Delete or Duplicate action applies to
-  the complete pair; members otherwise move independently. A structurally
+  Geometry child rows. Either member's Delete, Copy, Cut, or Duplicate action
+  applies to the complete pair and its iterator references; members otherwise
+  move independently. A structurally
   valid pair with no connected result body is a normal draft and remains
   absent from generated source until Geometry is connected.
   Its palette entry uses the blue Geometry-family cue because the pair
@@ -102,6 +103,28 @@ other endpoint. Delete/Backspace removes selected nodes/connections only while
 the canvas has focus, never while editing a control. One selected connection
 may be deleted before node deletion. No selection/hover/gesture state changes
 program semantics or persistence.
+
+Graph Copy, Cut, Paste, and Duplicate are session-local editor commands on
+Command for Apple platforms and Control elsewhere. They never intercept native
+clipboard/editing shortcuts in inputs, textareas, selects, or contenteditable
+surfaces. Copy and Cut use the explicit node selection; Duplicate uses that
+selection without replacing the clipboard. Node More actions always target
+only that node. A graph context menu opened by secondary click, Shift+F10 or
+the Context Menu key, or a deliberate touch hold uses the clicked node when it
+was unselected and preserves an already selected group. Empty-canvas context
+offers Paste only. Context menus use the shared transient-popup lifecycle and
+Escape restores focus to their trigger.
+
+Paste and Duplicate are deferred placement gestures. The ghost preserves
+relative layout, tracks the pointer through pan and zoom, shows internal wires,
+and commits only on a primary canvas click. Escape, a replacement placement,
+an incompatible scope change, project replacement, or editor destruction
+cancels the ghost without mutating the graph or clearing a valid clipboard.
+Commit creates fresh identities and selects exactly the new nodes. Copy alone
+is non-semantic; Cut and a successful placement each form one atomic semantic
+change. Paste is rejected before mutation for an incompatible project/scope,
+protected interface data, invalid bindings or For structure, or a duplicate
+SCAD settings singleton.
 
 Nodes are compact/collapsible presentation only. Normally collapsible nodes
 start expanded and provide an always-visible chevron header button to collapse

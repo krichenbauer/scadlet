@@ -148,8 +148,12 @@ test('Reset 3D view frames a real OpenSCAD-WASM mesh and preserves source, inspe
 })
 
 test('Reset 3D view is disabled after a valid empty Geometry render', async ({ page }) => {
+  test.setTimeout(45_000)
   await seedActiveProject(page, emptyProject(), 'view-recovery-empty')
+  // Cancel the startup Live request before exercising the manual-render
+  // result. This keeps the assertion deterministic under full parallel load.
+  await page.getByRole('switch', { name: 'Live render', exact: true }).click()
   await page.getByRole('button', { name: 'Render', exact: true }).click()
-  await expect(page.locator('geometry-viewer .empty-geometry-status')).toHaveText('Nothing visible to render.', { timeout: 15_000 })
+  await expect(page.locator('geometry-viewer .empty-geometry-status')).toHaveText('Nothing visible to render.', { timeout: 30_000 })
   await expect(page.getByRole('button', { name: 'Reset 3D view', exact: true })).toBeDisabled()
 })

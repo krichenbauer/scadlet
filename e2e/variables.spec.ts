@@ -219,8 +219,10 @@ test('reference controls support click-place, Escape, scope cancellation, drag c
 
   // An individual reference is an ordinary deletable node and needs no
   // special confirmation.
-  await references.first().locator('.node-more-summary').click()
-  await references.first().getByRole('menuitem', { name: 'Delete', exact: true }).click()
+  const referenceToDeleteId = await references.first().getAttribute('data-node-id')
+  const referenceToDelete = editor.locator(`.node[data-node-id="${referenceToDeleteId}"]`)
+  await referenceToDelete.locator('.node-more-summary').click()
+  await referenceToDelete.getByRole('menuitem', { name: 'Delete', exact: true }).click()
   await expect(references).toHaveCount(1)
 
   page.once('dialog', async (dialog) => {

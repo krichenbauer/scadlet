@@ -33,10 +33,20 @@ import { t } from '../i18n/translate'
 import { registerTransientPopupProvider, TRANSIENT_POPUP_DISMISS_EVENT, type TransientPopupEntry } from '../ui/transient-popups'
 import { analyzeFunctionDependencies } from './function-dependencies'
 import { bindingNamesInScope, isValueBindingNode, referencesToBinding, resolveBindingInScope } from './bindings'
-import { VariableReferenceNode } from './nodes/variable-reference-node'
+import { VariableReferenceNode, type VariableBindingResolution } from './nodes/variable-reference-node'
 import { VARIABLE_REFERENCE_DRAG_MIME_TYPE } from './node-catalog'
 import { ForHeaderNode, ForResultNode, createDefaultForParams } from './nodes/for-nodes'
 import { loopStructureProblem } from './for-validation'
+import {
+  cloneGraphClipboardPayload,
+  graphClipboardCommandForKey,
+  internalGraphClipboardConnections,
+  isNativeClipboardEditingTarget,
+  planGraphClipboardPaste,
+  type GraphClipboardCommand,
+  type GraphClipboardPayload,
+  type GraphClipboardPastePlan,
+} from './graph-clipboard'
 
 /** The displayed Geometry Inspect source is rooted at one node, so its
  * participating canvas nodes are exactly that root plus its incoming graph
@@ -129,6 +139,11 @@ export interface SCADletEditor {
   deleteFunctionParameter(definitionId: string, parameterId: string): Promise<boolean>
   getDefinitions(): readonly ModuleDefinition[]
   getNodeScope(nodeId: string): string | null
+  /** Sets the session-local identity used to keep graph clipboard payloads
+   * within the exact project from which they were copied. */
+  setClipboardProjectIdentity(projectId: string): void
+  /** Cancels only the transient graph placement preview, retaining clipboard. */
+  cancelClipboardPlacement(): void
   clearDefinitions(): void
   registerDefinition(definition: ModuleDefinition): void
   assignNodeToDefinition(definitionId: string, nodeId: string): void
@@ -257,6 +272,29 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     outputs: () => Object.keys(node.outputs),
   }))
   let referencePlacement: { bindingId: string; sourceNodeId: string; ghost: HTMLElement } | null = null
+  let clipboardProjectId = 'uninitialized-session-project'
+  let graphClipboard: GraphClipboardPayload | null = null
+  let lastCanvasPointer: Position | null = null
+  let clipboardPlacement: {
+    payload: GraphClipboardPayload
+    preview: HTMLElement
+    anchor: Position
+    lastClient: Position | null
+    kind: 'paste' | 'duplicate'
+  } | null = null
+  let graphContextMenu: { element: HTMLElement; trigger: HTMLElement; client: Position; nodeContext: boolean } | null = null
+  let graphTransactionSuspended = false
+  let graphWasLastInteraction = false
+
+  const cancelClipboardPlacement = (): void => {
+    clipboardPlacement?.preview.remove()
+    clipboardPlacement = null
+    container.classList.remove('graph-placement-active')
+  }
+  const closeGraphContextMenu = (): void => {
+    graphContextMenu?.element.remove()
+    graphContextMenu = null
+  }
 
   const cancelReferencePlacement = (): void => {
     referencePlacement?.ghost.remove()
@@ -408,6 +446,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   attachSocketCompatibilityGuard(editor, () => showDataflowCycleFeedback())
   editor.addPipe((context) => {
     if (context.type !== 'connectioncreate') return context
+    if (graphTransactionSuspended) return context
     const scope = definitions.scopeOf(context.data.source)
     if (scope !== definitions.scopeOf(context.data.target)) return context
     const scopedNodes = editor.getNodes().filter((node) => definitions.scopeOf(node.id) === scope)
@@ -656,6 +695,10 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     if ((context.type === 'translated' || context.type === 'zoomed') && !transientViewportChange) {
       persistedViewport = { ...area.area.transform }
     }
+    if (context.type === 'translated' || context.type === 'zoomed') {
+      if (clipboardPlacement?.lastClient) moveClipboardPlacementToClient(clipboardPlacement.lastClient)
+      else updateClipboardPreviewTransform()
+    }
     if (isDirtyAreaSignal(context.type) && !(context.type === 'nodetranslated' && activeScopeDrag) && !transientViewportChange) notifyDirty()
     return context
   })
@@ -670,6 +713,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     container.focus({ preventScroll: true })
   }
   const selectDefinition = async (definitionId: string): Promise<void> => {
+    if (clipboardPlacement && clipboardPlacement.payload.scope !== definitionId) cancelClipboardPlacement()
     cancelReferencePlacement()
     connectionSelection.clear()
     clearNodeSelection()
@@ -781,38 +825,424 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return true
   }
 
-  async function duplicateForPair(nodeId: string): Promise<void> {
-    const member = editor.getNode(nodeId)
-    if (!(member instanceof ForHeaderNode) && !(member instanceof ForResultNode)) return
-    const header = editor.getNodes().find((node): node is ForHeaderNode => node instanceof ForHeaderNode && node.pairId === member.pairId)
-    const result = editor.getNodes().find((node): node is ForResultNode => node instanceof ForResultNode && node.pairId === member.pairId)
-    if (!header || !result) return
-    const defaults = createDefaultForParams()
-    const prior = header.getPersistedParams()
-    const nextHeader = findCatalogEntry('for')!.create(creationContext, {
-      ...prior, pairId: defaults.header.pairId, bindingId: defaults.header.bindingId,
-    }) as ForHeaderNode
-    const nextResult = findCatalogEntry('for-result')!.create(creationContext, defaults.result as unknown as Record<string, unknown>) as ForResultNode
-    const scope = definitions.scopeOf(header.id)
+  function expandedClipboardNodeIds(requestedIds: readonly string[]): string[] | null {
+    const ids = new Set(requestedIds)
+    for (const id of [...ids]) {
+      if (definitions.isProtectedNode(id)) {
+        showFeedback('clipboard.protectedNode')
+        return null
+      }
+      const node = editor.getNode(id)
+      if (!node) return null
+      if (!(node instanceof ForHeaderNode) && !(node instanceof ForResultNode)) continue
+      const members = editor.getNodes().filter((candidate) =>
+        (candidate instanceof ForHeaderNode || candidate instanceof ForResultNode) && candidate.pairId === node.pairId,
+      )
+      const header = members.find((candidate): candidate is ForHeaderNode => candidate instanceof ForHeaderNode)
+      if (members.length !== 2 || !header) {
+        showFeedback('for.invalidPair')
+        return null
+      }
+      for (const member of members) ids.add(member.id)
+      for (const reference of referencesToBinding(editor, definitions, header.bindingId, definitions.scopeOf(header.id))) ids.add(reference.id)
+    }
+    return [...ids]
+  }
+
+  function buildClipboardPayload(requestedIds: readonly string[]): GraphClipboardPayload | null {
+    if (requestedIds.length === 0) return null
+    const expandedIds = expandedClipboardNodeIds(requestedIds)
+    if (!expandedIds) return null
+    const selected = new Set(expandedIds)
+    const scopes = new Set(expandedIds.map((id) => definitions.scopeOf(id)))
+    if (scopes.size !== 1) {
+      showFeedback('clipboard.oneScope')
+      return null
+    }
+    const scope = scopes.values().next().value as string | null
+    const nodes = expandedIds.flatMap((id) => {
+      const node = editor.getNode(id)
+      const type = node ? identifyNodeType(node) : undefined
+      const entry = type ? findCatalogEntry(type) : undefined
+      const position = area.nodeViews.get(id)?.position
+      if (!node || !type || !entry || !position) return []
+      const parameters = entry.validateParams(structuredClone(entry.serializeParams(node)))
+      if (node instanceof VariableReferenceNode && !resolveBindingInScope(editor, definitions, node.bindingId, scope)) return []
+      return [{ id, type, label: node.label, position: { ...position }, parameters, collapsed: presentation.isCollapsed(id) }]
+    })
+    if (nodes.length !== expandedIds.length) {
+      showFeedback('clipboard.invalidSelection')
+      return null
+    }
+    const connections = internalGraphClipboardConnections(editor.getConnections().map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      sourceOutput: String(edge.sourceOutput),
+      target: edge.target,
+      targetInput: String(edge.targetInput),
+    })), selected)
+    return cloneGraphClipboardPayload({ projectId: clipboardProjectId, scope, nodes, connections })
+  }
+
+  function validatedClipboardPayload(requestedIds: readonly string[]): GraphClipboardPayload | null {
+    try {
+      return buildClipboardPayload(requestedIds)
+    } catch {
+      showFeedback('clipboard.invalidSelection')
+      return null
+    }
+  }
+
+  const selectedNodeIds = (): string[] => editor.getNodes().filter((node) => node.selected).map((node) => node.id)
+
+  function copyNodes(nodeIds: readonly string[]): boolean {
+    const payload = validatedClipboardPayload(nodeIds)
+    if (!payload) return false
+    graphClipboard = payload
+    return true
+  }
+
+  async function cutNodes(nodeIds: readonly string[]): Promise<boolean> {
+    const payload = validatedClipboardPayload(nodeIds)
+    if (!payload) return false
+    const removalIds = new Set(payload.nodes.map((node) => node.id))
+    for (const snapshot of payload.nodes) {
+      const node = editor.getNode(snapshot.id)
+      if (!isValueBindingNode(node) || !node.getBindingId()) continue
+      for (const reference of referencesToBinding(editor, definitions, node.getBindingId()!, payload.scope)) removalIds.add(reference.id)
+    }
+    const crossingConnections = editor.getConnections().filter((edge) =>
+      removalIds.has(edge.source) !== removalIds.has(edge.target),
+    )
+    const dependentCount = removalIds.size - payload.nodes.length
+    if (crossingConnections.length > 0 || dependentCount > 0) {
+      let confirmed = false
+      try {
+        confirmed = window.confirm(t('clipboard.confirmCut')
+          .replace('{connections}', String(crossingConnections.length))
+          .replace('{references}', String(dependentCount)))
+      } catch { confirmed = false }
+      if (!confirmed) return false
+    }
+    const savedNodes = [...removalIds].map((id) => {
+      const node = editor.getNode(id)!
+      return {
+        node,
+        scope: definitions.scopeOf(id),
+        position: { ...(area.nodeViews.get(id)?.position ?? { x: 0, y: 0 }) },
+        collapsed: presentation.isCollapsed(id),
+        selected: Boolean(node.selected),
+      }
+    })
+    const savedConnections = editor.getConnections().filter((edge) =>
+      removalIds.has(edge.source) || removalIds.has(edge.target),
+    )
     const previousDirtySuspended = dirtySuspended
     dirtySuspended = true
     try {
-      if (scope) { definitions.assignNode(scope, nextHeader.id); definitions.assignNode(scope, nextResult.id) }
-      if (!await editor.addNode(nextHeader) || !await editor.addNode(nextResult)) throw new Error('Could not duplicate For pair.')
-      if (!await editor.addConnection(new ClassicPreset.Connection(nextHeader, 'loop', nextResult, 'loop') as Schemes['Connection'])) throw new Error('Could not duplicate For boundary.')
-      const headerPosition = area.nodeViews.get(header.id)?.position ?? { x: 0, y: 0 }
-      const resultPosition = area.nodeViews.get(result.id)?.position ?? { x: headerPosition.x + 360, y: headerPosition.y }
-      await area.translate(nextHeader.id, { x: headerPosition.x + 40, y: headerPosition.y + 40 })
-      await area.translate(nextResult.id, { x: resultPosition.x + 40, y: resultPosition.y + 40 })
+      connection.drop(); connectionGesture.cancel()
+      for (const edge of savedConnections) {
+        if (editor.getConnections().some((candidate) => candidate.id === edge.id) && !await editor.removeConnection(edge.id)) throw new Error('Could not remove a copied connection.')
+      }
+      for (const id of removalIds) if (!await editor.removeNode(id)) throw new Error('Could not remove a copied node.')
     } catch {
-      if (editor.getNode(nextHeader.id)) await removeNodeWithConnections(editor, nextHeader.id)
-      if (editor.getNode(nextResult.id)) await removeNodeWithConnections(editor, nextResult.id)
-      dirtySuspended = previousDirtySuspended
-      showFeedback('for.invalidPair')
-      return
+      try {
+        for (const saved of savedNodes) {
+          if (editor.getNode(saved.node.id)) continue
+          if (saved.scope) definitions.assignNode(saved.scope, saved.node.id)
+          await editor.addNode(saved.node)
+          await area.translate(saved.node.id, saved.position)
+          presentation.setCollapsed(saved.node.id, saved.collapsed)
+        }
+        for (const edge of savedConnections) if (!editor.getConnections().some((candidate) => candidate.id === edge.id)) await editor.addConnection(edge)
+        for (const saved of savedNodes.filter((item) => item.selected)) await nodeSelection.select(saved.node.id, true)
+      } finally {
+        dirtySuspended = previousDirtySuspended
+      }
+      showFeedback('clipboard.operationFailed')
+      return false
     }
     dirtySuspended = previousDirtySuspended
+    graphClipboard = payload
+    cancelClipboardPlacement()
+    endInspect()
     if (!previousDirtySuspended) notifySemanticDirty()
+    return true
+  }
+
+  function clipboardBounds(payload: GraphClipboardPayload): { minX: number; minY: number; width: number; height: number } {
+    const xs = payload.nodes.map((node) => node.position.x)
+    const ys = payload.nodes.map((node) => node.position.y)
+    const minX = Math.min(...xs)
+    const minY = Math.min(...ys)
+    return {
+      minX,
+      minY,
+      width: Math.max(...xs.map((x) => x - minX)) + 160,
+      height: Math.max(...ys.map((y) => y - minY)) + 64,
+    }
+  }
+
+  function renderClipboardPreview(payload: GraphClipboardPayload): HTMLElement {
+    const bounds = clipboardBounds(payload)
+    const preview = document.createElement('div')
+    preview.className = 'graph-placement-preview'
+    preview.setAttribute('aria-hidden', 'true')
+    preview.style.width = `${bounds.width}px`
+    preview.style.height = `${bounds.height}px`
+    const byId = new Map(payload.nodes.map((node) => [node.id, node]))
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.classList.add('graph-placement-preview-wires')
+    svg.setAttribute('width', String(bounds.width))
+    svg.setAttribute('height', String(bounds.height))
+    const previewEdges = [...payload.connections]
+    const resultByPair = new Map(payload.nodes
+      .filter((node) => node.type === 'for-result' && typeof node.parameters.pairId === 'string')
+      .map((node) => [String(node.parameters.pairId), node.id]))
+    for (const header of payload.nodes.filter((node) => node.type === 'for' && typeof node.parameters.pairId === 'string')) {
+      const resultId = resultByPair.get(String(header.parameters.pairId))
+      if (resultId) previewEdges.push({ id: `structure:${header.id}`, source: header.id, sourceOutput: 'loop', target: resultId, targetInput: 'loop' })
+    }
+    for (const edge of previewEdges) {
+      const source = byId.get(edge.source)
+      const target = byId.get(edge.target)
+      if (!source || !target) continue
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      if (edge.sourceOutput === 'loop') path.classList.add('graph-placement-preview-structural-wire')
+      const x1 = source.position.x - bounds.minX + 160
+      const y1 = source.position.y - bounds.minY + 31
+      const x2 = target.position.x - bounds.minX
+      const y2 = target.position.y - bounds.minY + 31
+      const bend = Math.max(35, Math.abs(x2 - x1) / 2)
+      path.setAttribute('d', `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`)
+      svg.appendChild(path)
+    }
+    preview.appendChild(svg)
+    for (const node of payload.nodes) {
+      const ghost = document.createElement('div')
+      ghost.className = 'graph-placement-preview-node'
+      ghost.style.left = `${node.position.x - bounds.minX}px`
+      ghost.style.top = `${node.position.y - bounds.minY}px`
+      ghost.textContent = node.label
+      preview.appendChild(ghost)
+    }
+    return preview
+  }
+
+  const updateClipboardPreviewTransform = (): void => {
+    if (!clipboardPlacement) return
+    const { x, y, k } = area.area.transform
+    clipboardPlacement.preview.style.transform = `translate(${x + clipboardPlacement.anchor.x * k}px, ${y + clipboardPlacement.anchor.y * k}px) scale(${k})`
+  }
+
+  const moveClipboardPlacementToClient = (client: Position): void => {
+    if (!clipboardPlacement) return
+    const rect = area.container.getBoundingClientRect()
+    const graph = clientToGraphPosition(client, rect, area.area.transform)
+    const bounds = clipboardBounds(clipboardPlacement.payload)
+    clipboardPlacement.anchor = { x: graph.x - bounds.width / 2, y: graph.y - bounds.height / 2 }
+    clipboardPlacement.lastClient = client
+    updateClipboardPreviewTransform()
+  }
+
+  function activeClipboardScope(clientPosition?: Position): string | null {
+    const selectedScopes = new Set(selectedNodeIds().map((id) => definitions.scopeOf(id)))
+    if (selectedScopes.size === 1) return selectedScopes.values().next().value as string | null
+    if (clientPosition) return definitionAt(clientPosition)
+    return null
+  }
+
+  function clipboardCompatibilityProblem(payload: GraphClipboardPayload, scope: string | null): string | null {
+    if (payload.projectId !== clipboardProjectId) return 'clipboard.wrongProject'
+    if (payload.scope !== scope) return 'clipboard.wrongScope'
+    if (payload.nodes.some((node) => node.type === 'scad-settings') && editor.getNodes().some((node) =>
+      identifyNodeType(node) === 'scad-settings' && definitions.scopeOf(node.id) === scope,
+    )) return 'settings.onePerScope'
+    return null
+  }
+
+  function beginClipboardPlacement(
+    payload: GraphClipboardPayload,
+    kind: 'paste' | 'duplicate',
+    initialClient?: Position,
+    explicitScope?: string | null,
+  ): boolean {
+    const client = initialClient ?? lastCanvasPointer
+    const scope = explicitScope === undefined ? activeClipboardScope(client ?? undefined) : explicitScope
+    const problem = clipboardCompatibilityProblem(payload, scope)
+    if (problem) {
+      showFeedback(problem)
+      return false
+    }
+    cancelReferencePlacement()
+    cancelClipboardPlacement()
+    const preview = renderClipboardPreview(payload)
+    container.appendChild(preview)
+    clipboardPlacement = { payload: cloneGraphClipboardPayload(payload), preview, anchor: { x: 0, y: 0 }, lastClient: null, kind }
+    container.classList.add('graph-placement-active')
+    const rect = area.container.getBoundingClientRect()
+    moveClipboardPlacementToClient(client ?? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+    container.focus({ preventScroll: true })
+    return true
+  }
+
+  function plannedBindingResolution(plan: GraphClipboardPastePlan, bindingId: string): VariableBindingResolution | undefined {
+    const definition = plan.nodes.find((node) =>
+      (node.type === 'for' || ['number', 'boolean', 'vector3'].includes(node.type))
+        && node.parameters.bindingId === bindingId,
+    )
+    if (!definition || typeof definition.parameters.name !== 'string') return undefined
+    return {
+      id: bindingId,
+      name: definition.parameters.name,
+      type: definition.type === 'for' || definition.type === 'number' ? 'number'
+        : definition.type === 'boolean' ? 'boolean' : 'vector3',
+    }
+  }
+
+  function preflightClipboardPaste(payload: GraphClipboardPayload, destinationScope: string | null): GraphClipboardPastePlan {
+    const problem = clipboardCompatibilityProblem(payload, destinationScope)
+    if (problem) throw new Error(t(problem))
+    const unavailableNames = new Set(bindingNamesInScope(editor, definitions, payload.scope))
+    const plan = planGraphClipboardPaste(payload, unavailableNames)
+    if (plan.nodes.some((node) => node.type === 'scad-settings') && editor.getNodes().some((node) =>
+      identifyNodeType(node) === 'scad-settings' && definitions.scopeOf(node.id) === payload.scope,
+    )) throw new Error(t('settings.onePerScope'))
+    for (const node of plan.nodes) {
+      const entry = findCatalogEntry(node.type)
+      if (!entry) throw new Error(t('clipboard.invalidSelection'))
+      entry.validateParams(node.parameters)
+      if (node.type === 'variable-reference') {
+        const bindingId = String(node.parameters.bindingId ?? '')
+        if (!plannedBindingResolution(plan, bindingId) && !resolveBindingInScope(editor, definitions, bindingId, payload.scope)) {
+          throw new Error(t('clipboard.staleBinding'))
+        }
+      }
+    }
+    const currentNodes = editor.getNodes().filter((node) => definitions.scopeOf(node.id) === payload.scope).flatMap((node) => {
+      const type = identifyNodeType(node)
+      const entry = type ? findCatalogEntry(type) : undefined
+      return type && entry ? [{ id: node.id, type, parameters: entry.serializeParams(node) }] : []
+    })
+    const plannedNodes = plan.nodes.map((node) => ({ id: node.id, type: node.type, parameters: node.parameters as Record<string, unknown> }))
+    const ids = new Set([...currentNodes, ...plannedNodes].map((node) => node.id))
+    const currentConnections = editor.getConnections().filter((edge) => ids.has(edge.source) && ids.has(edge.target)).map((edge) => ({
+      id: edge.id, source: edge.source, sourceOutput: String(edge.sourceOutput), target: edge.target, targetInput: String(edge.targetInput),
+    }))
+    const structural = plan.structuralPairs.map((pair) => ({
+      id: crypto.randomUUID(), source: pair.headerId, sourceOutput: 'loop', target: pair.resultId, targetInput: 'loop',
+    }))
+    const loopProblem = loopStructureProblem([...currentNodes, ...plannedNodes], [...currentConnections, ...plan.connections, ...structural], new Set(bindingNamesInScope(editor, definitions, payload.scope)))
+    if (loopProblem) throw new Error(loopProblem.message)
+    return plan
+  }
+
+  async function commitClipboardPlacement(client: Position): Promise<boolean> {
+    const placement = clipboardPlacement
+    if (!placement) return false
+    let plan: GraphClipboardPastePlan
+    try {
+      plan = preflightClipboardPaste(placement.payload, definitionAt(client))
+    } catch (error) {
+      feedback.textContent = error instanceof Error ? error.message : t('clipboard.operationFailed')
+      feedback.hidden = false
+      return false
+    }
+    const bounds = clipboardBounds(placement.payload)
+    const created = new Map<string, Schemes['Node']>()
+    try {
+      for (const planned of plan.nodes) {
+        const binding = planned.type === 'variable-reference'
+          ? plannedBindingResolution(plan, String(planned.parameters.bindingId))
+            ?? resolveBindingInScope(editor, definitions, String(planned.parameters.bindingId), placement.payload.scope)
+          : undefined
+        const node = planned.type === 'variable-reference'
+          ? new VariableReferenceNode({ bindingId: String(planned.parameters.bindingId) }, binding!)
+          : findCatalogEntry(planned.type)!.create(creationContext, planned.parameters as Record<string, unknown>)
+        node.id = planned.id
+        created.set(planned.id, node)
+      }
+    } catch {
+      showFeedback('clipboard.operationFailed')
+      return false
+    }
+    const previousDirtySuspended = dirtySuspended
+    dirtySuspended = true
+    graphTransactionSuspended = true
+    const addedIds: string[] = []
+    const assignedIds: string[] = []
+    try {
+      for (const planned of plan.nodes) {
+        const node = created.get(planned.id)!
+        if (placement.payload.scope) {
+          definitions.assignNode(placement.payload.scope, node.id)
+          assignedIds.push(node.id)
+        }
+        if (!await editor.addNode(node)) throw new Error('Could not add pasted node.')
+        addedIds.push(node.id)
+        await area.translate(node.id, {
+          x: placement.anchor.x + planned.position.x - bounds.minX,
+          y: placement.anchor.y + planned.position.y - bounds.minY,
+        })
+        presentation.setCollapsed(node.id, planned.collapsed)
+      }
+      for (const pair of plan.structuralPairs) {
+        const structural = new ClassicPreset.Connection(created.get(pair.headerId)!, 'loop', created.get(pair.resultId)!, 'loop') as Schemes['Connection']
+        if (!await editor.addConnection(structural)) throw new Error('Could not add pasted For boundary.')
+      }
+      for (const planned of plan.connections) {
+        const edge = new ClassicPreset.Connection(created.get(planned.source)!, planned.sourceOutput, created.get(planned.target)!, planned.targetInput) as Schemes['Connection']
+        edge.id = planned.id
+        if (!await editor.addConnection(edge)) throw new Error('Could not add pasted connection.')
+      }
+    } catch {
+      try {
+        for (const id of [...addedIds].reverse()) if (editor.getNode(id)) await removeNodeWithConnections(editor, id)
+        for (const id of assignedIds) definitions.forgetNode(id)
+      } finally {
+        graphTransactionSuspended = false
+        dirtySuspended = previousDirtySuspended
+      }
+      showFeedback('clipboard.operationFailed')
+      return false
+    }
+    graphTransactionSuspended = false
+    for (const node of editor.getNodes().filter((node) => node.selected)) await nodeSelection.unselect(node.id)
+    for (const [index, id] of addedIds.entries()) await nodeSelection.select(id, index > 0)
+    dirtySuspended = previousDirtySuspended
+    cancelClipboardPlacement()
+    endInspect()
+    if (!previousDirtySuspended) notifySemanticDirty()
+    return true
+  }
+
+  function duplicateNodes(nodeIds: readonly string[], initialClient?: Position): boolean {
+    const payload = validatedClipboardPayload(nodeIds)
+    if (!payload) return false
+    return beginClipboardPlacement(payload, 'duplicate', initialClient, payload.scope)
+  }
+
+  function handleGraphClipboardCommand(command: GraphClipboardCommand): boolean {
+    if (command === 'copy') {
+      const ids = selectedNodeIds()
+      if (ids.length === 0) return false
+      copyNodes(ids)
+      return true
+    }
+    if (command === 'cut') {
+      if (selectedNodeIds().length === 0) return false
+      void cutNodes(selectedNodeIds())
+      return true
+    }
+    if (command === 'duplicate') {
+      const ids = selectedNodeIds()
+      if (ids.length === 0) return false
+      duplicateNodes(ids)
+      return true
+    }
+    if (!graphClipboard) return false
+    beginClipboardPlacement(graphClipboard, 'paste')
+    return true
   }
 
   async function syncBindingReferences(bindingId: string, scope: string | null): Promise<void> {
@@ -851,7 +1281,16 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     },
     selectConnection,
     (nodeId) => { void removeNodeAndReferences(nodeId) },
-    (nodeId) => { void duplicateForPair(nodeId) },
+    (nodeId, command) => {
+      if (command === 'copy') copyNodes([nodeId])
+      else if (command === 'cut') void cutNodes([nodeId])
+      else duplicateNodes([nodeId])
+    },
+    (nodeId, command) => {
+      if (definitions.isProtectedNode(nodeId)) return t('clipboard.protectedNode')
+      if (command === 'duplicate' && identifyNodeType(editor.getNode(nodeId)!) === 'scad-settings') return t('settings.onePerScope')
+      return null
+    },
     renameValueBinding,
     beginReferencePlacement,
   )
@@ -866,6 +1305,18 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
 
   const detachTransientPopups = registerTransientPopupProvider(() => {
     const entries: TransientPopupEntry[] = []
+    if (graphContextMenu) {
+      const menu = graphContextMenu
+      entries.push({
+      popup: menu.element,
+      trigger: menu.trigger,
+      dismiss: closeGraphContextMenu,
+      restoreFocus: () => {
+        if (menu.trigger.isConnected) menu.trigger.focus({ preventScroll: true })
+        else container.focus({ preventScroll: true })
+      },
+      })
+    }
     for (const details of container.querySelectorAll<HTMLDetailsElement>('details[open]')) {
       const trigger = details.querySelector<HTMLElement>(':scope > summary')
       if (!trigger) continue
@@ -1731,6 +2182,234 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   }
   showDataflowCycleFeedback = () => showFeedback('connection.dataflowCycle')
   showLoopFeedback = (escape) => showFeedback(escape ? 'for.iteratorEscape' : 'for.invalidPair')
+
+  const contextMenuButton = (
+    label: string,
+    run: () => void,
+    options: { disabledReason?: string; destructive?: boolean } = {},
+  ): HTMLButtonElement => {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.textContent = label
+    button.setAttribute('role', 'menuitem')
+    button.disabled = Boolean(options.disabledReason)
+    if (options.disabledReason) {
+      button.title = options.disabledReason
+      button.setAttribute('aria-label', `${label}: ${options.disabledReason}`)
+    }
+    if (options.destructive) button.classList.add('graph-context-delete')
+    button.addEventListener('click', () => {
+      if (button.disabled) return
+      closeGraphContextMenu()
+      run()
+    })
+    return button
+  }
+
+  const openGraphContextMenu = async (
+    client: Position,
+    nodeId: string | null,
+    trigger: HTMLElement,
+  ): Promise<void> => {
+    closeGraphContextMenu()
+    for (const details of container.querySelectorAll<HTMLDetailsElement>('details[open]')) details.open = false
+    if (clipboardPlacement) cancelClipboardPlacement()
+    if (nodeId) {
+      const alreadySelected = Boolean(editor.getNode(nodeId)?.selected)
+      const previouslySelected = selectedNodeIds()
+      if (!alreadySelected) {
+        for (const id of previouslySelected) await nodeSelection.unselect(id)
+        await nodeSelection.select(nodeId, false)
+      }
+      for (const node of editor.getNodes()) node.selected = node.id === nodeId || (alreadySelected && previouslySelected.includes(node.id))
+      for (const id of new Set([...previouslySelected, nodeId])) await area.update('node', id)
+      connectionSelection.clear()
+    }
+    const scope = nodeId ? definitions.scopeOf(nodeId) : definitionAt(client)
+    const menu = document.createElement('div')
+    menu.className = 'graph-context-menu'
+    menu.setAttribute('role', 'menu')
+    menu.setAttribute('aria-label', t('clipboard.contextMenu'))
+    menu.style.left = `${Math.min(client.x, window.innerWidth - 170)}px`
+    menu.style.top = `${Math.min(client.y, window.innerHeight - 220)}px`
+    const effectiveSelection = nodeId ? selectedNodeIds() : []
+    const selectionProblem = effectiveSelection.some((id) => definitions.isProtectedNode(id))
+      ? t('clipboard.protectedNode')
+      : new Set(effectiveSelection.map((id) => definitions.scopeOf(id))).size > 1
+        ? t('clipboard.oneScope')
+        : undefined
+    if (nodeId) {
+      menu.append(
+        contextMenuButton(t('menu.copy'), () => { copyNodes(effectiveSelection) }, { disabledReason: selectionProblem }),
+        contextMenuButton(t('menu.cut'), () => { void cutNodes(effectiveSelection) }, { disabledReason: selectionProblem }),
+      )
+    }
+    const pasteProblem = graphClipboard
+      ? clipboardCompatibilityProblem(graphClipboard, scope)
+      : 'clipboard.empty'
+    menu.append(contextMenuButton(t('menu.paste'), () => {
+      if (graphClipboard) beginClipboardPlacement(graphClipboard, 'paste', client, scope)
+    }, { disabledReason: pasteProblem ? t(pasteProblem) : undefined }))
+    if (nodeId) {
+      const selected = effectiveSelection
+      const containsSettings = selected.some((id) => identifyNodeType(editor.getNode(id)!) === 'scad-settings')
+      menu.append(
+        contextMenuButton(t('menu.duplicate'), () => { duplicateNodes(selected, client) }, {
+          disabledReason: selectionProblem ?? (containsSettings ? t('settings.onePerScope') : undefined),
+        }),
+        contextMenuButton(t('menu.delete'), () => {
+          void (async () => {
+            for (const id of selected) if (editor.getNode(id)) await removeNodeAndReferences(id)
+          })()
+        }, { destructive: true, disabledReason: selectionProblem }),
+      )
+    }
+    container.appendChild(menu)
+    graphContextMenu = { element: menu, trigger, client, nodeContext: Boolean(nodeId) }
+    requestAnimationFrame(() => menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true }))
+  }
+
+  const nodeIdFromEvent = (event: Event): string | null => event.composedPath().find(
+    (item): item is HTMLElement => item instanceof HTMLElement && item.classList.contains('node'),
+  )?.dataset.nodeId ?? null
+
+  const onGraphContextMenu = (event: MouseEvent): void => {
+    if (!container.contains(event.target as Node)) return
+    if (performance.now() < suppressLongPressUntil) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    const nodeId = nodeIdFromEvent(event)
+    void openGraphContextMenu({ x: event.clientX, y: event.clientY }, nodeId, container)
+  }
+  const isolateSecondaryGraphPress = (event: PointerEvent): void => {
+    if (event.button !== 2) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+  }
+
+  const onGraphClipboardKeydown = (event: KeyboardEvent): void => {
+    const root = container.getRootNode()
+    const active = root instanceof ShadowRoot ? root.activeElement : document.activeElement
+    const path = event.composedPath()
+    const graphFocused = path.includes(container) || active === container || (active instanceof Node && container.contains(active))
+    if (!graphFocused && !graphWasLastInteraction) return
+    if (path.some((target) => isNativeClipboardEditingTarget(target))) return
+    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+      const eventNodeId = nodeIdFromEvent(event)
+      const selected = selectedNodeIds()
+      const nodeId = eventNodeId ?? (selected.length > 0 ? selected[0]! : null)
+      const nodeRect = nodeId ? area.nodeViews.get(nodeId)?.element.getBoundingClientRect() : undefined
+      const rect = container.getBoundingClientRect()
+      const client = nodeRect
+        ? { x: nodeRect.left + nodeRect.width / 2, y: nodeRect.top + Math.min(32, nodeRect.height / 2) }
+        : lastCanvasPointer ?? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+      event.preventDefault()
+      event.stopPropagation()
+      void openGraphContextMenu(client, nodeId, nodeId ? area.nodeViews.get(nodeId)?.element ?? container : container)
+      return
+    }
+    const apple = /Mac|iPhone|iPad|iPod/u.test(navigator.platform)
+    const command = graphClipboardCommandForKey(event, apple)
+    if (!command || !handleGraphClipboardCommand(command)) return
+    graphWasLastInteraction = true
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  const onClipboardPointerMove = (event: PointerEvent): void => {
+    const rect = container.getBoundingClientRect()
+    if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) return
+    lastCanvasPointer = { x: event.clientX, y: event.clientY }
+    if (clipboardPlacement) moveClipboardPlacementToClient(lastCanvasPointer)
+  }
+  const trackGraphInteractionContext = (event: Event): void => {
+    graphWasLastInteraction = event.composedPath().includes(container)
+  }
+  const onClipboardPlacementPointerDown = (event: PointerEvent): void => {
+    if (!clipboardPlacement || event.button !== 0) return
+    const blocked = event.composedPath().some((item) => item instanceof Element && item.matches(
+      '.node, .connection, button, input, select, textarea, [contenteditable="true"], .graph-context-menu',
+    ))
+    if (blocked) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    void commitClipboardPlacement({ x: event.clientX, y: event.clientY })
+  }
+  const onClipboardPlacementEscape = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || !clipboardPlacement) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    cancelClipboardPlacement()
+  }
+
+  let longPress: { pointerId: number; start: Position; client: Position; nodeId: string | null; trigger: HTMLElement; timer: number; opened: boolean } | null = null
+  let suppressLongPressUntil = 0
+  const clearLongPress = (): void => {
+    if (longPress) window.clearTimeout(longPress.timer)
+    longPress = null
+  }
+  const onLongPressPointerDown = (event: PointerEvent): void => {
+    if ((event.pointerType !== 'touch' && event.pointerType !== 'pen') || event.button !== 0) return
+    if (event.composedPath().some((item) => item instanceof Element && item.matches('button, input, select, textarea, .node-socket, .connection'))) return
+    const nodeId = nodeIdFromEvent(event)
+    const trigger = container
+    const state = {
+      pointerId: event.pointerId,
+      start: { x: event.clientX, y: event.clientY },
+      client: { x: event.clientX, y: event.clientY },
+      nodeId,
+      trigger,
+      timer: 0,
+      opened: false,
+    }
+    state.timer = window.setTimeout(() => {
+      if (longPress !== state) return
+      state.opened = true
+      suppressLongPressUntil = performance.now() + 800
+      void openGraphContextMenu(state.client, state.nodeId, state.trigger)
+    }, 550)
+    longPress = state
+  }
+  const onLongPressPointerMove = (event: PointerEvent): void => {
+    if (!longPress || event.pointerId !== longPress.pointerId) return
+    const dx = event.clientX - longPress.start.x
+    const dy = event.clientY - longPress.start.y
+    if (dx * dx + dy * dy > 64) clearLongPress()
+  }
+  const onLongPressPointerEnd = (event: PointerEvent): void => {
+    if (!longPress || event.pointerId !== longPress.pointerId) return
+    const opened = longPress.opened
+    clearLongPress()
+    if (opened) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    }
+  }
+  const suppressSyntheticLongPressEvent = (event: Event): void => {
+    if (performance.now() >= suppressLongPressUntil) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+  }
+
+  container.addEventListener('contextmenu', onGraphContextMenu)
+  container.addEventListener('pointerdown', isolateSecondaryGraphPress, { capture: true })
+  container.addEventListener('keydown', onGraphClipboardKeydown)
+  window.addEventListener('keydown', onGraphClipboardKeydown)
+  window.addEventListener('pointermove', onClipboardPointerMove, { capture: true })
+  container.addEventListener('pointerdown', onClipboardPlacementPointerDown, { capture: true })
+  window.addEventListener('keydown', onClipboardPlacementEscape, { capture: true })
+  container.addEventListener('pointerdown', onLongPressPointerDown, { capture: true })
+  window.addEventListener('pointermove', onLongPressPointerMove, { capture: true })
+  window.addEventListener('pointerup', onLongPressPointerEnd, { capture: true })
+  window.addEventListener('pointercancel', onLongPressPointerEnd, { capture: true })
+  container.addEventListener('click', suppressSyntheticLongPressEvent, { capture: true })
+  document.addEventListener('pointerdown', trackGraphInteractionContext, { capture: true })
+  document.addEventListener('focusin', trackGraphInteractionContext, { capture: true })
+
   const updateScopeDestination = (graphPosition: Position): void => {
     if (!activeScopeDrag) return
     const definitionId = definitionAtGraphPosition(graphPosition, activeScopeDrag.sourceFrameBounds)
@@ -1745,6 +2424,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   }
   area.addPipe((context) => {
     if (context.type === 'nodepicked') {
+      if (clipboardPlacement && clipboardPlacement.payload.scope !== definitions.scopeOf(context.data.id)) cancelClipboardPlacement()
       const nodeIds = editor.getNodes().filter((node) => node.selected).map((node) => node.id)
       // A selected group moves as the one atomic transaction; an unselected
       // node being picked is included even if Rete selection settles later.
@@ -2265,6 +2945,11 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     deleteFunctionParameter,
     getDefinitions: () => definitions.list(),
     getNodeScope: (nodeId) => definitions.scopeOf(nodeId),
+    setClipboardProjectIdentity: (projectId) => {
+      if (projectId !== clipboardProjectId) cancelClipboardPlacement()
+      clipboardProjectId = projectId
+    },
+    cancelClipboardPlacement,
     clearDefinitions: () => definitions.clear(),
     registerDefinition: (definition) => definitions.add(definition),
     assignNodeToDefinition: (definitionId, nodeId) => definitions.assignNode(definitionId, nodeId),
@@ -2298,11 +2983,28 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     },
     destroy: () => {
       cancelReferencePlacement()
+      cancelClipboardPlacement()
+      closeGraphContextMenu()
       window.removeEventListener('pointermove', moveReferencePlacementGhost, { capture: true })
       container.removeEventListener('pointerdown', placeReferenceOnCanvas, { capture: true })
       window.removeEventListener('keydown', cancelReferencePlacementOnEscape, { capture: true })
       container.removeEventListener('dragover', allowReferenceDrop)
       container.removeEventListener('drop', createReferenceFromDrop)
+      container.removeEventListener('contextmenu', onGraphContextMenu)
+      container.removeEventListener('pointerdown', isolateSecondaryGraphPress, { capture: true })
+      container.removeEventListener('keydown', onGraphClipboardKeydown)
+      window.removeEventListener('keydown', onGraphClipboardKeydown)
+      window.removeEventListener('pointermove', onClipboardPointerMove, { capture: true })
+      container.removeEventListener('pointerdown', onClipboardPlacementPointerDown, { capture: true })
+      window.removeEventListener('keydown', onClipboardPlacementEscape, { capture: true })
+      container.removeEventListener('pointerdown', onLongPressPointerDown, { capture: true })
+      window.removeEventListener('pointermove', onLongPressPointerMove, { capture: true })
+      window.removeEventListener('pointerup', onLongPressPointerEnd, { capture: true })
+      window.removeEventListener('pointercancel', onLongPressPointerEnd, { capture: true })
+      container.removeEventListener('click', suppressSyntheticLongPressEvent, { capture: true })
+      document.removeEventListener('pointerdown', trackGraphInteractionContext, { capture: true })
+      document.removeEventListener('focusin', trackGraphInteractionContext, { capture: true })
+      clearLongPress()
       detachTransientPopups()
       detachMarquee()
       nodeSelection.destroy()

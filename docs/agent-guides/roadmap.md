@@ -37,6 +37,9 @@ Implemented and stable:
   `For`/`For result` pair, ordered body inputs, lexical iterator references,
   nested loops, idiomatic OpenSCAD `for` blocks, and quiet bodyless drafts that
   remain omitted from source until Geometry is connected.
+- graph-native Copy, Cut, Paste, and Duplicate with session-local detached
+  payloads, selection-aware More/context menus, deferred placement, atomic
+  commit, and fresh binding/For/dynamic-port identities.
 
 Current catalog/value semantics are intentionally limited. Geometry If is a
 statement-level node valid in Main/Module scopes, with required Boolean
@@ -49,20 +52,16 @@ evaluation errors; disconnected drafts do not create fake `undef` semantics.
 Implement later work in this order unless a concrete defect warrants a small,
 independent repair first.
 
-1. **Copy and paste.** Support copying and pasting selected nodes and their
-   internal connections within the current semantic scope. Define clipboard,
-   placement, protected-interface-node, and cross-scope behavior explicitly
-   when this work begins.
-2. **Missing basic value nodes.** Add useful arithmetic, mathematical, and
+1. **Missing basic value nodes.** Add useful arithmetic, mathematical, and
    logical operators selectively, preserving the current typed value model and
    Function-scope rules.
-3. **Missing simple Geometry nodes.** Prioritize ordinary transformations such
+2. **Missing simple Geometry nodes.** Prioritize ordinary transformations such
    as Mirror and Resize, with the same scope, persistence, and effective-output
    rules as the existing Geometry catalog.
-4. **2D Geometry and extrusion.** Treat 2D primitives, 2D Boolean operations,
+3. **2D Geometry and extrusion.** Treat 2D primitives, 2D Boolean operations,
    and linear/rotational extrusion as one coherent extension rather than
    isolated nodes.
-5. **Remaining larger extensions.** A secondary geometry-oriented OpenSCAD
+4. **Remaining larger extensions.** A secondary geometry-oriented OpenSCAD
    code node with explicit parameter and possibly Geometry inputs, import of
    existing `.scad`, dedicated definition canvases, collaboration/sync, and
    broader OpenSCAD compatibility each require their own product design.

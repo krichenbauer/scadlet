@@ -18,6 +18,12 @@ The specification is the detailed authoritative schema. Current format is v8.
 Runtime render state, including the default-on Live render preference, pending
 debounces, render revisions, and preview result freshness, is session-only and
 is never written to `.scadlet` or IndexedDB project data.
+The graph clipboard and its Paste/Duplicate placement ghost are likewise
+session-only and excluded from serialization, IndexedDB, autosave, and browser
+clipboard APIs. A payload is tagged with the exact active project-instance
+identity and semantic scope; replacing the project or leaving its scope
+cancels placement, while a stale payload remains safely unusable rather than
+being retargeted.
 Connections address node and stable port IDs, never displayed labels or port
 indices. Dynamic slots, definitions, and parameters retain identity across
 rename/reorder. `.scad` and `.stl` are exports, not project files.

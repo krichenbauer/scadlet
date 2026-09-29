@@ -67,13 +67,19 @@ silently diverge from exported code.
 Numeric For regressions must cover the fixed pair lifecycle, iterator lexical
 boundary, nested Main/Module source, persistence rejection, and the normal
 WASM preview/export path; JavaScript must never evaluate the range itself.
+Graph-clipboard regressions must cover platform shortcuts and native-editor
+isolation; effective selection in More/context menus; deferred placement and
+Escape; fresh IDs on repeated Paste; binding, dynamic-port, and For-pair
+remapping; singleton/protected-node rejection; scope/project invalidation; and
+atomic Cut/Paste dirty notifications. Clipboard snapshots must be tested as
+detached plain data rather than live Rete objects.
 Ordered Boolean Geometry-input regressions cover Difference's required base
 and first subtractor plus optional ordered subtractors, Intersection's
 ordered inputs, automatic extension after the final available slot is
 connected, disconnect/reuse of the trailing slot, and unchanged Union
 behavior. Unit and browser coverage also checks stable three-input source,
 restore, scope transfer, Inspect, preview rendering, and `.scad` export; copy
-and paste coverage applies only if that lifecycle is supported.
+and paste coverage must preserve ordered dynamic ports and internal wires.
 Directional-connector browser regressions must cover output-origin creation,
 input-origin pointer/touch/keyboard no-ops, output-origin replacement of an
 occupied input, wire selection/removal, representative static and dynamic

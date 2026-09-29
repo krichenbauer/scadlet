@@ -164,15 +164,18 @@ For applicable ordinary nodes, the menu contains:
 
 - **Inspect** where that node type can be inspected;
 - **Rename** where the node has a user-editable name;
-- **Duplicate** where an existing duplication lifecycle already supports it;
+- **Copy**, **Cut**, and **Duplicate**, each targeting that node only;
 - a separated destructive **Delete** action.
 
-Only the paired For nodes currently have a working Duplicate lifecycle, so
-their menus duplicate both members with fresh pair/binding/slot identities.
-Other ordinary-node menus omit Duplicate rather than expose a placeholder.
+For actions expand to the complete pair and its iterator references. Duplicate
+is visibly disabled with a localized reason when it would violate the
+scope-level SCAD settings singleton. Protected interface nodes keep no More
+menu. These actions must not replace direct parameter controls or the Add menu.
 
-The menu may grow later with copy/paste-related actions, but it must not become
-a substitute for direct parameter controls or the Add menu.
+The graph-level context menu uses the same visual action rows. On a node it
+offers Copy, Cut, Paste, Duplicate, and Delete according to effective
+selection; on empty canvas it offers Paste only. Disabled items expose their
+localized reason in their accessible label and title.
 
 All Add and More disclosures, their nested submenus, definition-frame More
 menus, and anchored parameter popovers participate in the application's shared

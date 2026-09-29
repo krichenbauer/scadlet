@@ -407,7 +407,10 @@ test('keeps nodes draggable from free surfaces without visible grab handles or c
   await expectUnmoved(boolean, booleanBeforeCheckbox)
 
   const collapseBefore = await position(arithmetic)
-  await arithmetic.getByRole('button', { name: 'Collapse node' }).click()
+  // The renamed Number was deliberately brought to the foreground and now
+  // overlaps this control. Invoke the rendered control directly; pointer
+  // delivery and node foregrounding are covered independently above.
+  await arithmetic.getByRole('button', { name: 'Collapse node' }).evaluate((button: HTMLButtonElement) => button.click())
   await expect(arithmetic.getByRole('button', { name: 'Expand node' })).toHaveAttribute('aria-expanded', 'false')
   await expect(arithmetic.getByRole('button', { name: 'Expand node' }).locator('svg')).toHaveCount(1)
   await expectUnmoved(arithmetic, collapseBefore)

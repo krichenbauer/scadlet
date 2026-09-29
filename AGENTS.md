@@ -49,6 +49,12 @@ without an explicit product decision.
   or Module scopes. Its structural connection is persistent and immutable;
   the stable iterator binding is readable only by dependencies that enter the
   matching result body. Function scopes never contain the pair.
+- Graph Copy, Cut, Paste, and Duplicate use a detached, session-local payload
+  for exactly one project and semantic scope. Paste is an explicit placement
+  transaction: preview first, then atomically create fresh node, connection,
+  binding, pair, and dynamic-port IDs. Preserve valid external same-scope
+  binding references, include complete For pairs plus iterator references, and
+  never persist the clipboard or placement state.
 - Use stable, language-independent IDs for persistent graph entities. Labels,
   localized text, names, positions, and DOM details are never semantic IDs.
 - Make the smallest change that fulfills the current task. Do not implement

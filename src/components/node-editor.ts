@@ -532,6 +532,11 @@ export class NodeEditorElement extends LitElement {
       box-shadow: 0 4px 12px rgb(0 0 0 / 0.5);
     }
 
+    .node-more-menu--open-upward .node-more-options {
+      top: auto;
+      bottom: calc(100% + 4px);
+    }
+
     .node-more-item {
       display: flex;
       align-items: center;
@@ -551,6 +556,12 @@ export class NodeEditorElement extends LitElement {
     .node-more-item:focus-visible {
       background: rgb(122 192 255 / 0.16);
       outline: none;
+    }
+
+    .node-more-item:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      background: transparent;
     }
 
     .node-more-item svg {
@@ -1324,6 +1335,87 @@ export class NodeEditorElement extends LitElement {
       background: rgb(122 192 255 / 0.15);
       pointer-events: none;
     }
+
+    .graph-placement-preview {
+      position: absolute;
+      z-index: 18;
+      left: 0;
+      top: 0;
+      transform-origin: 0 0;
+      pointer-events: none;
+      opacity: 0.7;
+      filter: saturate(0.75);
+    }
+
+    .graph-placement-preview-node {
+      position: absolute;
+      box-sizing: border-box;
+      display: flex;
+      width: 160px;
+      height: 62px;
+      align-items: center;
+      padding: 10px;
+      border: 2px dashed #b6ddff;
+      border-radius: 6px;
+      background: rgb(39 55 69 / 0.88);
+      color: #e8f5ff;
+      font: 600 13px system-ui, sans-serif;
+      box-shadow: 0 0 0 2px rgb(122 192 255 / 0.16);
+    }
+
+    .graph-placement-preview-wires {
+      position: absolute;
+      inset: 0;
+      overflow: visible;
+    }
+
+    .graph-placement-preview-wires path {
+      fill: none;
+      stroke: #9fd2ff;
+      stroke-width: 3px;
+      stroke-dasharray: 7 5;
+    }
+
+    .graph-placement-preview-wires .graph-placement-preview-structural-wire {
+      stroke: #aaa;
+      stroke-width: 4px;
+      stroke-dasharray: 9 6;
+    }
+
+    .graph-placement-active { cursor: copy; }
+
+    .graph-context-menu {
+      position: fixed;
+      z-index: 60;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 150px;
+      padding: 4px;
+      border: 1px solid #666;
+      border-radius: 6px;
+      background: #242424;
+      color: #eee;
+      font: 13px system-ui, sans-serif;
+      box-shadow: 0 6px 18px rgb(0 0 0 / 0.58);
+    }
+
+    .graph-context-menu button {
+      min-height: 32px;
+      padding: 4px 10px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .graph-context-menu button:hover,
+    .graph-context-menu button:focus-visible { background: rgb(122 192 255 / 0.16); outline: none; }
+    .graph-context-menu button:disabled { opacity: 0.45; cursor: not-allowed; background: transparent; }
+    .graph-context-menu .graph-context-delete { margin-top: 3px; border-top: 1px solid #444; color: #ff8f8f; }
   `
 
   @query('#canvas')

@@ -992,13 +992,17 @@ Both arrays must have exactly 3 finite numbers each (`Invalid viewer.camera.posi
 | Wire-gesture target highlighting     | No         | Highlights only already-visible compatible targets without changing collapse state. |
 | Node/marquee selection               | No         | Transient interaction state. |
 | Marquee drag rectangle               | No         | Transient interaction state. |
+| Graph clipboard payload              | No         | Detached, tab/session-local editor state for one project and scope. |
+| Paste/Duplicate placement preview    | No         | Transient ghost; Rete changes only on commit. |
 | Inspect Node preview root             | No         | Temporary preview state, not part of the model. |
 | Live render preference/debounce/result freshness | No | Session runtime state; it never changes the portable or local-project schema. |
 | Node foreground/z-order (bring-to-front) | No     | Transient interaction state. |
 | Camera field of view/zoom/clipping   | No         | Not currently captured at all (see above). |
 
-Opening a `.scadlet` file always starts with no active Inspect Node root
-and no selection, regardless of what was true when the file was saved.
+Opening a `.scadlet` file always starts with no active Inspect Node root,
+selection, or placement preview, regardless of what was true when the file was
+saved. The in-memory graph clipboard is not imported from or exported to this
+format and cannot be pasted into a different local project identity.
 
 ## Validation rules
 

@@ -2157,9 +2157,10 @@ test('Boolean and Vector3 use renameable source titles, typed input rows, and no
   // of each other and make More-menu clicks land on the wrong node.
   await dropPaletteNode(page, 'boolean', { x: canvas.x + 120, y: canvas.y + 120 })
   await dropPaletteNode(page, 'vector3', { x: canvas.x + 120, y: canvas.y + 320 })
-  const sources = page.locator('node-editor .node[data-renameable="true"]')
-  const boolean = sources.nth(0)
-  const vector = sources.nth(1)
+  // More-menu interaction intentionally changes Rete's DOM paint order, so
+  // keep semantic type locators rather than positional nth() references.
+  const boolean = page.locator('node-editor .node[data-node-type="boolean"]')
+  const vector = page.locator('node-editor .node[data-node-type="vector3"]')
   await expect(boolean.locator('.node-title')).toHaveText('Boolean')
   await boolean.locator('.node-more-summary').click()
   await boolean.getByRole('menuitem', { name: 'Rename' }).click()

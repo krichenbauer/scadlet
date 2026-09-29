@@ -107,6 +107,9 @@ test('For creates an accessible fixed pair, composes a numeric Geometry body, du
 
   await result.locator('.node-more-summary').click()
   await result.getByRole('menuitem', { name: 'Duplicate', exact: true }).click()
+  await expect(editor.locator('.graph-placement-preview-node')).toHaveCount(2)
+  await expect(editor.locator('.node[data-node-type="for"]')).toHaveCount(1)
+  await page.mouse.click(canvas.x + canvas.width - 90, canvas.y + canvas.height - 90)
   await expect(editor.locator('.node[data-node-type="for"]')).toHaveCount(2)
   await expect(editor.locator('.node[data-node-type="for-result"]')).toHaveCount(2)
   await expect(editor.locator('svg.connection[data-structural-connection="true"]')).toHaveCount(2)

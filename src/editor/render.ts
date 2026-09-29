@@ -180,7 +180,8 @@ export function attachRenderer(
   onNodeInteraction: (nodeId: string) => void,
   onConnectionInteraction: (connectionId: string) => void,
   onDeleteNode: (nodeId: string) => void,
-  onDuplicateNode: (nodeId: string) => void,
+  onNodeClipboardCommand: (nodeId: string, command: 'copy' | 'cut' | 'duplicate') => void,
+  nodeClipboardCommandProblem: (nodeId: string, command: 'copy' | 'cut' | 'duplicate') => string | null,
   onRenameValue: (nodeId: string, name: string) => Promise<boolean>,
   onBeginReferencePlacement: (bindingId: string, sourceNodeId: string) => void,
 ): () => void {
@@ -266,7 +267,7 @@ export function attachRenderer(
       const { data } = context
 
       if (data.type === 'node') {
-        renderNode(editor, area, data.element, data.payload, presentation, inspect, connectionGesture, nodeListenersWired, notifyDirty, onInspect, onNodeInteraction, renamingNodeIds, onDeleteNode, onDuplicateNode, onRenameValue, onBeginReferencePlacement)
+        renderNode(editor, area, data.element, data.payload, presentation, inspect, connectionGesture, nodeListenersWired, notifyDirty, onInspect, onNodeInteraction, renamingNodeIds, onDeleteNode, onNodeClipboardCommand, nodeClipboardCommandProblem, onRenameValue, onBeginReferencePlacement)
       } else if (data.type === 'connection') {
         updateConnection(
           area,
@@ -326,7 +327,8 @@ function renderNode(
   onNodeInteraction: (nodeId: string) => void,
   renamingNodeIds: Set<string>,
   onDeleteNode: (nodeId: string) => void,
-  onDuplicateNode: (nodeId: string) => void,
+  onNodeClipboardCommand: (nodeId: string, command: 'copy' | 'cut' | 'duplicate') => void,
+  nodeClipboardCommandProblem: (nodeId: string, command: 'copy' | 'cut' | 'duplicate') => string | null,
   onRenameValue: (nodeId: string, name: string) => Promise<boolean>,
   onBeginReferencePlacement: (bindingId: string, sourceNodeId: string) => void,
 ): void {
@@ -534,7 +536,8 @@ function renderNode(
     isDefinitionInterfaceNode,
     onInspect,
     onDeleteNode,
-    onDuplicateNode,
+    onNodeClipboardCommand,
+    nodeClipboardCommandProblem,
     onRenameValue,
     () => void area.update('node', node.id),
   ))
@@ -731,7 +734,8 @@ function renderHeader(
   isDefinitionInterfaceNode: boolean,
   onInspect: (nodeId: string) => void,
   onDeleteNode: (nodeId: string) => void,
-  onDuplicateNode: (nodeId: string) => void,
+  onNodeClipboardCommand: (nodeId: string, command: 'copy' | 'cut' | 'duplicate') => void,
+  nodeClipboardCommandProblem: (nodeId: string, command: 'copy' | 'cut' | 'duplicate') => string | null,
   onRenameValue: (nodeId: string, name: string) => Promise<boolean>,
   rerender: () => void,
 ): HTMLElement {
@@ -863,9 +867,13 @@ function renderHeader(
         },
       })
     }
-    if (node instanceof ForHeaderNode || node instanceof ForResultNode) {
-      actions.push({ id: 'duplicate', icon: 'copy', label: t('menu.duplicate'), run: () => onDuplicateNode(node.id) })
-    }
+    for (const command of ['copy', 'cut', 'duplicate'] as const) actions.push({
+      id: command,
+      icon: command === 'copy' ? 'copy' : command === 'cut' ? 'cut' : 'copy',
+      label: t(`menu.${command}`),
+      disabledReason: nodeClipboardCommandProblem(node.id, command) ?? undefined,
+      run: () => onNodeClipboardCommand(node.id, command),
+    })
     actions.push({
       id: 'delete',
       icon: 'trash',
@@ -959,6 +967,7 @@ interface MoreMenuAction {
   label: string
   run: () => void
   destructive?: boolean
+  disabledReason?: string
 }
 
 /**
@@ -975,6 +984,28 @@ function renderMoreMenu(actions: readonly MoreMenuAction[]): HTMLElement {
   // Keeps opening/using the menu from ever reaching the node root's own
   // pointerdown listener (node selection / Inspect double-click timing).
   details.addEventListener('pointerdown', (event) => event.stopPropagation())
+  details.addEventListener('toggle', () => {
+    if (!details.open) return
+    // A node menu can extend well beyond its card. Keep the interacted card
+    // last in Rete's DOM paint order so later sibling nodes cannot cover the
+    // menu; this is transient presentation and does not create z-order state.
+    const node = details.closest<HTMLElement>('.node')
+    if (node?.parentElement) node.parentElement.appendChild(node)
+    requestAnimationFrame(() => {
+      if (!details.open) return
+      details.classList.remove('node-more-menu--open-upward')
+      const canvas = details.closest<HTMLElement>('#canvas')
+      const boundary = canvas?.getBoundingClientRect()
+      const menu = details.querySelector<HTMLElement>('.node-more-options')
+      const summary = details.querySelector<HTMLElement>('.node-more-summary')
+      if (!boundary || !menu || !summary) return
+      const menuRect = menu.getBoundingClientRect()
+      const summaryRect = summary.getBoundingClientRect()
+      if (menuRect.bottom > boundary.bottom && summaryRect.top - menuRect.height >= boundary.top) {
+        details.classList.add('node-more-menu--open-upward')
+      }
+    })
+  })
 
   const summary = document.createElement('summary')
   summary.className = 'node-more-summary'
@@ -992,11 +1023,17 @@ function renderMoreMenu(actions: readonly MoreMenuAction[]): HTMLElement {
     button.type = 'button'
     button.setAttribute('role', 'menuitem')
     button.className = action.destructive ? 'node-more-item node-more-item--destructive' : 'node-more-item'
+    button.disabled = Boolean(action.disabledReason)
+    if (action.disabledReason) {
+      button.title = action.disabledReason
+      button.setAttribute('aria-label', `${action.label}: ${action.disabledReason}`)
+    }
     button.appendChild(compactIconElement(action.icon))
     const label = document.createElement('span')
     label.textContent = action.label
     button.appendChild(label)
     button.addEventListener('click', () => {
+      if (action.disabledReason) return
       details.open = false
       action.run()
     })

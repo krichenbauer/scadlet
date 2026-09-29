@@ -112,6 +112,17 @@ Moving a named Value requires all of its references to remain resolvable in the
 hypothetical destination; moving only a reference is rejected. Same-scope name
 collisions with Values or parameters are rejected before membership changes.
 
+Clipboard operations obey the same lexical rules. A payload belongs to one
+exact semantic scope and project. Copying a bound Value with its references
+remaps those references to a fresh binding on every commit; references whose
+binding is outside the payload may keep that stable ID only when it still
+resolves in the target scope. Conflicting copied binding names use the stable
+sequence `<name>_copy`, `<name>_copy_2`, and so on. A For member is inseparable
+from its partner and iterator references: all are included, and each placement
+creates a fresh pair ID, iterator binding, structural connection, and ordered
+body-slot IDs. Definition interface nodes remain protected from every graph
+clipboard action.
+
 The existing sidebar contains dynamic My Modules/My Functions sections. A
 definition entry creates a compact call node through the shared creation path;
 separate focus/edit/delete actions operate on the definition. Keep management

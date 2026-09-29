@@ -900,6 +900,7 @@ export class ScadletApp extends LitElement {
     if (!this.editorInstance) throw new Error('The node editor is not ready.')
     if (stored.id !== this.activeProjectId) this._invalidateProjectRender()
     await this._restoreProject(stored.project)
+    this.editorInstance.setClipboardProjectIdentity(stored.id)
     this.activeProjectId = stored.id
     this.failedProject = null
     this.activeRevision = stored.revision
@@ -938,6 +939,7 @@ export class ScadletApp extends LitElement {
 
   private async _restoreProject(project: ScadletProjectV1): Promise<void> {
     const instance = this.editorInstance ?? (await this.nodeEditor.whenReady())
+    instance.cancelClipboardPlacement()
     const rollbackProject = this._buildProject(instance)
     await instance.withDirtyTrackingSuspended(() =>
       restoreProject(project, {
@@ -1115,6 +1117,7 @@ export class ScadletApp extends LitElement {
     try {
       const stored = await this.localStore.createProject(this._buildProject(this.editorInstance))
       this.activeProjectId = stored.id
+      this.editorInstance.setClipboardProjectIdentity(stored.id)
       this.activeRevision = stored.revision
       this.activeProjectSession?.set(stored.id)
       this.projectMetadata = stored.project.metadata
@@ -1220,6 +1223,7 @@ export class ScadletApp extends LitElement {
   }
 
   private readonly _openModuleDialog = (): void => {
+    this.editorInstance?.cancelClipboardPlacement()
     this.editingModuleId = null
     this.moduleName = ''
     this.moduleError = null
@@ -1259,6 +1263,7 @@ export class ScadletApp extends LitElement {
   private readonly _openRenameModuleDialog = (event: CustomEvent<{ definitionId: string }>): void => {
     const definition = this.moduleDefinitions.find((item) => item.id === event.detail.definitionId)
     if (!definition) return
+    this.editorInstance?.cancelClipboardPlacement()
     this.editingModuleId = definition.id
     this.moduleName = definition.name
     this.moduleError = null
@@ -1292,6 +1297,7 @@ export class ScadletApp extends LitElement {
   }
 
   private readonly _openFunctionDialog = (): void => {
+    this.editorInstance?.cancelClipboardPlacement()
     this.editingFunctionId = null
     this.functionName = ''
     this.functionError = null
@@ -1331,6 +1337,7 @@ export class ScadletApp extends LitElement {
   private readonly _openRenameFunctionDialog = (event: CustomEvent<{ definitionId: string }>): void => {
     const definition = this.functionDefinitions.find((item) => item.id === event.detail.definitionId)
     if (!definition) return
+    this.editorInstance?.cancelClipboardPlacement()
     this.editingFunctionId = definition.id
     this.functionName = definition.name
     this.functionError = null
@@ -1435,6 +1442,7 @@ export class ScadletApp extends LitElement {
     // Degraded file-only mode: opening remains usable even if IndexedDB
     // is unavailable or the import write failed.
     await this._restoreProject(project)
+    this.editorInstance?.setClipboardProjectIdentity(`file:${crypto.randomUUID()}`)
     this.autosave?.destroy()
     this.autosave = undefined
     this.activeProjectId = null
