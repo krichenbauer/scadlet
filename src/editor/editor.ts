@@ -174,7 +174,8 @@ export interface SCADletEditor {
    * used by `.scadlet` project restore, which necessarily performs
    * operations (adding nodes, moving them, restoring collapse state/viewport)
    * that would otherwise look like user edits and incorrectly leave a
-   * freshly loaded project dirty.
+   * freshly loaded project dirty. Node removals during `fn` are treated as
+   * provisional restore steps, so they keep the current Inspect provenance.
    */
   withDirtyTrackingSuspended<T>(fn: () => Promise<T>): Promise<T>
   destroy(): void
@@ -662,11 +663,14 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // `NodeEditor`/`AreaPlugin`. `dirtySuspended` lets `.scadlet` project
   // restore (`scadlet-app.ts`) perform node/connection/position/collapse/
   // viewport operations that would otherwise look like user edits
-  // without leaving the freshly loaded project dirty.
+  // without leaving the freshly loaded project dirty. Editor transactions
+  // also set it to emit one notification per action. It must therefore
+  // never mean "a project is being restored"; `restoringProject` does.
   const dirtyListeners = new Set<() => void>()
   const semanticListeners = new Set<() => void>()
   const inspectListeners = new Set<(nodeId: string) => void>()
   let dirtySuspended = false
+  let restoringProject = false
   let transientViewportChange = false
   let persistedViewport = { ...area.area.transform }
   let activeScopeDrag: {
@@ -1450,8 +1454,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       // Restore is transactional: if reconstruction fails it rolls the old
       // graph back. Do not discard its Inspect provenance during those
       // provisional node removals; the application clears it only after a
-      // replacement project has committed successfully.
-      if (!dirtySuspended) inspect.remove(context.data.id)
+      // replacement project has committed successfully. Every other removal
+      // (including deletions inside editor transactions) is final.
+      if (!restoringProject) inspect.remove(context.data.id)
       definitions.forgetNode(context.data.id)
     }
     return context
@@ -3033,11 +3038,15 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     getPersistedViewport: () => ({ ...persistedViewport }),
     setPersistedViewport,
     withDirtyTrackingSuspended: async <T>(fn: () => Promise<T>): Promise<T> => {
+      const previousDirtySuspended = dirtySuspended
+      const previousRestoringProject = restoringProject
       dirtySuspended = true
+      restoringProject = true
       try {
         return await fn()
       } finally {
-        dirtySuspended = false
+        dirtySuspended = previousDirtySuspended
+        restoringProject = previousRestoringProject
       }
     },
     destroy: () => {

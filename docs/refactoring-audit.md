@@ -3,8 +3,8 @@
 Temporary engineering audit, not a contract. The permanent guides linked from
 [AGENTS.md](../AGENTS.md) remain authoritative. Audited at commit `c52d83f`
 on 2026-09-29 against a clean working tree. The audit itself was read-only.
-Defects D-2 and D-3 were fixed afterwards in a separate change, recorded in
-section 9. All other sections describe the audited commit.
+Defects D-1, D-2, and D-3 were fixed afterwards in separate changes, recorded
+in section 9. All other sections describe the audited commit.
 
 **Rating scale.** *Risk* is the regression risk of carrying out the
 recommendation. *Benefit* is the expected reduction in defect risk and change
@@ -45,13 +45,13 @@ scratch tests outside the repository.
 
 | ID | Defect | Evidence | Finding | Status |
 | --- | --- | --- | --- | --- |
-| D-1 | Deleting the inspected node leaves Inspect active. The stale ID stays and the remaining nodes stay dimmed as out of scope, although [Editor and UX](agent-guides/editor-ux.md) requires deletion to clear it | Chromium: Delete on an inspected Cube; `getInspectedNodeId()` still returns the deleted ID and the Sphere keeps `node--inspect-out-of-scope` | RF-02 | Open |
+| D-1 | Deleting the inspected node leaves Inspect active. The stale ID stays and the remaining nodes stay dimmed as out of scope, although [Editor and UX](agent-guides/editor-ux.md) requires deletion to clear it | Chromium: Delete on an inspected Cube; `getInspectedNodeId()` still returns the deleted ID and the Sphere keeps `node--inspect-out-of-scope` | RF-02 | Fixed (section 9) |
 | D-2 | Renaming a Value to an existing For iterator name in the same scope is accepted, then autosave fails ("Local saving failed; recent changes may be lost."). Pasting a Value named like an iterator and naming a parameter like an iterator hit the same gap | Chromium: For plus Number, rename the Number to `i` | RF-03 | Fixed (section 9) |
 | D-3 | Typing `0` into a For Step field is accepted, then autosave fails. Explicit Save As would write the same project unvalidated | Chromium plus unit reproduction (`serializeProject` → `parseScadletProject` throws "zero step") | RF-11 | Fixed (section 9) |
 | D-4 | A literal can lose precision: Cube size `1.23456789` emits `cube(1.234568);` unwired but `cube(1.23456789, center=true);` once Center is wired. `1e-7` emits `cube(0);` | Direct `data()` calls on `CubeNode`, `SphereNode`, `NumberNode`, `TranslateNode` | RF-10 | Open, needs a decision |
 
 **Recommended degree of refactoring:** incremental and medium-sized. Fix the
-four defects in their own behaviour changes (D-2 and D-3 are done). Then centralize duplicated
+four defects in their own behaviour changes (D-1, D-2, and D-3 are done). Then centralize duplicated
 policies (bindings, scope snapshots, transactions, the Module/Function
 lifecycle). Split `createEditor` only after those seams exist. No new AST,
 command framework, or folder reorganization is warranted.
@@ -295,6 +295,9 @@ Geometry-input operations, which are reached only through the internal
     Inspect and dimming. Written as the D-1 fix test.
   - E2E: a failed project switch preserves the Inspect marker.
 - **Depends on:** none.
+- **Status:** fixed (section 9). Restore now has its own `restoringProject`
+  mode, and `withDirtyTrackingSuspended` restores previous flag values. The
+  wider transaction consolidation remains RF-01.
 
 ### RF-03 — Binding name, visibility, and resolution rules have no single authority
 
@@ -961,7 +964,7 @@ contract. Characterization tests pin current behaviour everywhere else.
 
 | WP | Boundary | Findings | Files | Prerequisite tests | Extra verification |
 | --- | --- | --- | --- | --- | --- |
-| 5 | **(behaviour fix)** Clear Inspect on committed deletion | RF-02 | `editor.ts` `noderemoved` pipe | New D-1 E2E; failed-switch Inspect E2E | `inspect-dismissal.spec.ts` |
+| 5 | **Done** (section 9): clear Inspect on committed deletion | RF-02 | `editor.ts` `noderemoved` pipe | New D-1 E2E; failed-switch Inspect E2E | `inspect-dismissal.spec.ts` |
 | 6 | Single scope binding authority (D-2 already fixed, section 9) | RF-03 | `scope-bindings.ts`, `bindings.ts`, `scope-transfer.ts`, `validate.ts`, `restore.ts`, `editor.ts` | Binding verdict matrix (RF-03) | Fixture corpus parses identically |
 | 7 | **Done** (section 9): validate before file save; refuse zero Step live | RF-11 | `file-service.ts`, `for-nodes.ts`, `for-validation.ts`, `validate.ts` | D-3 unit and E2E | `file-service.test.ts` |
 | 8 | **(behaviour change, needs decision)** One literal formatter | RF-10 | `openscad/format.ts`, emitters | WP 4 snapshot | Real OpenSCAD-WASM render E2E |
@@ -973,7 +976,7 @@ contract. Characterization tests pin current behaviour everywhere else.
 
 | WP | Boundary | Findings | Files | Prerequisite tests | Extra verification |
 | --- | --- | --- | --- | --- | --- |
-| 12 | Separate restore mode from notification suppression; save and restore the previous value | RF-02 | `editor.ts`, `scadlet-app.ts` | WP 5 tests | `live-project-switch.spec.ts` |
+| 12 | **Done** with WP 5 (section 9): separate restore mode from notification suppression; save and restore the previous value | RF-02 | `editor.ts`, `scadlet-app.ts` | WP 5 tests | `live-project-switch.spec.ts` |
 | 13 | `runGraphTransaction` helper; migrate one operation family per PR | RF-01 | `editor.ts` | Single-notification and cancel-identity E2E | Full E2E per family |
 | 14 | Restore checks Rete results and bypasses confirm-capable pipes | RF-13 | `restore.ts`, `editor.ts` | Rejecting-pipe unit test | Broken-record E2E |
 | 15 | Unified Module/Function signature service and shared Call parameter helper | RF-05 | `editor.ts`, Call/interface nodes, `scadlet-app.ts` dialogs | Function parameter E2E | Recursive definitions E2E |
@@ -1106,6 +1109,8 @@ are from code reading, not measurement.
 
 ## 9. Post-audit changes
 
+### 9.1 Save-breaking names and zero Step (D-2, D-3)
+
 A focused behaviour fix for D-2 and D-3 (RF-03 naming gap, RF-11 write gate),
 made after the audit on 2026-09-29. It is not part of the refactoring
 sequence. The aim was only that the editor never creates, and file saving
@@ -1168,4 +1173,60 @@ never writes, a project the loader refuses.
   but confusing.
 - The zero-fallback edge case and the unused `'step'` problem code (RF-11)
   are still open.
-- D-1 and D-4 are unchanged.
+- D-4 is unchanged. D-1 is fixed in 9.2.
+
+### 9.2 Stale Inspect after deleting the inspected node (D-1)
+
+A focused behaviour fix for RF-02, made on 2026-09-29 after 9.1. It brings the
+editor in line with [Editor and UX](agent-guides/editor-ux.md) ("deletion of
+the inspected node clears it"), so no guide changed.
+
+**Cause:** the `noderemoved` pipe skipped `inspect.remove` whenever
+`dirtySuspended` was set. That flag also groups every editor transaction's
+notifications, including ordinary deletion in `removeNodeAndReferences`.
+
+**Changes, all in [editor.ts](../src/editor/editor.ts):**
+
+- New closure flag `restoringProject`, set only by
+  `withDirtyTrackingSuspended`, which is used solely by project restore
+  (`ScadletApp._restoreProject`).
+- The `noderemoved` pipe keeps Inspect provenance only while
+  `restoringProject` is set; every other removal clears it.
+- `withDirtyTrackingSuspended` now saves and restores both flags' previous
+  values instead of forcing `dirtySuspended = false`.
+
+No new Inspect-end notification was added. Deletion is already a semantic
+change, which cancels any running Inspect execution and reschedules the Live
+preview.
+
+**Tests added:**
+
+- `e2e/inspect-dismissal.spec.ts` "deleting the inspected node ends Inspect
+  and removes out-of-scope dimming": keyboard Delete and More → Delete of the
+  inspected root. Afterwards `getInspectedNodeId()` is `null`, no node is
+  dimmed, and Live renders the remaining graph. It failed on the previous code
+  (the deleted ID was still inspected).
+- `e2e/live-project-switch.spec.ts` "a project switch that fails and rolls
+  back keeps the previous Inspect result": injects an `addNode` failure during
+  restore. The previous project and its Inspect marker survive the rollback.
+  This passed before and after the change, guarding the restore behaviour the
+  old flag protected.
+
+**Verification** (same environment as section 8):
+
+| Check | Result |
+| --- | --- |
+| `pnpm test` | Pass. 79 files, 698 tests passed |
+| `pnpm exec tsc --noEmit` | Pass. Exit 0 |
+| `pnpm build` | Pass. Exit 0, same chunk-size warning as the baseline |
+| `pnpm test:e2e` | Pass. 112 passed |
+| `git diff --check` | Pass. Exit 0 |
+
+**Remaining related gaps:**
+
+- From code reading: definition and parameter deletion now also clear Inspect
+  when they remove the inspected node. They share the corrected pipe but have
+  no dedicated test.
+- A transaction that deletes the inspected node and then rolls back after an
+  unexpected Rete failure also ends Inspect. That is acceptable, but an
+  explicit transaction helper (RF-01) should decide it deliberately.

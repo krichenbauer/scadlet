@@ -206,3 +206,34 @@ test('successfully dropping a new palette node ends active Inspect', async ({ pa
   await expect(await node(page, 'Cylinder')).toBeVisible()
   await expectMainGraphPreview(page, 1, 'cylinder(')
 })
+
+test('deleting the inspected node ends Inspect and removes out-of-scope dimming', async ({ page }) => {
+  const { cube, translate, sphere } = await openConnectedGraph(page)
+  const inspectedId = () => page.locator('node-editor').evaluate(
+    (element) => (element as unknown as { getInspectedNodeId(): string | null }).getInspectedNodeId(),
+  )
+
+  // Keyboard Delete of the inspected root.
+  await inspectNode(page, translate)
+  await expect(sphere).toHaveClass(/node--inspect-out-of-scope/)
+  await translate.locator('.node-header').click({ position: { x: 20, y: 12 } })
+  await page.keyboard.press('Delete')
+  await expect(page.locator('node-editor .node')).toHaveCount(2)
+  await expect.poll(inspectedId).toBeNull()
+  await expect(page.locator('node-editor .node--inspect-out-of-scope')).toHaveCount(0)
+  await expect(page.locator('node-editor .node--inspected')).toHaveCount(0)
+
+  // More → Delete of the inspected root.
+  await inspectNode(page, cube)
+  await expect(sphere).toHaveClass(/node--inspect-out-of-scope/)
+  await cube.locator('.node-more-summary').click()
+  await cube.getByRole('menuitem', { name: 'Delete', exact: true }).click()
+  await expect(page.locator('node-editor .node')).toHaveCount(1)
+  await expect.poll(inspectedId).toBeNull()
+  await expect(sphere).not.toHaveClass(/node--inspect-out-of-scope/)
+
+  // The ordinary Live preview returns to the remaining main graph.
+  const source = page.locator('scadlet-app .scad-output')
+  await expect(source).toContainText('sphere(', { timeout: 15_000 })
+  await expect(source).not.toContainText('cube(')
+})

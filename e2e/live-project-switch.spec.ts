@@ -80,3 +80,37 @@ test('Live-off project switches stay idle, and enabling Live renders the current
   await expect(live).toHaveAttribute('aria-checked', 'true')
   await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(22);', { timeout: 15_000 })
 })
+
+test('a project switch that fails and rolls back keeps the previous Inspect result', async ({ page }) => {
+  await seedProjects(page)
+  const cube = page.locator('node-editor .node[data-node-type="cube"]')
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('cube(11);', { timeout: 15_000 })
+  await cube.locator('.node-title').dblclick()
+  await expect(cube).toHaveClass(/node--inspected/)
+  await expect.poll(() => page.locator('scadlet-app').evaluate(
+    (element) => !(element as unknown as { rendering: boolean }).rendering,
+  ), { timeout: 15_000 }).toBe(true)
+
+  // Make the replacement graph fail after the live editor was cleared, so
+  // restore must roll back to the previous project.
+  await page.locator('node-editor').evaluate((element) => {
+    const editor = (element as unknown as { getEditorInstance(): { editor: { addNode(node: unknown): Promise<boolean> } } }).getEditorInstance().editor
+    const addNode = editor.addNode.bind(editor)
+    let failed = false
+    editor.addNode = async (node) => {
+      if (!failed) {
+        failed = true
+        throw new Error('Injected restore failure')
+      }
+      return addNode(node)
+    }
+  })
+  await selectProject(page, 'Large cube')
+  await expect(page.locator('scadlet-app .persistence-status')).toContainText('Could not open the local project')
+  await expect(page.locator('scadlet-app .project-name')).toHaveValue('Small cube')
+  await expect(cube).toHaveCount(1)
+  await expect(cube).toHaveClass(/node--inspected/)
+  expect(await page.locator('node-editor').evaluate(
+    (element) => (element as unknown as { getInspectedNodeId(): string | null }).getInspectedNodeId(),
+  )).toBe('cube')
+})
