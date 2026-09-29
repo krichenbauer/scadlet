@@ -56,6 +56,12 @@ and named-Value deletion count and confirm affected references, then remove the
 definition and its reference nodes together; individual references retain the
 ordinary unconfirmed node-deletion lifecycle.
 
+PI, Number negate, Minimum/Maximum, and Vector Math are ordinary expression
+nodes available in Main, Module, and Function graphs. Their generated
+expressions participate in existing same-scope binding dependency ordering and
+Function `let(...)` generation; Vector Math's result binding type follows its
+selected operation.
+
 ## Modules
 
 A Module is ordinary OpenSCAD `module name(parameters) { ... }`.

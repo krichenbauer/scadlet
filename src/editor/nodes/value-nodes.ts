@@ -2,7 +2,7 @@ import { ClassicPreset } from 'rete'
 import type { DataflowNode } from 'rete-engine'
 
 import { t } from '../../i18n/translate'
-import { CheckboxControl, LabeledNumberControl, LabeledTextControl, TitleSelectControl } from '../controls'
+import { CheckboxControl, LabeledNumberControl, LabeledTextControl, OptionalNumberControl, TitleSelectControl } from '../controls'
 import { booleanSocket, numberSocket, unresolvedSocket, vector3Socket, type BooleanValue, type NumberValue, type Vector3Value } from '../sockets'
 
 export interface NumberParams { value: number; name?: string; bindingId?: string }
@@ -13,7 +13,7 @@ export interface ArithmeticParams { operation: ArithmeticOperation; a: number; b
 export type TrigonometryOperation = 'sin' | 'cos' | 'tan' | 'asin' | 'acos' | 'atan' | 'atan2'
 export type TrigonometryInputPort = 'a' | 'b'
 export interface TrigonometryParams { operation: TrigonometryOperation; a: number; b: number; inputPorts: TrigonometryInputPort[] }
-export type BasicMathOperation = 'abs' | 'sign' | 'sqrt' | 'floor' | 'ceil' | 'round'
+export type BasicMathOperation = 'abs' | 'sign' | 'sqrt' | 'floor' | 'ceil' | 'round' | 'negate'
 export interface BasicMathParams { operation: BasicMathOperation; x: number }
 export type ExponentialLogOperation = 'exp' | 'ln' | 'log'
 export interface ExponentialLogParams { operation: ExponentialLogOperation; x: number }
@@ -64,7 +64,7 @@ function exactOperation<T extends string>(value: unknown, operations: readonly T
 
 export const ARITHMETIC_OPERATIONS = ['addition', 'subtraction', 'multiplication', 'division', 'modulo', 'power'] as const
 export const TRIGONOMETRY_OPERATIONS = ['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2'] as const
-export const BASIC_MATH_OPERATIONS = ['abs', 'sign', 'sqrt', 'floor', 'ceil', 'round'] as const
+export const BASIC_MATH_OPERATIONS = ['abs', 'sign', 'sqrt', 'floor', 'ceil', 'round', 'negate'] as const
 export const EXPONENTIAL_LOG_OPERATIONS = ['exp', 'ln', 'log'] as const
 
 export function validateArithmeticParams(value: unknown): ArithmeticParams {
@@ -310,8 +310,165 @@ abstract class UnaryMathNode<Operation extends string, Params extends { operatio
   protected persisted(): Params { return { operation: (this.controls.operation as TitleSelectControl<Operation>).value, x: (this.controls.x as LabeledNumberControl).value ?? 0 } as Params }
   data(inputs: Record<string, NumberValue[] | undefined>): { value: NumberValue } {
     const params = this.persisted()
-    return { value: { code: `${params.operation}(${inputs.x?.[0]?.code ?? String(params.x)})` } }
+    const x = inputs.x?.[0]?.code ?? String(params.x)
+    return { value: { code: params.operation === 'negate' ? `-(${x})` : `${params.operation}(${x})` } }
   }
+}
+
+export type VectorMathOperation = 'add' | 'subtract' | 'scale' | 'divide' | 'dot' | 'cross' | 'norm' | 'negate'
+export interface VectorMathParams { operation: VectorMathOperation; a: number; b: number; factor: number }
+export const VECTOR_MATH_OPERATIONS = ['add', 'subtract', 'scale', 'divide', 'dot', 'cross', 'norm', 'negate'] as const
+export function validateVectorMathParams(value: unknown): VectorMathParams {
+  const params = object(value)
+  return { operation: exactOperation(params.operation, VECTOR_MATH_OPERATIONS, 'Vector Math'), a: finiteNumber(params.a, 'a'), b: finiteNumber(params.b, 'b'), factor: finiteNumber(params.factor, 'factor') }
+}
+
+const vectorMathOptions = [
+  { value: 'add', label: t('math.vectorAdd') }, { value: 'subtract', label: t('math.vectorSubtract') }, { value: 'scale', label: t('math.vectorScale') },
+  { value: 'divide', label: t('math.vectorDivide') }, { value: 'dot', label: t('math.vectorDot') }, { value: 'cross', label: t('math.vectorCross') },
+  { value: 'norm', label: t('math.vectorNorm') }, { value: 'negate', label: t('math.vectorNegate') },
+] as const
+
+/** Typed Vector3 operations use stable semantic port keys across the complete
+ * signature. Inactive ports remain in the model, so changing operations never
+ * leaves a live wire attached to a stale socket. */
+export class VectorMathNode extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { value: ClassicPreset.Socket }, Record<string, LabeledNumberControl | TitleSelectControl<VectorMathOperation>>> implements DataflowNode {
+  private scalarFallback: number
+  constructor(params: VectorMathParams = { operation: 'add', a: 0, b: 0, factor: 1 }) {
+    super(t('node.vectorMath'))
+    this.scalarFallback = params.factor
+    this.addControl('operation', new TitleSelectControl(t('node.vectorMathOperation'), vectorMathOptions, params.operation))
+    this.installInputs(params.operation, params)
+    this.addOutput('value', new ClassicPreset.Output(this.outputType(params.operation), t(params.operation === 'dot' || params.operation === 'norm' ? 'output.number' : 'output.vector3')))
+  }
+  private installInputs(op: VectorMathOperation, p: VectorMathParams): void {
+    if (['add', 'subtract', 'dot', 'cross'].includes(op)) {
+      if (!this.inputs.a) this.addInput('a', new ClassicPreset.Input(vector3Socket, t('input.a')))
+      if (!this.inputs.b) this.addInput('b', new ClassicPreset.Input(vector3Socket, t('input.b')))
+    } else {
+      if (!this.inputs.vector) this.addInput('vector', new ClassicPreset.Input(vector3Socket, t('input.vector')))
+      if (op === 'scale' || op === 'divide') {
+        const key = op === 'scale' ? 'factor' : 'divisor'
+        const label = op === 'scale' ? t('input.factor') : t('input.divisor')
+        if (!this.inputs[key]) this.addInput(key, new ClassicPreset.Input(numberSocket, label))
+        if (!this.controls[key]) this.addControl(key, new LabeledNumberControl(label, { initial: p.factor }))
+      }
+    }
+  }
+  private outputType(op: VectorMathOperation) { return op === 'dot' || op === 'norm' ? numberSocket : vector3Socket }
+  setOperation(operation: VectorMathOperation): void {
+    const control = this.controls.operation as TitleSelectControl<VectorMathOperation>
+    if (control.value === operation) return
+    const previous = this.getPersistedParams()
+    this.scalarFallback = (this.controls.factor as LabeledNumberControl | undefined)?.value ?? (this.controls.divisor as LabeledNumberControl | undefined)?.value ?? previous.factor
+    const desired = new Set(['add', 'subtract', 'dot', 'cross'].includes(operation)
+      ? ['a', 'b'] : ['vector', ...(operation === 'scale' ? ['factor'] : operation === 'divide' ? ['divisor'] : [])])
+    for (const key of Object.keys(this.inputs)) if (!desired.has(key)) this.removeInput(key)
+    for (const key of ['factor', 'divisor']) if (!desired.has(key) && this.controls[key]) this.removeControl(key)
+    control.value = operation
+    this.installInputs(operation, { ...previous, factor: this.scalarFallback })
+    if (this.outputs.value?.socket.name !== this.outputType(operation).name) {
+      this.removeOutput('value')
+      this.addOutput('value', new ClassicPreset.Output(this.outputType(operation), t(operation === 'dot' || operation === 'norm' ? 'output.number' : 'output.vector3')))
+    }
+  }
+  getPersistedParams(): VectorMathParams {
+    return { operation: (this.controls.operation as TitleSelectControl<VectorMathOperation>).value, a: 0, b: 0, factor: (this.controls.factor as LabeledNumberControl | undefined)?.value ?? (this.controls.divisor as LabeledNumberControl | undefined)?.value ?? this.scalarFallback }
+  }
+  data(inputs: Record<string, (NumberValue | Vector3Value)[] | undefined>): { value: NumberValue | Vector3Value } {
+    const p = this.getPersistedParams(), op = p.operation
+    const needsPair = ['add', 'subtract', 'dot', 'cross'].includes(op)
+    const a = inputs.a?.[0]?.code, b = inputs.b?.[0]?.code
+    const vector = inputs.vector?.[0]?.code
+    if (needsPair && (!a || !b)) throw new Error(`Vector Math ${op} requires both Vector inputs.`)
+    if (!needsPair && !vector) throw new Error(`Vector Math ${op} requires a Vector input.`)
+    const scalar = op === 'scale' ? inputs.factor?.[0]?.code ?? String((this.controls.factor as LabeledNumberControl)?.value ?? p.factor) : inputs.divisor?.[0]?.code ?? String((this.controls.divisor as LabeledNumberControl)?.value ?? p.factor)
+    const code = op === 'add' ? `(${a!} + ${b!})` : op === 'subtract' ? `(${a!} - ${b!})`
+      : op === 'scale' ? `(${vector!} * ${scalar})` : op === 'divide' ? `(${vector!} / ${scalar})`
+        : op === 'dot' ? `(${a!} * ${b!})` : op === 'cross' ? `cross(${a!}, ${b!})`
+          : op === 'norm' ? `norm(${vector!})` : `-(${vector!})`
+    return { value: { code } }
+  }
+}
+
+export interface MinMaxOperand { id: string; value?: number }
+export interface MinMaxParams { operation: 'minimum' | 'maximum'; operands: MinMaxOperand[] }
+export function validateMinMaxParams(value: unknown): MinMaxParams {
+  const params = object(value)
+  const operation = exactOperation(params.operation, ['minimum', 'maximum'] as const, 'Min / Max')
+  if (!Array.isArray(params.operands) || params.operands.length < 3) throw new Error('Invalid parameters: Min / Max requires at least two fixed operands and one trailing input')
+  const operands = params.operands.map((raw) => {
+    const item = object(raw)
+    if (typeof item.id !== 'string' || !item.id) throw new Error('Invalid parameters: Min / Max operand id must be a non-empty string')
+    if (item.value !== undefined && (typeof item.value !== 'number' || !Number.isFinite(item.value))) throw new Error('Invalid parameters: Min / Max operand value must be finite')
+    return { id: item.id, ...(item.value === undefined ? {} : { value: item.value }) }
+  })
+  if (new Set(operands.map((item) => item.id)).size !== operands.length) throw new Error('Invalid parameters: duplicate Min / Max operand ids')
+  if (operands[0]?.id !== 'a' || operands[1]?.id !== 'b' || operands[0].value === undefined || operands[1].value === undefined || operands.at(-1)?.value !== undefined) throw new Error('Invalid parameters: invalid Min / Max dynamic input records')
+  return { operation, operands }
+}
+
+export class MinMaxNode extends ClassicPreset.Node<Record<string, ClassicPreset.Socket>, { value: ClassicPreset.Socket }, Record<string, LabeledNumberControl | TitleSelectControl<'minimum' | 'maximum'>>> implements DataflowNode {
+  private operands: MinMaxOperand[]
+  onOperandsChanged?: () => void
+  constructor(params: MinMaxParams = { operation: 'minimum', operands: [{ id: 'a', value: 0 }, { id: 'b', value: 0 }, { id: 'm1' }] }) {
+    super(t('node.minMax'))
+    this.operands = structuredClone(params.operands)
+    this.addControl('operation', new TitleSelectControl(t('node.minMaxOperation'), [{ value: 'minimum', label: t('math.minimum') }, { value: 'maximum', label: t('math.maximum') }], params.operation))
+    this.operands.forEach((item, i) => this.addOperand(item, i))
+    this.addOutput('value', new ClassicPreset.Output(numberSocket, t('output.number')))
+  }
+  private port(id: string): string { return id === 'a' || id === 'b' ? id : `operand:${id}` }
+  private addOperand(item: MinMaxOperand, index: number): void {
+    const key = this.port(item.id), label = index === 0 ? t('input.a') : index === 1 ? t('input.b') : t('input.operand')
+    this.addInput(key, new ClassicPreset.Input(numberSocket, label))
+    if (index < 2) this.addControl(key, new LabeledNumberControl(label, { initial: item.value }))
+    else this.addControl(key, new OptionalNumberControl(label, { initial: item.value, change: (value) => {
+      if (value === undefined && this.operands.at(-1)?.id !== item.id) {
+        this.removeInput(key); this.removeControl(key); this.operands = this.operands.filter((candidate) => candidate.id !== item.id); this.onOperandsChanged?.(); return
+      }
+      if (this.operands.at(-1)?.id !== item.id || value === undefined) return
+      const newItem = { id: globalThis.crypto?.randomUUID?.() ?? `operand-${Math.random().toString(36).slice(2)}` }
+      this.operands.push(newItem); this.addOperand(newItem, this.operands.length - 1); this.onOperandsChanged?.()
+    } }))
+  }
+  synchronizeOperands(connected: ReadonlySet<string>): boolean {
+    let changed = false
+    for (let index = this.operands.length - 2; index >= 2; index -= 1) {
+      const operand = this.operands[index]!
+      const port = this.port(operand.id)
+      const value = (this.controls[port] as LabeledNumberControl | undefined)?.value
+      if (value === undefined && !connected.has(port)) {
+        this.removeInput(port)
+        if (this.controls[port]) this.removeControl(port)
+        this.operands.splice(index, 1)
+        changed = true
+      }
+    }
+    const trailing = this.operands.at(-1)!
+    if (connected.has(this.port(trailing.id)) || (this.controls[this.port(trailing.id)] as LabeledNumberControl | undefined)?.value !== undefined) {
+      const item = { id: globalThis.crypto?.randomUUID?.() ?? `operand-${Math.random().toString(36).slice(2)}` }
+      this.operands.push(item); this.addOperand(item, this.operands.length - 1); changed = true
+    }
+    return changed
+  }
+  getPersistedParams(): MinMaxParams {
+    return { operation: (this.controls.operation as TitleSelectControl<'minimum' | 'maximum'>).value, operands: this.operands.map((item) => {
+      const value = (this.controls[this.port(item.id)] as LabeledNumberControl | undefined)?.value
+      return { id: item.id, ...(value === undefined ? {} : { value }) }
+    }) }
+  }
+  data(inputs: Record<string, NumberValue[] | undefined>): { value: NumberValue } {
+    const p = this.getPersistedParams()
+    const values = p.operands.slice(0, -1).map((item) => inputs[this.port(item.id)]?.[0]?.code ?? (item.value === undefined ? undefined : String(item.value))).filter((value): value is string => value !== undefined)
+    return { value: { code: values.length < 2 ? '' : `${p.operation === 'minimum' ? 'min' : 'max'}(${values.join(', ')})` } }
+  }
+}
+
+export class PiNode extends ClassicPreset.Node<{}, { value: ClassicPreset.Socket }, {}> implements DataflowNode {
+  constructor() { super(t('node.pi')); this.addOutput('value', new ClassicPreset.Output(numberSocket, t('output.pi'))) }
+  getPersistedParams(): Record<string, never> { return {} }
+  data(): { value: NumberValue } { return { value: { code: 'PI' } } }
 }
 
 export class BasicMathNode extends UnaryMathNode<BasicMathOperation, BasicMathParams> {

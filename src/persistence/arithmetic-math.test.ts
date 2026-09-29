@@ -21,6 +21,32 @@ function engine() {
 }
 
 describe('Arithmetic/math persistence v6', () => {
+  it('round-trips PI, selected Vector Math operation, and ordered Min / Max operand records in v8', async () => {
+    const raw = {
+      format: 'scadlet', version: 8, metadata: { name: 'New value nodes' }, definitions: [],
+      graph: { nodes: [
+        { id: 'pi', type: 'pi', position: { x: 0, y: 0 }, parameters: {} },
+        { id: 'vector', type: 'vector-math', position: { x: 100, y: 0 }, parameters: { operation: 'divide', a: 0, b: 0, factor: 2 } },
+        { id: 'minmax', type: 'min-max', position: { x: 200, y: 0 }, parameters: { operation: 'maximum', operands: [{ id: 'a', value: 2 }, { id: 'b', value: 4 }, { id: 'extra-one', value: 8 }, { id: 'tail' }] } },
+      ], connections: [] },
+      editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera: { position: [80, 80, 60], target: [0, 0, 0] } },
+    }
+    const project = parseScadletProject(raw)
+    const editor = new NodeEditor<Schemes>()
+    const definitions = new DefinitionRegistry()
+    await restoreProject(project, {
+      editor, creationContext: { onControlsChanged: () => {}, getModuleDefinition: (id) => definitions.get(id) },
+      setNodePosition: () => {}, clearDefinitions: () => definitions.clear(), registerDefinition: (definition) => definitions.add(definition),
+      assignNodeToDefinition: (definitionId, nodeId) => definitions.assignNode(definitionId, nodeId),
+    })
+    const saved = serializeProject({ editor, metadata: { name: 'New value nodes' }, getNodePosition: () => ({ x: 0, y: 0 }), viewport: { x: 0, y: 0, k: 1 }, viewerCamera: { position: [80, 80, 60], target: [0, 0, 0] } })
+    expect(saved.version).toBe(8)
+    expect(saved.graph.nodes.map((node) => [node.type, node.parameters])).toEqual([
+      ['pi', {}], ['vector-math', { operation: 'divide', a: 0, b: 0, factor: 2 }],
+      ['min-max', { operation: 'maximum', operands: [{ id: 'a', value: 2 }, { id: 'b', value: 4 }, { id: 'extra-one', value: 8 }, { id: 'tail' }] }],
+    ])
+  })
+
   it('migrates a static v5 fixture in Main, Module, and Function scopes without changing ids, positions, ports, wires, or source', async () => {
     const project = parseScadletProject(legacyV5)
     expect(project.version).toBe(8)
@@ -125,6 +151,14 @@ describe('Arithmetic/math persistence v6', () => {
       { id: 'duplicate-1', source: 'one', sourceOutput: 'value', target: 'trig', targetInput: 'a' },
       { id: 'duplicate-2', source: 'two', sourceOutput: 'value', target: 'trig', targetInput: 'a' },
     ] } })).toThrow(/Multiple connections target input "a"/)
+  })
+
+  it('rejects malformed Vector Math and Min / Max operations, duplicate operands, and a connected empty trailing slot', () => {
+    const base = { format: 'scadlet', version: 8, metadata: { name: 'Bad typed operations' }, definitions: [], graph: { nodes: [], connections: [] }, editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera: { position: [80, 80, 60], target: [0, 0, 0] } } }
+    const node = (type: string, parameters: unknown) => ({ id: type, type, position: { x: 0, y: 0 }, parameters })
+    expect(() => parseScadletProject({ ...base, graph: { nodes: [node('vector-math', { operation: 'length', a: 0, b: 0, factor: 1 })], connections: [] } })).toThrow(/Vector Math operation/)
+    expect(() => parseScadletProject({ ...base, graph: { nodes: [node('min-max', { operation: 'minimum', operands: [{ id: 'a', value: 0 }, { id: 'b', value: 1 }, { id: 'same' }, { id: 'same' }] })], connections: [] } })).toThrow(/duplicate Min \/ Max operand ids/)
+    expect(() => parseScadletProject({ ...base, graph: { nodes: [node('min-max', { operation: 'minimum', operands: [{ id: 'a', value: 0 }, { id: 'b', value: 1 }, { id: 'tail' }] }), node('number', { value: 2 })], connections: [{ id: 'edge', source: 'number', sourceOutput: 'value', target: 'min-max', targetInput: 'operand:tail' }] } })).toThrow(/connected trailing operand slot/)
   })
 
   it('constructs every canonical family from validated current parameters', () => {

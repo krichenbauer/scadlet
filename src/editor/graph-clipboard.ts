@@ -104,6 +104,17 @@ function remapChildPorts(
   id: () => string,
 ): ReadonlyMap<string, string> {
   const mapping = new Map<string, string>()
+  if (type === 'min-max' && Array.isArray(parameters.operands)) {
+    parameters.operands = parameters.operands.map((raw, index) => {
+      const item = raw as { id?: unknown; value?: unknown }
+      if (index < 2) return item
+      const oldId = typeof item.id === 'string' ? item.id : ''
+      const newId = id()
+      mapping.set(`operand:${oldId}`, `operand:${newId}`)
+      return { ...item, id: newId }
+    })
+    return mapping
+  }
   if (!['difference', 'union', 'intersection', 'for-result'].includes(type)) return mapping
   const children = parameters.children
   if (!Array.isArray(children)) return mapping

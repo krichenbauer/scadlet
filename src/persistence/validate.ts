@@ -411,6 +411,20 @@ function validateGraph(raw: unknown, graphKind: GraphKind, definition?: Definiti
     }
     occupiedInputs.add(endpoint)
   }
+  for (const node of nodes.filter((item) => item.type === 'min-max')) {
+    const operands = node.parameters.operands as { id: string; value?: number }[]
+    for (let index = 2; index < operands.length; index += 1) {
+      const operand = operands[index]!
+      const port = `operand:${operand.id}`
+      const connected = connections.some((connection) => connection.target === node.id && connection.targetInput === port)
+      if (index === operands.length - 1 && connected) {
+        throw new ScadletProjectError(`Min / Max node "${node.id}" has a connected trailing operand slot.`)
+      }
+      if (index < operands.length - 1 && operand.value === undefined && !connected) {
+        throw new ScadletProjectError(`Min / Max node "${node.id}" has an unused operand before its trailing slot.`)
+      }
+    }
+  }
   const cycle = firstDataflowCycle(connections)
   if (cycle) {
     const scope = graphKind === 'main' ? 'Main graph' : `${graphKind === 'function' ? 'Function' : 'Module'} definition graph`

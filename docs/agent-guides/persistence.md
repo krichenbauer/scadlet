@@ -1,5 +1,16 @@
 # Persistence contract
 
+PI, `vector-math`, and `min-max` are additive v8 catalog types. Vector Math
+persists its selected operation and scalar fallback while deriving active port
+types and result type from that operation. Min/Max persists ordered operand
+records with stable dynamic port ids, optional numeric fallbacks, and one
+trailing empty extension record. Blank optional values remain absent; loading
+validates operation names, ordered fixed operands, unique ids, and the trailing
+empty slot and rejects a connected trailing port or an unused interior slot.
+PI has no semantic parameters. These representations add node
+types without reinterpreting existing v8 records, so they require no format
+bump.
+
 Read this and the canonical [`.scadlet` format specification](../scadlet-format.md)
 before changing persistent state, migrations, save/open behavior, autosave, or
 the browser project library.

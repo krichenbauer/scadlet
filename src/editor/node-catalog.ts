@@ -1,6 +1,7 @@
 import type { ClassicPreset } from 'rete'
 
 import type { Schemes } from './schemes'
+import { t } from '../i18n/translate'
 import { CubeNode } from './nodes/cube-node'
 import { CylinderNode } from './nodes/cylinder-node'
 import { DifferenceNode } from './nodes/difference-node'
@@ -11,7 +12,7 @@ import { SphereNode } from './nodes/sphere-node'
 import { TranslateNode } from './nodes/translate-node'
 import { UnionNode } from './nodes/union-node'
 import { IfNode } from './nodes/if-node'
-import { ArithmeticNode, BasicMathNode, BooleanNode, CompareNode, ConditionalNode, ExponentialLogNode, NumberNode, TrigonometryNode, Vector3Node, validateArithmeticParams, validateBasicMathParams, validateBooleanParams, validateCompareParams, validateConditionalParams, validateExponentialLogParams, validateNumberParams, validateTrigonometryParams, validateVector3ValueParams, type TrigonometryOperation } from './nodes/value-nodes'
+import { ArithmeticNode, BasicMathNode, BooleanNode, CompareNode, ConditionalNode, ExponentialLogNode, MinMaxNode, NumberNode, PiNode, TrigonometryNode, Vector3Node, VectorMathNode, validateArithmeticParams, validateBasicMathParams, validateBooleanParams, validateCompareParams, validateConditionalParams, validateExponentialLogParams, validateMinMaxParams, validateNumberParams, validateTrigonometryParams, validateVector3ValueParams, validateVectorMathParams, type TrigonometryOperation, type VectorMathOperation } from './nodes/value-nodes'
 import { type VariadicBooleanParams } from './nodes/boolean-op-node'
 import { validateCubeParams } from '../openscad/cube'
 import { validateCylinderParams } from '../openscad/cylinder'
@@ -71,9 +72,12 @@ export type NodeTypeId =
   | 'number'
   | 'boolean'
   | 'vector3'
+  | 'pi'
   | 'arithmetic'
   | 'trigonometry'
   | 'basic-math'
+  | 'vector-math'
+  | 'min-max'
   | 'exponential-log'
   | 'compare'
   | 'conditional'
@@ -110,9 +114,12 @@ const NODE_TYPE_ICON: Record<NodeTypeId, CompactIconName> = {
   number: 'value',
   boolean: 'value',
   vector3: 'value',
+  pi: 'value',
   arithmetic: 'math',
   trigonometry: 'math',
   'basic-math': 'math',
+  'vector-math': 'math',
+  'min-max': 'math',
   'exponential-log': 'math',
   compare: 'compare',
   conditional: 'conditional',
@@ -167,6 +174,7 @@ export interface NodeCreationContext {
   /** Runs the one dynamic Math signature transition through the editor's
    * connection-safe, confirmation-aware lifecycle. */
   requestTrigonometryOperationChange?(nodeId: string, operation: TrigonometryOperation): Promise<boolean>
+  requestVectorMathOperationChange?(nodeId: string, operation: VectorMathOperation): Promise<boolean>
   /** Resolves a reference strictly in the scope where it is being restored. */
   resolveVariableBinding?(bindingId: string): VariableBindingResolution | undefined
 }
@@ -187,6 +195,8 @@ export interface NodeCatalogEntry {
   readonly type: NodeTypeId
   readonly category: NodeCategoryId
   readonly labelKey: string
+  /** Optional longer accessible name when the visible node label is a compact symbol. */
+  readonly accessibleLabelKey?: string
   /** Localized explanatory copy shown by the non-interactive palette
    * tooltip. Required for every ordinary palette entry; definition-owned
    * Call entries provide their dynamic copy in `node-palette.ts`. */
@@ -347,7 +357,7 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
  * Shared by `persistence/validate.ts` (file validation) and `editor.ts`
  * (live node-creation/scope-transfer gating) so both enforce identically. */
 export const FUNCTION_GRAPH_ALLOWED_NODE_TYPES: ReadonlySet<NodeTypeId> = new Set([
-  'function-inputs', 'function-output', 'function-call', 'variable-reference', 'number', 'boolean', 'vector3', 'arithmetic', 'trigonometry', 'basic-math', 'exponential-log', 'compare', 'conditional',
+  'function-inputs', 'function-output', 'function-call', 'variable-reference', 'number', 'boolean', 'vector3', 'pi', 'arithmetic', 'trigonometry', 'basic-math', 'vector-math', 'min-max', 'exponential-log', 'compare', 'conditional',
 ])
 
 /**
@@ -509,6 +519,13 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     validateParams: (value) => validateVector3ValueParams(value) as unknown as Record<string, unknown>,
   },
   {
+    type: 'pi', category: 'values', labelKey: 'node.pi', accessibleLabelKey: 'node.piAccessible', paletteDescriptionKey: 'palette.description.pi', inputs: [], outputs: ['value'],
+    inputSocketType: () => undefined,
+    outputSocketType: (port) => port === 'value' ? 'number' : undefined,
+    create: () => new PiNode(), matches: (node) => node instanceof PiNode,
+    serializeParams: () => ({}), validateParams: validateEmptyParams,
+  },
+  {
     type: 'arithmetic', category: 'math', labelKey: 'node.arithmetic', paletteDescriptionKey: 'palette.description.arithmetic', inputs: ['a', 'b'], outputs: ['value'],
     paletteOperation: {
       accessibleLabelKey: 'node.arithmeticOperation', defaultValue: 'addition',
@@ -547,7 +564,7 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     type: 'basic-math', category: 'math', labelKey: 'node.basicMath', paletteDescriptionKey: 'palette.description.basicMath', inputs: ['x'], outputs: ['value'],
     paletteOperation: {
       accessibleLabelKey: 'node.basicMathOperation', defaultValue: 'abs',
-      options: ['abs', 'sign', 'sqrt', 'floor', 'ceil', 'round'].map((value) => ({ value, label: value })),
+      options: ['abs', 'sign', 'sqrt', 'floor', 'ceil', 'round', 'negate'].map((value) => ({ value, label: value === 'negate' ? t('math.negate') : value })),
       createParams: (operation) => validateBasicMathParams({ operation, x: 0 }) as unknown as Record<string, unknown>,
     },
     inputSocketType: (port) => port === 'x' ? 'number' : undefined,
@@ -556,6 +573,44 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     matches: (node) => node instanceof BasicMathNode,
     serializeParams: (node) => (node as BasicMathNode).getPersistedParams() as unknown as Record<string, unknown>,
     validateParams: (value) => validateBasicMathParams(value) as unknown as Record<string, unknown>,
+  },
+  {
+    type: 'vector-math', category: 'math', labelKey: 'node.vectorMath', paletteDescriptionKey: 'palette.description.vectorMath', inputs: ['a', 'b', 'vector', 'factor', 'divisor'], outputs: ['value'],
+    paletteOperation: { accessibleLabelKey: 'node.vectorMathOperation', defaultValue: 'add', options: [
+      { value: 'add', label: t('math.vectorAdd') }, { value: 'subtract', label: t('math.vectorSubtract') }, { value: 'scale', label: t('math.vectorScale') }, { value: 'divide', label: t('math.vectorDivide') },
+      { value: 'dot', label: t('math.vectorDot') }, { value: 'cross', label: t('math.vectorCross') }, { value: 'norm', label: t('math.vectorNorm') }, { value: 'negate', label: t('math.vectorNegate') },
+    ], createParams: (operation) => validateVectorMathParams({ operation, a: 0, b: 0, factor: 1 }) as unknown as Record<string, unknown> },
+    isInputPort: (port, params) => {
+      const op = validateVectorMathParams(params).operation
+      return ['add', 'subtract', 'dot', 'cross'].includes(op) ? ['a', 'b'].includes(port) : port === 'vector' || (op === 'scale' && port === 'factor') || (op === 'divide' && port === 'divisor')
+    },
+    inputSocketType: (port) => port === 'factor' || port === 'divisor' ? 'number' : ['a', 'b', 'vector'].includes(port) ? 'vector3' : undefined,
+    outputSocketType: (port, params) => port === 'value' ? (['dot', 'norm'].includes(params ? validateVectorMathParams(params).operation : 'add') ? 'number' : 'vector3') : undefined,
+    create: (context, params) => {
+      const node = new VectorMathNode(params ? validateVectorMathParams(params) : undefined)
+      const control = node.controls.operation as import('./controls').TitleSelectControl<VectorMathOperation>
+      if (context.requestVectorMathOperationChange) control.onRequestChange = (operation) => context.requestVectorMathOperationChange!(node.id, operation)
+      else control.onRequestChange = (operation) => { node.setOperation(operation); return true }
+      return node
+    },
+    matches: (node) => node instanceof VectorMathNode,
+    serializeParams: (node) => (node as VectorMathNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateVectorMathParams(value) as unknown as Record<string, unknown>,
+  },
+  {
+    type: 'min-max', category: 'math', labelKey: 'node.minMax', paletteDescriptionKey: 'palette.description.minMax', inputs: ['a', 'b'], outputs: ['value'],
+    paletteOperation: { accessibleLabelKey: 'node.minMaxOperation', defaultValue: 'minimum', options: [{ value: 'minimum', label: t('math.minimum') }, { value: 'maximum', label: t('math.maximum') }], createParams: (operation) => validateMinMaxParams({ operation, operands: [{ id: 'a', value: 0 }, { id: 'b', value: 0 }, { id: 'm1' }] }) as unknown as Record<string, unknown> },
+    isInputPort: (port, params) => validateMinMaxParams(params).operands.some((item) => (item.id === 'a' || item.id === 'b' ? item.id : `operand:${item.id}`) === port),
+    inputSocketType: (port, params) => validateMinMaxParams(params).operands.some((item) => (item.id === 'a' || item.id === 'b' ? item.id : `operand:${item.id}`) === port) ? 'number' : undefined,
+    outputSocketType: (port) => port === 'value' ? 'number' : undefined,
+    create: (context, params) => {
+      const node = new MinMaxNode(params ? validateMinMaxParams(params) : undefined)
+      node.onOperandsChanged = () => context.onControlsChanged(node.id)
+      return node
+    },
+    matches: (node) => node instanceof MinMaxNode,
+    serializeParams: (node) => (node as MinMaxNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateMinMaxParams(value) as unknown as Record<string, unknown>,
   },
   {
     type: 'exponential-log', category: 'math', labelKey: 'node.exponentialLog', paletteDescriptionKey: 'palette.description.exponentialLog', inputs: ['x'], outputs: ['value'],
@@ -841,6 +896,7 @@ export const NODE_CATALOG: readonly NodeCatalogEntry[] = CATALOG_ENTRIES.map((en
       requestRemoveForm: context.requestRemoveForm,
       getModuleDefinition: context.getModuleDefinition,
       requestTrigonometryOperationChange: context.requestTrigonometryOperationChange,
+      requestVectorMathOperationChange: context.requestVectorMathOperationChange,
       resolveVariableBinding: context.resolveVariableBinding,
     }
     node = entry.create(wrappedContext, params)

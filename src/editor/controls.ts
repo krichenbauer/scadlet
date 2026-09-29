@@ -17,6 +17,15 @@ export class LabeledNumberControl extends ClassicPreset.InputControl<'number'> {
   }
 }
 
+/** A Number fallback whose blank state is meaningful (for optional variadic
+ * operands). Unlike a sentinel numeric value, `undefined` stays absent in
+ * persistence and code generation. */
+export class OptionalNumberControl extends LabeledNumberControl {
+  constructor(label: string, options?: { initial?: number; change?: (value: number | undefined) => void }) {
+    super(label, options as { initial?: number; change?: (value: number) => void })
+  }
+}
+
 /** A small named text control for descriptive project content such as a
  * source-value label. It is deliberately not an OpenSCAD identifier. */
 export class LabeledTextControl extends ClassicPreset.InputControl<'text'> {

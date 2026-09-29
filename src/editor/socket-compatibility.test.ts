@@ -5,7 +5,7 @@ import { attachSocketCompatibilityGuard } from './editor'
 import type { Schemes } from './schemes'
 import { booleanSocket, geometrySocket, numberSocket, vector3Socket } from './sockets'
 import { canConnectSocketData } from './connection-compatibility'
-import { ConditionalNode, NumberNode, BooleanNode, Vector3Node } from './nodes/value-nodes'
+import { ConditionalNode, MinMaxNode, NumberNode, BooleanNode, Vector3Node, VectorMathNode, PiNode } from './nodes/value-nodes'
 
 const sockets = { geometry: geometrySocket, number: numberSocket, vector3: vector3Socket, boolean: booleanSocket } as const
 type SocketName = keyof typeof sockets
@@ -100,5 +100,21 @@ describe('semantic socket compatibility', () => {
     expect(await editor.addConnection(new ClassicPreset.Connection(first, 'value', second, 'value') as Schemes['Connection'])).toBe(true)
     expect(await editor.addConnection(new ClassicPreset.Connection(second, 'value', first, 'value') as Schemes['Connection'])).toBe(false)
     expect(editor.getConnections()).toHaveLength(1)
+  })
+
+  it('keeps new math result and operand sockets strictly typed by the chosen operation', async () => {
+    const editor = new NodeEditor<Schemes>()
+    const number = new NumberNode()
+    const vector = new Vector3Node()
+    const pi = new PiNode()
+    const minmax = new MinMaxNode()
+    const dot = new VectorMathNode({ operation: 'dot', a: 0, b: 0, factor: 1 })
+    const scale = new VectorMathNode({ operation: 'scale', a: 0, b: 0, factor: 1 })
+    for (const node of [number, vector, pi, minmax, dot, scale]) await editor.addNode(node as Schemes['Node'])
+    expect(canConnectSocketData(editor, { nodeId: pi.id, key: 'value', side: 'output' }, { nodeId: minmax.id, key: 'a', side: 'input' })).toBe(true)
+    expect(canConnectSocketData(editor, { nodeId: vector.id, key: 'value', side: 'output' }, { nodeId: dot.id, key: 'a', side: 'input' })).toBe(true)
+    expect(canConnectSocketData(editor, { nodeId: number.id, key: 'value', side: 'output' }, { nodeId: scale.id, key: 'factor', side: 'input' })).toBe(true)
+    expect(canConnectSocketData(editor, { nodeId: dot.id, key: 'value', side: 'output' }, { nodeId: minmax.id, key: 'b', side: 'input' })).toBe(true)
+    expect(canConnectSocketData(editor, { nodeId: scale.id, key: 'value', side: 'output' }, { nodeId: minmax.id, key: 'b', side: 'input' })).toBe(false)
   })
 })

@@ -321,6 +321,14 @@ ordered subtractors.
 
 ## Implementation and review checklist
 
+Math palette entries with operation selectors keep one entry per node family.
+Vector Math names operations in its compact dropdown and uses the normal typed
+Vector3/Number socket colors. Min/Max keeps two fixed Number rows, then ordered
+optional Number rows with one blank trailing extension input; blank values
+have no numeric sentinel and do not enter the generated argument list. PI is
+a compact source node with no editable parameter or variable-definition
+action.
+
 When adding or restyling a node, verify:
 
 1. header order, icon, title, action visibility, accessible names, and focus;

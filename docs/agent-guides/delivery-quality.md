@@ -1,5 +1,13 @@
 # Delivery, quality, and operating constraints
 
+New value/math operations should be tested at the catalog, typed-port,
+OpenSCAD-expression, persistence, scope, and interaction boundaries. For
+operation-selected outputs, cover compatible transitions and confirmed
+cleanup of incompatible connections; for dynamic inputs, cover stable-id
+round trips and one trailing empty slot. E2E journeys should remain isolated
+per test and cover user-visible dropdown, socket, persistence, and export
+behavior without serializing unrelated tests.
+
 Read this before changing dependencies, build/tooling, deployment, runtime
 resources, error handling, or test setup.
 

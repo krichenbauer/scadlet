@@ -1,12 +1,12 @@
 import { ClassicPreset, NodeEditor } from 'rete'
 import { DataflowEngine } from 'rete-engine'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { evaluateInspectNode, evaluateOpenSCAD } from '../evaluate'
-import { transitionTrigonometryOperation } from '../editor'
+import { transitionTrigonometryOperation, transitionVectorMathOperation } from '../editor'
 import type { Schemes } from '../schemes'
 import { CubeNode } from './cube-node'
-import { ArithmeticNode, BASIC_MATH_OPERATIONS, BasicMathNode, BooleanNode, CompareNode, ConditionalNode, EXPONENTIAL_LOG_OPERATIONS, ExponentialLogNode, NumberNode, TRIGONOMETRY_OPERATIONS, TrigonometryNode, Vector3Node } from './value-nodes'
+import { ArithmeticNode, BASIC_MATH_OPERATIONS, BasicMathNode, BooleanNode, CompareNode, ConditionalNode, EXPONENTIAL_LOG_OPERATIONS, ExponentialLogNode, MinMaxNode, NumberNode, PiNode, TRIGONOMETRY_OPERATIONS, TrigonometryNode, Vector3Node, VECTOR_MATH_OPERATIONS, VectorMathNode } from './value-nodes'
 
 function engine(): DataflowEngine<Schemes> {
   return new DataflowEngine<Schemes>((node) => ({ inputs: () => Object.keys(node.inputs), outputs: () => Object.keys(node.outputs) }))
@@ -17,6 +17,101 @@ function connect(source: ClassicPreset.Node, sourceOutput: string, target: Class
 }
 
 describe('Milestone 7 value nodes', () => {
+  it('generates every typed Vector Math expression and derives the output type', () => {
+    const expected = new Map([
+      ['add', ['([1, 2, 3] + [4, 5, 6])', 'vector3']], ['subtract', ['([1, 2, 3] - [4, 5, 6])', 'vector3']],
+      ['scale', ['([1, 2, 3] * 2)', 'vector3']], ['divide', ['([1, 2, 3] / 2)', 'vector3']],
+      ['dot', ['([1, 2, 3] * [4, 5, 6])', 'number']], ['cross', ['cross([1, 2, 3], [4, 5, 6])', 'vector3']],
+      ['norm', ['norm([1, 2, 3])', 'number']], ['negate', ['-([1, 2, 3])', 'vector3']],
+    ])
+    for (const operation of VECTOR_MATH_OPERATIONS) {
+      const node = new VectorMathNode({ operation, a: 0, b: 0, factor: 2 })
+      const result = node.data({ a: [{ code: '[1, 2, 3]' }], b: [{ code: '[4, 5, 6]' }], vector: [{ code: '[1, 2, 3]' }] })
+      expect(result.value.code).toBe(expected.get(operation)?.[0])
+      expect(node.outputs.value?.socket.name).toBe(expected.get(operation)?.[1])
+    }
+    const switched = new VectorMathNode()
+    switched.setOperation('scale')
+    expect(Object.keys(switched.inputs)).toEqual(['vector', 'factor'])
+    expect(switched.outputs.value?.socket.name).toBe('vector3')
+    expect(new VectorMathNode({ operation: 'scale', a: 0, b: 0, factor: 3 }).data({ vector: [{ code: 'position' }] }).value.code).toBe('(position * 3)')
+    expect(new VectorMathNode({ operation: 'divide', a: 0, b: 0, factor: 4 }).data({ vector: [{ code: 'offset' }], divisor: [{ code: '2' }] }).value.code).toBe('(offset / 2)')
+    expect(() => new VectorMathNode().data({})).toThrow(/requires both Vector inputs/)
+    expect(() => new VectorMathNode({ operation: 'norm', a: 0, b: 0, factor: 1 }).data({})).toThrow(/requires a Vector input/)
+  })
+
+  it('keeps compatible Vector Math wires and confirms incompatible inputs and outputs before cleanup', async () => {
+    const editor = new NodeEditor<Schemes>()
+    const left = new Vector3Node({ x: 1, y: 2, z: 3 })
+    const right = new Vector3Node({ x: 4, y: 5, z: 6 })
+    const math = new VectorMathNode()
+    const consumer = new Vector3Node()
+    for (const node of [left, right, math, consumer]) await editor.addNode(node)
+    const edges = [connect(left, 'value', math, 'a'), connect(right, 'value', math, 'b'), connect(math, 'value', consumer, 'value')]
+    for (const edge of edges) await editor.addConnection(edge)
+    const confirm = vi.fn(() => true)
+    await expect(transitionVectorMathOperation(editor, math, 'subtract', confirm)).resolves.toBe(true)
+    expect(confirm).not.toHaveBeenCalled()
+    expect(editor.getConnections().map((edge) => edge.id)).toEqual(edges.map((edge) => edge.id))
+    await expect(transitionVectorMathOperation(editor, math, 'dot', () => false)).resolves.toBe(false)
+    expect(math.getPersistedParams().operation).toBe('subtract')
+    expect(editor.getConnections()).toHaveLength(3)
+    await expect(transitionVectorMathOperation(editor, math, 'dot', confirm)).resolves.toBe(true)
+    expect(math.outputs.value?.socket.name).toBe('number')
+    expect(editor.getConnections().map((edge) => edge.id)).toEqual(edges.slice(0, 2).map((edge) => edge.id))
+    await expect(transitionVectorMathOperation(editor, math, 'norm', confirm)).resolves.toBe(true)
+    expect(math.getPersistedParams().operation).toBe('norm')
+    expect(editor.getConnections()).toHaveLength(0)
+  })
+
+  it('creates PI as the OpenSCAD constant and Minimum/Maximum with ordered operands', () => {
+    expect(new PiNode().data().value.code).toBe('PI')
+    const minimum = new MinMaxNode({ operation: 'minimum', operands: [{ id: 'a', value: 9 }, { id: 'b', value: 3 }, { id: 'left', value: -1 }, { id: 'tail' }] })
+    const maximum = new MinMaxNode({ operation: 'maximum', operands: [{ id: 'a', value: 9 }, { id: 'b', value: 3 }, { id: 'left', value: 5 }, { id: 'right', value: 7 }, { id: 'tail' }] })
+    expect(minimum.data({}).value.code).toBe('min(9, 3, -1)')
+    expect(maximum.data({}).value.code).toBe('max(9, 3, 5, 7)')
+    expect(minimum.data({ a: [{ code: 'PI' }], b: [{ code: 'width' }] }).value.code).toBe('min(PI, width, -1)')
+  })
+
+  it('uses PI and Min / Max through the normal OpenSCAD source and Inspect path', async () => {
+    const editor = new NodeEditor<Schemes>()
+    const dataflow = engine()
+    editor.use(dataflow)
+    const pi = new PiNode()
+    const two = new NumberNode({ value: 2 })
+    const minimum = new MinMaxNode({ operation: 'minimum', operands: [{ id: 'a', value: 0 }, { id: 'b', value: 0 }, { id: 'tail' }] })
+    const cube = new CubeNode({ sizeRepresentation: 'scalar', size: 1 })
+    for (const node of [pi, two, minimum, cube]) await editor.addNode(node)
+    await editor.addConnection(connect(pi, 'value', minimum, 'a'))
+    await editor.addConnection(connect(two, 'value', minimum, 'b'))
+    await editor.addConnection(connect(minimum, 'value', cube, 'size'))
+    await expect(evaluateOpenSCAD(editor, dataflow)).resolves.toBe('cube(min(PI, 2));')
+    await expect(evaluateInspectNode(editor, dataflow, minimum.id)).resolves.toEqual({ kind: 'value', expression: 'min(PI, 2)' })
+  })
+
+  it('makes Min/Max optional extension operands blank, stable, and dynamically extensible', () => {
+    const node = new MinMaxNode()
+    const tail = node.getPersistedParams().operands.at(-1)!.id
+    expect(node.controls[`operand:${tail}`]).toBeDefined()
+    expect(node.synchronizeOperands(new Set([`operand:${tail}`]))).toBe(true)
+    const grown = node.getPersistedParams().operands
+    expect(grown).toHaveLength(4)
+    expect(grown[2]?.id).toBe(tail)
+    expect(grown[3]?.value).toBeUndefined()
+    expect(node.synchronizeOperands(new Set())).toBe(true)
+    expect(node.getPersistedParams().operands.map((item) => item.id)).toEqual(['a', 'b', grown[3]!.id])
+    const withFallback = new MinMaxNode()
+    const extra = withFallback.getPersistedParams().operands.at(-1)!.id
+    ;(withFallback.controls[`operand:${extra}`] as import('../controls').OptionalNumberControl).setValue(6)
+    expect(withFallback.getPersistedParams().operands.map((item) => item.id)).toEqual(['a', 'b', extra, expect.any(String)])
+    expect(withFallback.data({}).value.code).toBe('min(0, 0, 6)')
+  })
+
+  it('generates Number negate with parentheses for nested expressions', () => {
+    const negate = new BasicMathNode({ operation: 'negate', x: 0 })
+    expect(negate.data({ x: [{ code: '(2 + 3)' }] }).value.code).toBe('-((2 + 3))')
+    expect(negate.data({ x: [{ code: '-x' }] }).value.code).toBe('-(-x)')
+  })
   it('generates OpenSCAD expressions without JavaScript evaluation', () => {
     expect(new NumberNode({ value: 20 }).data().value.code).toBe('20')
     expect(new BooleanNode({ value: true }).data().value.code).toBe('true')
@@ -169,7 +264,7 @@ describe('Milestone 7 value nodes', () => {
       expect(node.inputs.x?.label).toBe('X')
       expect(node.inputs.x?.socket.name).toBe('number')
       expect(node.outputs.value?.socket.name).toBe('number')
-      expect(node.data({ x: [{ code: 'x' }] }).value.code).toBe(`${operation}(x)`)
+      expect(node.data({ x: [{ code: 'x' }] }).value.code).toBe(operation === 'negate' ? '-(x)' : `${operation}(x)`)
     }
     for (const operation of EXPONENTIAL_LOG_OPERATIONS) {
       const node = new ExponentialLogNode({ operation, x: 4 })

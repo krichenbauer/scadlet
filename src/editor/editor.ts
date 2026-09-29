@@ -27,7 +27,7 @@ import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nod
 import { ModuleCallNode } from './nodes/module-call-node'
 import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interface-nodes'
 import { FunctionCallNode } from './nodes/function-call-node'
-import { ConditionalNode, TrigonometryNode, type TrigonometryOperation } from './nodes/value-nodes'
+import { ConditionalNode, MinMaxNode, TrigonometryNode, VectorMathNode, type TrigonometryOperation, type VectorMathOperation } from './nodes/value-nodes'
 import { scopeTransferProblem, type ScopeTransferProblem } from './scope-transfer'
 import { t } from '../i18n/translate'
 import { registerTransientPopupProvider, TRANSIENT_POPUP_DISMISS_EVENT, type TransientPopupEntry } from '../ui/transient-popups'
@@ -232,6 +232,45 @@ export async function transitionTrigonometryOperation(
       for (const connection of affected) {
         if (!editor.getConnections().some((candidate) => candidate.id === connection.id)) await editor.addConnection(connection)
       }
+      await updateNode()
+    } catch {
+      // The caller reports failure; no partial change is intentionally saved.
+    }
+    return false
+  }
+}
+
+/** Atomically changes Vector Math's typed input/output signature. Compatible
+ * wires retain their stable ports; only incompatible connections are
+ * confirmation-gated and removed through Rete's lifecycle. */
+export async function transitionVectorMathOperation(
+  editor: NodeEditor<Schemes>,
+  node: VectorMathNode,
+  operation: VectorMathOperation,
+  confirmRemoval: (connectionCount: number) => boolean,
+  updateNode: () => void | Promise<void> = () => {},
+): Promise<boolean> {
+  const previous = node.getPersistedParams()
+  if (previous.operation === operation) return true
+  const inputPorts = (op: VectorMathOperation): Set<string> => new Set(['add', 'subtract', 'dot', 'cross'].includes(op)
+    ? ['a', 'b'] : ['vector', ...(op === 'scale' ? ['factor'] : op === 'divide' ? ['divisor'] : [])])
+  const outputType = (op: VectorMathOperation): 'number' | 'vector3' => ['dot', 'norm'].includes(op) ? 'number' : 'vector3'
+  const nextPorts = inputPorts(operation)
+  const outputChangesType = outputType(previous.operation) !== outputType(operation)
+  const affected = editor.getConnections().filter((edge) =>
+    (edge.target === node.id && !nextPorts.has(edge.targetInput))
+    || (edge.source === node.id && outputChangesType),
+  )
+  if (affected.length > 0 && !confirmRemoval(affected.length)) return false
+  try {
+    for (const edge of affected) await editor.removeConnection(edge.id)
+    node.setOperation(operation)
+    await updateNode()
+    return true
+  } catch {
+    try {
+      node.setOperation(previous.operation)
+      for (const edge of affected) if (!editor.getConnections().some((candidate) => candidate.id === edge.id)) await editor.addConnection(edge)
       await updateNode()
     } catch {
       // The caller reports failure; no partial change is intentionally saved.
@@ -684,9 +723,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
         presentation.setConnectedInputs(node.id, connectedParamInputs)
       }
       for (const node of editor.getNodes()) {
-        if (!(node instanceof BooleanOpNode) && !(node instanceof ForResultNode)) continue
+        if (!(node instanceof BooleanOpNode) && !(node instanceof ForResultNode) && !(node instanceof MinMaxNode)) continue
         const connected = new Set(editor.getConnections().filter((item) => item.target === node.id).map((item) => item.targetInput))
-        if (node.synchronizeChildren(connected)) void area.update('node', node.id)
+        if (node instanceof MinMaxNode ? node.synchronizeOperands(connected) : node.synchronizeChildren(connected)) void area.update('node', node.id)
       }
     }
     return context
@@ -1468,6 +1507,19 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return changed
   }
 
+  async function requestVectorMathOperationChange(nodeId: string, operation: VectorMathOperation): Promise<boolean> {
+    const node = editor.getNode(nodeId)
+    if (!(node instanceof VectorMathNode)) return false
+    const wasSuspended = dirtySuspended
+    dirtySuspended = true
+    const changed = await transitionVectorMathOperation(editor, node, operation, (count) => {
+      try { return window.confirm(t('math.confirmVectorMathChange').replace('{count}', String(count))) } catch { return false }
+    }, () => area.update('node', node.id))
+    dirtySuspended = wasSuspended
+    if (changed && !wasSuspended) notifySemanticDirty()
+    return changed
+  }
+
   /** Confirm-gated (established concise warning flow) removal of a built-in
    * dynamic node's parameter/form: disconnects any wires on `inputKeys`
    * before the node's own `removableRows()` entry mutates its ports and
@@ -1501,6 +1553,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     requestRemoveForm,
     getModuleDefinition: (definitionId) => definitions.get(definitionId),
     requestTrigonometryOperationChange,
+    requestVectorMathOperationChange,
   }
 
   async function addModuleParameter(definitionId: string, input: { name: string; type: ModuleParameterType; default: ModuleParameterDefault }): Promise<void> {

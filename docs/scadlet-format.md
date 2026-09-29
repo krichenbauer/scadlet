@@ -323,9 +323,12 @@ intersection
 number
 boolean
 vector3
+pi
 arithmetic
 trigonometry
 basic-math
+vector-math
+min-max
 exponential-log
 compare
 conditional
@@ -670,7 +673,7 @@ and Y for `atan2`; the dynamic `b` input is labelled X. Duplicate, missing,
 out-of-order, or operation-incompatible port metadata is rejected.
 
 `basic-math` stores `{ "operation": id, "x": number }`, with `abs`, `sign`,
-`sqrt`, `floor`, `ceil`, or `round`. `exponential-log` uses the same shape with
+`sqrt`, `floor`, `ceil`, `round`, or `negate`. `exponential-log` uses the same shape with
 `exp`, `ln`, or `log`. These numbers are fallback literals for their
 input ports, not precomputed results. Generated graph values remain OpenSCAD
 expressions: a Vector3 emits `[x, y, z]`. Connecting a value replaces the
@@ -683,6 +686,17 @@ palette and node header render the corresponding symbol/name directly. The
 header dropdown is the visible title; no redundant operation row is stored or
 rendered. Palette selection is included in the creation payload, so a dragged
 node enters Rete already configured for that operation.
+
+`vector-math` stores `{ "operation": id, "a": number, "b": number,
+"factor": number }`. Its operation is one of `add`, `subtract`, `scale`,
+`divide`, `dot`, `cross`, `norm`, or `negate`; active typed ports and the
+Number or Vector3 result type follow the operation. `min-max` stores
+`{ "operation": "minimum"|"maximum", "operands": [{ "id": string,
+"value"?: number }, ...] }`. The first two records are fixed `a` and `b`
+inputs. Later records have stable port ids and optional direct fallbacks, with
+one final empty record reserved as the extension input. `pi` stores an empty
+parameter object and generates the OpenSCAD constant `PI`. These additive
+catalog entries do not change the v8 envelope or migration rules.
 
 Changing between unary trigonometric operations preserves every wire.
 Changing to `atan2` retains the stable `a` wire, relabels it Y, and adds one
@@ -901,9 +915,12 @@ intersection:  dynamic inputs: child:<id>   outputs: geometry
 number:        input: value (Number)         output: value (Number)
 boolean:       input: value (Boolean)        output: value (Boolean)
 vector3:       inputs: value (Vector3) + x, y, z (Number); output: value (Vector3)
+pi:            no inputs; output: value (Number), expression PI
 arithmetic:    inputs: a, b (Number)        outputs: value (Number)
 trigonometry:  input: a (Number); atan2 also b (Number); outputs: value (Number)
 basic-math:    input: x (Number)             outputs: value (Number)
+vector-math:   operation-specific Vector3 inputs and optional Number factor/divisor; output type follows operation
+min-max:       inputs: a, b plus stable ordered operand:<id> Number slots; output: value (Number)
 exponential-log: input: x (Number)           outputs: value (Number)
 compare:       inputs: a, b (Number)         outputs: value (Boolean)
 conditional:   inputs: condition + true/false; output: result (resolved value type)

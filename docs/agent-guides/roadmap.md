@@ -40,6 +40,8 @@ Implemented and stable:
 - graph-native Copy, Cut, Paste, and Duplicate with session-local detached
   payloads, selection-aware More/context menus, deferred placement, atomic
   commit, and fresh binding/For/dynamic-port identities.
+- PI, Number negate, variadic Minimum/Maximum, and consolidated typed Vector
+  Math operations, available in Main, Module, and Function value graphs.
 
 Current catalog/value semantics are intentionally limited. Geometry If is a
 statement-level node valid in Main/Module scopes, with required Boolean
@@ -52,9 +54,10 @@ evaluation errors; disconnected drafts do not create fake `undef` semantics.
 Implement later work in this order unless a concrete defect warrants a small,
 independent repair first.
 
-1. **Missing basic value nodes.** Add useful arithmetic, mathematical, and
-   logical operators selectively, preserving the current typed value model and
-   Function-scope rules.
+1. **List and String values.** Add general lists and Strings before 2D Geometry:
+   lists/vectors are needed for polygon point data, while Strings enable text.
+   Likely operations include indexing, `len`, `concat`, `lookup`, `search`,
+   `str`, `chr`, `ord`, and eventually list comprehensions.
 2. **Missing simple Geometry nodes.** Prioritize ordinary transformations such
    as Mirror and Resize, with the same scope, persistence, and effective-output
    rules as the existing Geometry catalog.

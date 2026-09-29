@@ -95,6 +95,19 @@ describe('graph clipboard remapping', () => {
     expect(plan.structuralPairs).toEqual([{ headerId: header.id, resultId: result.id }])
   })
 
+  it('remaps Min / Max operand port ids while retaining values, order, and its empty trailing slot', () => {
+    const payload: GraphClipboardPayload = {
+      projectId: 'project', scope: null,
+      nodes: [{ id: 'minmax', type: 'min-max', label: 'Min / Max', position: { x: 0, y: 0 }, parameters: { operation: 'maximum', operands: [{ id: 'a', value: 0 }, { id: 'b', value: 1 }, { id: 'middle', value: 3 }, { id: 'tail' }] }, collapsed: false }],
+      connections: [],
+    }
+    let ordinal = 0
+    const plan = planGraphClipboardPaste(payload, new Set(), () => `fresh-${++ordinal}`)
+    const operands = plan.nodes[0]!.parameters.operands as { id: string; value?: number }[]
+    expect(operands).toEqual([{ id: 'a', value: 0 }, { id: 'b', value: 1 }, { id: 'fresh-2', value: 3 }, { id: 'fresh-3' }])
+    expect(plan.nodes[0]!.portIds.get('operand:middle')).toBe('operand:fresh-2')
+  })
+
   it('rejects an incomplete For pair before live graph mutation', () => {
     const payload: GraphClipboardPayload = {
       projectId: 'project', scope: null, connections: [],

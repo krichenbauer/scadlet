@@ -156,6 +156,14 @@ icon is supplementary rather than its only label.
 
 ## Creation, inspect, and labels
 
+The Number/Vector3 value vocabulary includes PI, Number negate, Minimum and
+Maximum with ordered variadic Number operands, and one Vector Math node whose
+dropdown selects Add, Subtract, Scale, Divide, Dot product, Cross product,
+Norm, or Negate. A Vector Math operation change retains compatible sockets;
+the editor confirms before removing incompatible connected ports. Min/Max
+grows one trailing blank Number input when the current trailing input is
+connected or receives an explicit fallback.
+
 Built-ins come from one stable-ID node catalog and one editor-level creation
 path. Palette drop coordinates must convert browser coordinates to the current
 area transform; creation must not disturb viewport state. A fresh project is

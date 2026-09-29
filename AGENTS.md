@@ -152,3 +152,11 @@ When alternatives are viable, prefer: educational clarity; browser-only/static
 operation; OpenSCAD as the only geometry semantics; the chosen stack; then the
 simplest solution that keeps the next committed milestone feasible. Do not
 treat unresolved product questions as settled requirements.
+
+The typed value catalog includes PI, Number negation, dynamic Minimum/Maximum,
+and one consolidated Vector Math node. Vector Math operations retain typed
+operation-specific ports; switching signatures confirms and removes only
+incompatible wires. Min/Max stores stable ordered operand records and one
+unused trailing slot; blank optional fallbacks are absent from generated
+expressions. These nodes use the normal OpenSCAD expression, persistence,
+Function, Inspect, and clipboard paths.

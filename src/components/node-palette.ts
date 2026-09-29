@@ -312,7 +312,7 @@ export class NodePaletteElement extends LitElement {
               @focusin=${(event: FocusEvent) => this._onTooltipFocusIn(event, this._catalogTooltip(entry))}
               @focusout=${this._onTooltipFocusOut}
               @dragstart=${(event: DragEvent) => { this._hideTooltip(); this._onDragStart(event, entry.type) }}
-              aria-label=${t(entry.labelKey)}
+              aria-label=${t(entry.accessibleLabelKey ?? entry.labelKey)}
             >
               <span class="node-item-icon">${compactIcon(nodeTypeIcon(entry.type))}</span>${t(entry.labelKey)}
             </div>

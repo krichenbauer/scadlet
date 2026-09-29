@@ -4,7 +4,7 @@ import type { AreaPlugin } from 'rete-area-plugin'
 import type { ConnectionPlugin } from 'rete-connection-plugin'
 import { classicConnectionPath, getDOMSocketPosition } from 'rete-render-utils'
 
-import { CheckboxControl, LabeledNumberControl, LabeledTextControl, ModuleGeometryInputAddControl, ModuleGeometryInputEditControl, ModuleParameterAddControl, ModuleParameterEditControl, ParameterActionsControl, SelectControl, TitleSelectControl, Vector3Control, type ParameterAction, type RemovableRow } from './controls'
+import { CheckboxControl, LabeledNumberControl, LabeledTextControl, OptionalNumberControl, ModuleGeometryInputAddControl, ModuleGeometryInputEditControl, ModuleParameterAddControl, ModuleParameterEditControl, ParameterActionsControl, SelectControl, TitleSelectControl, Vector3Control, type ParameterAction, type RemovableRow } from './controls'
 import { ModuleInputsNode } from './nodes/module-interface-nodes'
 import { ModuleOutputNode } from './nodes/module-interface-nodes'
 import { FunctionInputsNode, FunctionOutputNode } from './nodes/function-interface-nodes'
@@ -1341,6 +1341,9 @@ function renderParamControlValue(control: ClassicPreset.Control, overridden: boo
     input.className = 'node-param-value'
     input.addEventListener('pointerdown', (event) => event.stopPropagation())
     commitNumberLiteralOnInput(input, (value) => (control as ClassicPreset.InputControl<'number'>).setValue(value))
+    if (control instanceof OptionalNumberControl) input.addEventListener('change', () => {
+      if (input.value === '') (control as unknown as { setValue(value: number | undefined): void }).setValue(undefined)
+    })
     return input
   }
   if (control instanceof CheckboxControl) {

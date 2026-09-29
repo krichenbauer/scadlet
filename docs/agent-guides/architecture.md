@@ -175,6 +175,16 @@ code in one module. Prefer small typed modules and straightforward browser APIs
 over broad abstractions. Any structural change must preserve the one-way flow
 unless its tradeoff is explicitly agreed.
 
+## Typed value expressions
+
+Typed value expressions include a constant PI source, Number negation, a
+variadic Minimum/Maximum node, and one operation-selected Vector Math node.
+Vector Math generates OpenSCAD vector arithmetic, `cross`, and `norm` directly;
+its operation defines active input socket types and the output type. Min/Max
+uses ordered stable operand slots and omits blank optional operands. These
+remain ordinary Rete dataflow expressions and use the same generated source
+for preview, Inspect, and export.
+
 ## Bundled project templates
 
 Maintained built-in templates live at top-level

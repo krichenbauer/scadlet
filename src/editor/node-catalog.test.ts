@@ -33,9 +33,12 @@ describe('NODE_CATALOG', () => {
         'number',
         'boolean',
         'vector3',
+        'pi',
         'arithmetic',
         'trigonometry',
         'basic-math',
+        'vector-math',
+        'min-max',
         'exponential-log',
         'compare',
         'conditional',
@@ -67,12 +70,15 @@ describe('NODE_CATALOG', () => {
     expect(findCatalogEntry('number')?.category).toBe('values')
     expect(findCatalogEntry('boolean')?.category).toBe('values')
     expect(findCatalogEntry('vector3')?.category).toBe('values')
+    expect(findCatalogEntry('pi')?.category).toBe('values')
     expect(findCatalogEntry('arithmetic')?.category).toBe('math')
     expect(findCatalogEntry('trigonometry')?.category).toBe('math')
     expect(findCatalogEntry('basic-math')?.category).toBe('math')
     expect(findCatalogEntry('exponential-log')?.category).toBe('math')
     expect(findCatalogEntry('compare')?.category).toBe('math')
     expect(findCatalogEntry('conditional')?.category).toBe('math')
+    expect(findCatalogEntry('vector-math')?.category).toBe('math')
+    expect(findCatalogEntry('min-max')?.category).toBe('math')
     expect(findCatalogEntry('if')?.category).toBe('control-flow')
     expect(findCatalogEntry('for')?.category).toBe('control-flow')
     expect(findCatalogEntry('for-result')?.palette).toBe(false)
@@ -84,7 +90,9 @@ describe('NODE_CATALOG', () => {
     expect(NODE_CATALOG.filter((entry) => ['add', 'subtract', 'multiply', 'divide'].includes(entry.type))).toEqual([])
     expect(findCatalogEntry('arithmetic')?.paletteOperation?.options.map((item) => item.label)).toEqual(['+', '−', '×', '÷', '%', 'pow'])
     expect(findCatalogEntry('trigonometry')?.paletteOperation?.options.map((item) => item.value)).toEqual(['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2'])
-    expect(findCatalogEntry('basic-math')?.paletteOperation?.options.map((item) => item.value)).toEqual(['abs', 'sign', 'sqrt', 'floor', 'ceil', 'round'])
+    expect(findCatalogEntry('basic-math')?.paletteOperation?.options.map((item) => item.value)).toEqual(['abs', 'sign', 'sqrt', 'floor', 'ceil', 'round', 'negate'])
+    expect(findCatalogEntry('vector-math')?.paletteOperation?.options.map((item) => item.value)).toEqual(['add', 'subtract', 'scale', 'divide', 'dot', 'cross', 'norm', 'negate'])
+    expect(findCatalogEntry('min-max')?.paletteOperation?.options.map((item) => item.value)).toEqual(['minimum', 'maximum'])
     expect(findCatalogEntry('exponential-log')?.paletteOperation?.options.map((item) => item.value)).toEqual(['exp', 'ln', 'log'])
     expect(findCatalogEntry('compare')?.paletteOperation?.options.map((item) => item.value)).toEqual(['<', '<=', '>', '>=', '==', '!='])
     const arithmetic = findCatalogEntry('arithmetic')!
@@ -107,7 +115,7 @@ describe('NODE_CATALOG', () => {
 
   it('provides localized explanatory copy for every ordinary palette entry', () => {
     const paletteEntries = NODE_CATALOG.filter((entry) => entry.palette !== false)
-    expect(paletteEntries).toHaveLength(21)
+    expect(paletteEntries).toHaveLength(24)
     for (const entry of paletteEntries) {
       expect(entry.paletteDescriptionKey).toBeTruthy()
       const description = t(entry.paletteDescriptionKey!)
