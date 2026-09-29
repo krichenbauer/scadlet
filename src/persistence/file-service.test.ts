@@ -211,6 +211,52 @@ describe('ProjectFileService - File System Access unavailable (fallback)', () =>
   })
 })
 
+/** A project the loader refuses: its For Step is a literal zero. */
+function zeroStepProject() {
+  const project = createEmptyProject('Zero step')
+  project.graph.nodes.push(
+    { id: 'header', type: 'for', position: { x: 0, y: 0 }, parameters: { pairId: 'pair', bindingId: 'iterator', name: 'i', start: 0, step: 0, end: 3 } },
+    { id: 'result', type: 'for-result', position: { x: 300, y: 0 }, parameters: { pairId: 'pair', children: [{ id: 'body' }] } },
+  )
+  project.graph.connections.push({ id: 'boundary', source: 'header', sourceOutput: 'loop', target: 'result', targetInput: 'loop' })
+  return project
+}
+
+describe('ProjectFileService - refuses to write invalid projects', () => {
+  it('saveAs throws the validation error before opening a picker or writing', async () => {
+    const showSaveFilePicker = vi.fn()
+    const service = new ProjectFileService({
+      capability: { supported: true, showOpenFilePicker: vi.fn(), showSaveFilePicker },
+      pickFileFallback: vi.fn(),
+      downloadFallback: vi.fn(),
+    })
+    await expect(service.saveAs(zeroStepProject(), 'Zero step.scadlet')).rejects.toThrow('zero step')
+    expect(showSaveFilePicker).not.toHaveBeenCalled()
+  })
+
+  it('save to an existing handle and the download fallback write nothing for an invalid project', async () => {
+    const handle = fakeHandle('Zero step.scadlet')
+    const service = new ProjectFileService({
+      capability: { supported: true, showOpenFilePicker: vi.fn(), showSaveFilePicker: vi.fn().mockResolvedValue(handle) },
+      pickFileFallback: vi.fn(),
+      downloadFallback: vi.fn(),
+    })
+    await service.saveAs(createEmptyProject('Zero step'), 'Zero step.scadlet')
+    handle.writtenContent.length = 0
+    await expect(service.save(zeroStepProject(), 'Zero step.scadlet')).rejects.toThrow('zero step')
+    expect(handle.writtenContent).toEqual([])
+
+    const downloadFallback = vi.fn()
+    const fallback = new ProjectFileService({
+      capability: { supported: false, showOpenFilePicker: vi.fn(), showSaveFilePicker: vi.fn() },
+      pickFileFallback: vi.fn(),
+      downloadFallback,
+    })
+    await expect(fallback.saveAs(zeroStepProject(), 'Zero step.scadlet')).rejects.toThrow('zero step')
+    expect(downloadFallback).not.toHaveBeenCalled()
+  })
+})
+
 describe('ProjectFileService.clearHandle', () => {
   it('forces the next save to behave like saveAs again', async () => {
     const handle = fakeHandle('X.scadlet')

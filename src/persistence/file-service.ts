@@ -1,4 +1,4 @@
-import { parseScadletProjectText } from './validate'
+import { parseScadletProject, parseScadletProjectText } from './validate'
 import type { ScadletProjectV1 } from './project'
 
 /** A minimal, structurally-typed subset of the real `FileSystemFileHandle` API this service actually uses - kept small and local rather than depending on `@types/wicg-file-system-access` for a couple of methods. */
@@ -141,7 +141,7 @@ export class ProjectFileService {
    * unsaved-changes state.
    */
   async saveAs(project: ScadletProjectV1, suggestedName: string): Promise<boolean> {
-    const content = JSON.stringify(project, null, 2)
+    const content = serializedValidProject(project)
 
     if (this.deps.capability.supported) {
       let handle: FileHandleLike
@@ -171,7 +171,7 @@ export class ProjectFileService {
    */
   async save(project: ScadletProjectV1, suggestedName: string): Promise<boolean> {
     if (this.handle) {
-      const content = JSON.stringify(project, null, 2)
+      const content = serializedValidProject(project)
       const writable = await this.handle.createWritable()
       await writable.write(content)
       await writable.close()
@@ -180,6 +180,15 @@ export class ProjectFileService {
 
     return this.saveAs(project, suggestedName)
   }
+}
+
+/** Every explicit file write passes the same validator that autosave and
+ * Open use, before any picker opens or bytes are written. A project the
+ * loader would refuse therefore throws its `ScadletProjectError` instead of
+ * silently producing a file that cannot be reopened. */
+function serializedValidProject(project: ScadletProjectV1): string {
+  parseScadletProject(project)
+  return JSON.stringify(project, null, 2)
 }
 
 /**

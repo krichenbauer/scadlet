@@ -2,8 +2,9 @@
 
 Temporary engineering audit, not a contract. The permanent guides linked from
 [AGENTS.md](../AGENTS.md) remain authoritative. Audited at commit `c52d83f`
-on 2026-09-29 against a clean working tree. No production code, tests,
-configuration, or existing documentation were changed.
+on 2026-09-29 against a clean working tree. The audit itself was read-only.
+Defects D-2 and D-3 were fixed afterwards in a separate change, recorded in
+section 9. All other sections describe the audited commit.
 
 **Rating scale.** *Risk* is the regression risk of carrying out the
 recommendation. *Benefit* is the expected reduction in defect risk and change
@@ -40,17 +41,17 @@ problems are concentrated, not systemic:
    (RF-10).
 
 **Defects confirmed during the audit.** Each was reproduced with throwaway
-scratch tests outside the repository. None were fixed.
+scratch tests outside the repository.
 
-| ID | Defect | Evidence | Finding |
-| --- | --- | --- | --- |
-| D-1 | Deleting the inspected node leaves Inspect active. The stale ID stays and the remaining nodes stay dimmed as out of scope, although [Editor and UX](agent-guides/editor-ux.md) requires deletion to clear it | Chromium: Delete on an inspected Cube; `getInspectedNodeId()` still returns the deleted ID and the Sphere keeps `node--inspect-out-of-scope` | RF-02 |
-| D-2 | Renaming a Value to an existing For iterator name in the same scope is accepted, then autosave fails ("Local saving failed; recent changes may be lost.") | Chromium: For plus Number, rename the Number to `i` | RF-03 |
-| D-3 | Typing `0` into a For Step field is accepted, then autosave fails. Explicit Save As would write the same project unvalidated | Chromium plus unit reproduction (`serializeProject` → `parseScadletProject` throws "zero step") | RF-11 |
-| D-4 | A literal can lose precision: Cube size `1.23456789` emits `cube(1.234568);` unwired but `cube(1.23456789, center=true);` once Center is wired. `1e-7` emits `cube(0);` | Direct `data()` calls on `CubeNode`, `SphereNode`, `NumberNode`, `TranslateNode` | RF-10 |
+| ID | Defect | Evidence | Finding | Status |
+| --- | --- | --- | --- | --- |
+| D-1 | Deleting the inspected node leaves Inspect active. The stale ID stays and the remaining nodes stay dimmed as out of scope, although [Editor and UX](agent-guides/editor-ux.md) requires deletion to clear it | Chromium: Delete on an inspected Cube; `getInspectedNodeId()` still returns the deleted ID and the Sphere keeps `node--inspect-out-of-scope` | RF-02 | Open |
+| D-2 | Renaming a Value to an existing For iterator name in the same scope is accepted, then autosave fails ("Local saving failed; recent changes may be lost."). Pasting a Value named like an iterator and naming a parameter like an iterator hit the same gap | Chromium: For plus Number, rename the Number to `i` | RF-03 | Fixed (section 9) |
+| D-3 | Typing `0` into a For Step field is accepted, then autosave fails. Explicit Save As would write the same project unvalidated | Chromium plus unit reproduction (`serializeProject` → `parseScadletProject` throws "zero step") | RF-11 | Fixed (section 9) |
+| D-4 | A literal can lose precision: Cube size `1.23456789` emits `cube(1.234568);` unwired but `cube(1.23456789, center=true);` once Center is wired. `1e-7` emits `cube(0);` | Direct `data()` calls on `CubeNode`, `SphereNode`, `NumberNode`, `TranslateNode` | RF-10 | Open, needs a decision |
 
 **Recommended degree of refactoring:** incremental and medium-sized. Fix the
-four defects in their own behaviour changes. Then centralize duplicated
+four defects in their own behaviour changes (D-2 and D-3 are done). Then centralize duplicated
 policies (bindings, scope snapshots, transactions, the Module/Function
 lifecycle). Split `createEditor` only after those seams exist. No new AST,
 command framework, or folder reorganization is warranted.
@@ -315,8 +316,12 @@ Geometry-input operations, which are reached only through the internal
   Value may take an iterator's name. Validation then rejects the project
   (reproduced, D-2). `preflightClipboardPaste` computes
   `unavailableBindingNames` from the same helper, so a pasted Value named like
-  an existing iterator is likely also accepted. That case is suspected from
-  code reading, not reproduced.
+  an existing iterator is also accepted (reproduced by the section 9 E2E test
+  against the audited code).
+- **Status:** the naming gap (D-2) is fixed by
+  `reservedBindingNamesInScope` (section 9). The structural recommendation
+  below, one binding table shared with `validate.ts` and `restore.ts`, remains
+  open.
 - **Affected:** `bindings.ts`, `scope-transfer.ts`, `for-validation.ts`
   callers, `validate.ts` `validateScopeBindings`, `restore.ts`
   `prepareRestorePlan`, `editor.ts` `renameValueBinding` /
@@ -658,6 +663,10 @@ Geometry-input operations, which are reached only through the internal
   any editor state reachable through the public `SCADletEditor` API passes
   `parseScadletProject` (start with D-2 and D-3 as fix tests).
 - **Depends on:** RF-03 and a product decision for zero Step.
+- **Status:** fixed for D-2 and D-3 (section 9). Zero Step is refused live;
+  explicit Save and Save As validate before writing. Still open: the unused
+  `'step'` problem code, and a hand-edited project whose connected Step keeps a
+  zero fallback still becomes unsaveable when that wire is removed.
 
 ### RF-12 — Internal duplication in `validate.ts` and overlap with the evaluator
 
@@ -953,8 +962,8 @@ contract. Characterization tests pin current behaviour everywhere else.
 | WP | Boundary | Findings | Files | Prerequisite tests | Extra verification |
 | --- | --- | --- | --- | --- | --- |
 | 5 | **(behaviour fix)** Clear Inspect on committed deletion | RF-02 | `editor.ts` `noderemoved` pipe | New D-1 E2E; failed-switch Inspect E2E | `inspect-dismissal.spec.ts` |
-| 6 | Single scope binding authority, then **(behaviour fix)** D-2 | RF-03 | `scope-bindings.ts`, `bindings.ts`, `scope-transfer.ts`, `validate.ts`, `restore.ts`, `editor.ts` | Binding verdict matrix (RF-03) | Fixture corpus parses identically |
-| 7 | **(behaviour fix)** Validate before file save; zero-Step policy after decision | RF-11 | `file-service.ts`, `for-nodes.ts`, `for-validation.ts`, `validate.ts` | D-3 unit and E2E | `file-service.test.ts` |
+| 6 | Single scope binding authority (D-2 already fixed, section 9) | RF-03 | `scope-bindings.ts`, `bindings.ts`, `scope-transfer.ts`, `validate.ts`, `restore.ts`, `editor.ts` | Binding verdict matrix (RF-03) | Fixture corpus parses identically |
+| 7 | **Done** (section 9): validate before file save; refuse zero Step live | RF-11 | `file-service.ts`, `for-nodes.ts`, `for-validation.ts`, `validate.ts` | D-3 unit and E2E | `file-service.test.ts` |
 | 8 | **(behaviour change, needs decision)** One literal formatter | RF-10 | `openscad/format.ts`, emitters | WP 4 snapshot | Real OpenSCAD-WASM render E2E |
 | 9 | Value-type constants and `producesGeometry` helper | RF-17 | `sockets.ts`, `definitions.ts`, `evaluate.ts`, `editor.ts`, `render.ts` | RF-17 classification test | — |
 | 10 | Catalog entry factories, derived predicates, context spread | RF-09 | `node-catalog.ts`, `graph-clipboard.ts` | WP 4 parity test | `round-trip.test.ts` |
@@ -1092,6 +1101,71 @@ and Playwright specs kept outside the repository (served from the built
 `dist` on a separate port) and are not part of this change.
 
 **Confidence limits:** a single E2E run cannot prove the absence of flakes.
-The paste-collision variant of D-2 is inferred from code, not reproduced.
 Performance remarks (per-connection scope snapshots, O(N·E) presentation sync)
 are from code reading, not measurement.
+
+## 9. Post-audit changes
+
+A focused behaviour fix for D-2 and D-3 (RF-03 naming gap, RF-11 write gate),
+made after the audit on 2026-09-29. It is not part of the refactoring
+sequence. The aim was only that the editor never creates, and file saving
+never writes, a project the loader refuses.
+
+**Decisions taken:**
+
+- A literal zero For Step is refused live, not saved as a draft. This keeps the
+  format specification unchanged: a direct zero Step was already invalid.
+- A Value or definition parameter may not take the name of a For iterator in
+  the same scope. This was already the loader's rule
+  (`validateScopeBindings`); the editor now applies it too.
+
+**Changes:**
+
+| Area | Change |
+| --- | --- |
+| [bindings.ts](../src/editor/bindings.ts) | New `reservedBindingNamesInScope`: the Value and parameter names of a scope plus its For iterator names |
+| [editor.ts](../src/editor/editor.ts) | Value rename (`renameValueBinding`), paste copy naming (`preflightClipboardPaste`), and Module/Function parameter add/edit use the new helper. Iterator rename and the `loopStructureProblem` enclosing names are unchanged, since sibling loops may share a name |
+| `controls.ts`, `nodes/for-nodes.ts` | `LabeledNumberControl` accepts an optional `rejectionFor` rule and never stores a rejected value; the For Step control rejects `0` |
+| [render.ts](../src/editor/render.ts), `node-editor.ts` | `commitNumberLiteralOnInput` shows a refused literal as invalid (`setCustomValidity`, `aria-invalid`, localized title, red outline) and restores the stored value when the edit ends |
+| `file-service.ts`, `scadlet-app.ts`, `translate.ts` | `ProjectFileService.save`/`saveAs` validate with `parseScadletProject` before any picker, download, or write; the app reports "This project was not saved because it is invalid: …" |
+| [Definitions](agent-guides/definitions.md), [Persistence](agent-guides/persistence.md) | Document the iterator-name rule, the Step field behaviour, and validated file saves |
+
+**Tests added:**
+
+- `src/editor/bindings.test.ts`: the helper's contents per scope, and that
+  every reserved name fails `parseScadletProject` while a free name saves.
+- `for-nodes.test.ts`: Step refuses zero and keeps the previous value; Start
+  and End accept zero.
+- `file-service.test.ts`: `saveAs`, handle `save`, and the download fallback
+  write nothing for an invalid project.
+- `e2e/for-loops.spec.ts` "names and Step literals the saved format refuses
+  are rejected before autosave":
+  - a Value pasted after a For iterator `i` becomes `i_copy`;
+  - renaming it to `i` is refused with feedback;
+  - Step `0` is marked invalid, restored to `1`, and never autosaved;
+  - reload shows the saved state.
+
+  Run against the audited code, this test fails at the paste step. That
+  confirms the paste variant of D-2, previously only suspected.
+
+**Verification** (same environment as section 8):
+
+| Check | Result |
+| --- | --- |
+| `pnpm test` | Pass. 79 files, 698 tests passed |
+| `pnpm exec tsc --noEmit` | Pass. Exit 0 |
+| `pnpm build` | Pass. Exit 0, same chunk-size warning as the baseline |
+| `pnpm test:e2e` | Pass. 110 passed in 35.1 s |
+| `git diff --check` | Pass. Exit 0 |
+
+**Remaining related gaps:**
+
+- The parameter-naming path is covered through the shared helper's unit test,
+  not by its own E2E test.
+- From code reading: dropping a For into a scope that already has a Value
+  named `i` is refused with "For nodes must remain a complete pair in one
+  scope.", because the default iterator name is not made unique. It is safe
+  but confusing.
+- The zero-fallback edge case and the unused `'step'` problem code (RF-11)
+  are still open.
+- D-1 and D-4 are unchanged.

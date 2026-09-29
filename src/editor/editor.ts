@@ -32,7 +32,7 @@ import { scopeTransferProblem, type ScopeTransferProblem } from './scope-transfe
 import { t } from '../i18n/translate'
 import { registerTransientPopupProvider, TRANSIENT_POPUP_DISMISS_EVENT, type TransientPopupEntry } from '../ui/transient-popups'
 import { analyzeFunctionDependencies } from './function-dependencies'
-import { bindingNamesInScope, isValueBindingNode, referencesToBinding, resolveBindingInScope } from './bindings'
+import { bindingNamesInScope, isValueBindingNode, referencesToBinding, reservedBindingNamesInScope, resolveBindingInScope } from './bindings'
 import { VariableReferenceNode, type VariableBindingResolution } from './nodes/variable-reference-node'
 import { VARIABLE_REFERENCE_DRAG_MIME_TYPE } from './node-catalog'
 import { ForHeaderNode, ForResultNode, createDefaultForParams } from './nodes/for-nodes'
@@ -771,7 +771,13 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     if (!isValueBindingNode(node) && !(node instanceof ForHeaderNode)) return false
     const scope = definitions.scopeOf(nodeId)
     const name = rawName.trim()
-    const problem = moduleParameterNameProblem(name, bindingNamesInScope(editor, definitions, scope, node.getBindingId()))
+    // A Value must also avoid every iterator name in its scope (the saved
+    // format's rule); an iterator only checks Values and parameters here and
+    // leaves sibling/nested iterator names to `loopStructureProblem` below.
+    const takenNames = node instanceof ForHeaderNode
+      ? bindingNamesInScope(editor, definitions, scope, node.getBindingId())
+      : reservedBindingNamesInScope(editor, definitions, scope, node.getBindingId())
+    const problem = moduleParameterNameProblem(name, takenNames)
     if (problem) {
       showFeedback(problem === 'duplicate' ? 'variable.duplicateName' : 'variable.invalidName')
       return false
@@ -1142,7 +1148,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   function preflightClipboardPaste(payload: GraphClipboardPayload, destinationScope: string | null): GraphClipboardPastePlan {
     const problem = clipboardCompatibilityProblem(payload, destinationScope)
     if (problem) throw new Error(t(problem))
-    const unavailableNames = new Set(bindingNamesInScope(editor, definitions, payload.scope))
+    const unavailableNames = new Set(reservedBindingNamesInScope(editor, definitions, payload.scope))
     const plan = planGraphClipboardPaste(payload, unavailableNames)
     if (plan.nodes.some((node) => node.type === 'scad-settings') && editor.getNodes().some((node) =>
       identifyNodeType(node) === 'scad-settings' && definitions.scopeOf(node.id) === payload.scope,
@@ -1559,7 +1565,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   async function addModuleParameter(definitionId: string, input: { name: string; type: ModuleParameterType; default: ModuleParameterDefault }): Promise<void> {
     const definition = definitions.get(definitionId)
     if (!definition) throw new Error(`Unknown Module definition "${definitionId}".`)
-    const nameProblem = moduleParameterNameProblem(input.name, bindingNamesInScope(editor, definitions, definitionId))
+    const nameProblem = moduleParameterNameProblem(input.name, reservedBindingNamesInScope(editor, definitions, definitionId))
     if (nameProblem) throw new Error(nameProblem === 'duplicate' ? t('definition.duplicateParameter') : t('definition.invalidParameter'))
     if (!moduleParameterDefaultIsValid(input.type, input.default)) throw new Error(t('definition.invalidParameterDefault'))
     const parameter: ModuleParameter = { id: crypto.randomUUID(), name: input.name, type: input.type, default: input.default }
@@ -1627,7 +1633,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
         nextParameters.splice(destination, 0, moved)
       }
     }
-    const nameProblem = moduleParameterNameProblem(next.name, bindingNamesInScope(editor, definitions, definitionId, parameterId))
+    const nameProblem = moduleParameterNameProblem(next.name, reservedBindingNamesInScope(editor, definitions, definitionId, parameterId))
     if (nameProblem) throw new Error(nameProblem === 'duplicate' ? t('definition.duplicateParameter') : t('definition.invalidParameter'))
     if (!['number', 'boolean', 'vector3'].includes(next.type) || !moduleParameterDefaultIsValid(next.type, next.default)) throw new Error(t('definition.invalidParameterDefault'))
     const doomed = typeChanged ? signatureConnections(definition, parameterId) : []
@@ -1795,7 +1801,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   async function addFunctionParameter(definitionId: string, input: { name: string; type: ModuleParameterType; default: ModuleParameterDefault }): Promise<void> {
     const definition = definitions.get(definitionId)
     if (!definition) throw new Error(`Unknown Function definition "${definitionId}".`)
-    const nameProblem = moduleParameterNameProblem(input.name, bindingNamesInScope(editor, definitions, definitionId))
+    const nameProblem = moduleParameterNameProblem(input.name, reservedBindingNamesInScope(editor, definitions, definitionId))
     if (nameProblem) throw new Error(nameProblem === 'duplicate' ? t('definition.duplicateFunctionParameter') : t('definition.invalidParameter'))
     if (!moduleParameterDefaultIsValid(input.type, input.default)) throw new Error(t('definition.invalidParameterDefault'))
     const parameter: ModuleParameter = { id: crypto.randomUUID(), name: input.name, type: input.type, default: input.default }
@@ -1860,7 +1866,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
         nextParameters.splice(destination, 0, moved)
       }
     }
-    const nameProblem = moduleParameterNameProblem(next.name, bindingNamesInScope(editor, definitions, definitionId, parameterId))
+    const nameProblem = moduleParameterNameProblem(next.name, reservedBindingNamesInScope(editor, definitions, definitionId, parameterId))
     if (nameProblem) throw new Error(nameProblem === 'duplicate' ? t('definition.duplicateFunctionParameter') : t('definition.invalidParameter'))
     if (!['number', 'boolean', 'vector3'].includes(next.type) || !moduleParameterDefaultIsValid(next.type, next.default)) throw new Error(t('definition.invalidParameterDefault'))
     const doomed = typeChanged ? functionSignatureConnections(definition, parameterId) : []

@@ -7,13 +7,23 @@ import { ClassicPreset } from 'rete'
  */
 export class LabeledNumberControl extends ClassicPreset.InputControl<'number'> {
   label: string
+  /** Optional semantic literal rule. It returns a localized reason for a
+   * finite value the field must not store (e.g. a zero For step), or `null`.
+   * A rejected value is never stored, so the saved project stays valid. */
+  readonly rejectionFor?: (value: number) => string | null
 
   constructor(
     label: string,
-    options?: { initial?: number; readonly?: boolean; change?: (value: number) => void },
+    options?: { initial?: number; readonly?: boolean; change?: (value: number) => void; rejectionFor?: (value: number) => string | null },
   ) {
     super('number', options)
     this.label = label
+    this.rejectionFor = options?.rejectionFor
+  }
+
+  override setValue(value?: number): void {
+    if (value !== undefined && this.rejectionFor?.(value)) return
+    super.setValue(value)
   }
 }
 

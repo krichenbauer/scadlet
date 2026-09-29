@@ -253,3 +253,65 @@ test('a new bodyless For pair stays quiet, exports empty source, restores, and a
   await expect(page.locator('geometry-viewer .empty-geometry-status')).toHaveText('Nothing visible to render.', { timeout: 15_000 })
   await expect(header).toHaveCount(1)
 })
+
+test('names and Step literals the saved format refuses are rejected before autosave', async ({ page }) => {
+  await ready(page)
+  const editor = page.locator('node-editor')
+  const canvas = await waitForBoundingBox(editor)
+  const feedback = editor.locator('.editor-feedback')
+  const apple = await page.evaluate(() => /Mac|iPhone|iPad|iPod/u.test(navigator.platform))
+  const shortcut = (key: 'C' | 'V') => page.keyboard.press(`${apple ? 'Meta' : 'Control'}+${key}`)
+  const rename = async (node: Locator, name: string): Promise<void> => {
+    await node.locator('.node-more-summary').click()
+    await node.getByRole('menuitem', { name: 'Rename', exact: true }).click()
+    await node.locator('input.node-title').fill(name)
+    await node.locator('input.node-title').press('Enter')
+  }
+
+  // A Value named `i` is copied while no loop exists, then pasted after a For
+  // with the iterator `i` has been added: the copy takes a free name.
+  await dropPaletteNode(page, 'number', { x: canvas.x + 120, y: canvas.y + 380 })
+  const number = editor.locator('.node[data-node-type="number"]')
+  await rename(number, 'i')
+  await expect(number.locator('.node-title')).toHaveText('i')
+  await number.locator('.node-header').click({ position: { x: 20, y: 12 } })
+  await shortcut('C')
+  await number.locator('.node-more-summary').click()
+  await number.getByRole('menuitem', { name: 'Delete', exact: true }).click()
+  await expect(number).toHaveCount(0)
+
+  await dropPaletteNode(page, 'for', { x: canvas.x + 120, y: canvas.y + 120 })
+  const header = editor.locator('.node[data-node-type="for"]')
+  await expect(header).toHaveCount(1)
+  await shortcut('V')
+  await page.mouse.click(canvas.x + canvas.width - 160, canvas.y + canvas.height - 90)
+  await expect(number).toHaveCount(1)
+  await expect(number.locator('.node-title')).toHaveText('i_copy')
+  await waitForAutosave(page)
+
+  // Renaming a Value to the iterator's name is refused like any duplicate.
+  await rename(number, 'i')
+  await expect(feedback).toHaveText('A binding with this name already exists in this scope.')
+  await expect(number.locator('.node-title')).toHaveText('i_copy')
+  await waitForAutosave(page)
+
+  // A literal zero Step is shown as invalid, never stored, and replaced by
+  // the previous value once the edit ends.
+  const step = header.locator('.node-param-row[data-param-key="step"] input')
+  await step.fill('0')
+  await expect(step).toHaveAttribute('aria-invalid', 'true')
+  await expect(step).toHaveAttribute('title', 'For step must not be zero.')
+  expect(await step.evaluate((input) => (input as HTMLInputElement).validity.valid)).toBe(false)
+  await waitForAutosave(page)
+  await step.press('Tab')
+  await expect(step).toHaveValue('1')
+  await expect(step).not.toHaveAttribute('aria-invalid', 'true')
+  await step.fill('2')
+  await expect(step).not.toHaveAttribute('aria-invalid', 'true')
+  await waitForAutosave(page)
+
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: 'Project name' })).toBeEnabled()
+  await expect(editor.locator('.node[data-node-type="number"] .node-title')).toHaveText('i_copy')
+  await expect(editor.locator('.node[data-node-type="for"] .node-param-row[data-param-key="step"] input')).toHaveValue('2')
+})

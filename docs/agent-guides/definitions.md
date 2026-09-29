@@ -71,7 +71,9 @@ A deliberately renamed Number, Boolean, or Vector3 becomes a Value definition
 when it gains a stable binding ID and a valid unique identifier. Historical
 label-only Values remain unbound until explicitly activated. Definition
 parameters are also bindings. Names must be unique among Values and parameters
-in exactly one scope; the same name in another scope is independent.
+in exactly one scope, and neither may reuse a For iterator name of that scope;
+the same name in another scope is independent. Rename, parameter edits, and
+Paste apply this same rule, so an accepted name is always saveable.
 
 A Variable reference resolves by binding ID plus explicit scope, never by name.
 It cannot capture across scopes. Rename updates references without changing
@@ -112,7 +114,9 @@ not a visual rectangle or a new registry scope. Direct iterator wires and
 Variable references may cross only the matching result boundary. Enclosing
 bindings remain readable. Nested pairs compose normally; iterators cannot
 shadow enclosing bindings/iterators, while independent sibling pairs may reuse
-a name. Known literal zero steps and escaping dependencies are errors.
+a name. Known literal zero steps and escaping dependencies are errors. The
+Step field never stores a literal zero: it marks the entry invalid and keeps
+the previous value.
 
 A structurally valid result without connected valid Geometry emits no fragment
 and the whole pair is omitted. This draft state does not relax pair, scope,

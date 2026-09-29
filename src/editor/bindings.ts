@@ -58,6 +58,24 @@ export function bindingNamesInScope(
   return names
 }
 
+/** Names a Value or definition parameter cannot take in `scope`: every other
+ * bound Value and parameter plus every For iterator of that scope. This is
+ * the naming rule `.scadlet` validation enforces, so an accepted name can
+ * always be saved. Iterators deliberately keep the narrower
+ * `bindingNamesInScope` check because sibling loops may reuse a name. */
+export function reservedBindingNamesInScope(
+  editor: NodeEditor<Schemes>,
+  definitions: DefinitionRegistry,
+  scope: string | null,
+  excludeBindingId?: string,
+): string[] {
+  const iterators = editor.getNodes()
+    .filter((node): node is ForHeaderNode => node instanceof ForHeaderNode)
+    .filter((node) => definitions.scopeOf(node.id) === scope && node.bindingId !== excludeBindingId)
+    .map((node) => node.getBindingName())
+  return [...bindingNamesInScope(editor, definitions, scope, excludeBindingId), ...iterators]
+}
+
 export function referencesToBinding(
   editor: NodeEditor<Schemes>,
   definitions: DefinitionRegistry,

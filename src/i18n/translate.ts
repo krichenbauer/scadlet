@@ -282,6 +282,7 @@ const dictionaries: Record<LocaleId, Record<string, string>> = {
     'toolbar.open': 'Open',
     'toolbar.save': 'Save',
     'toolbar.saveAs': 'Save As',
+    'toolbar.saveInvalidProject': 'This project was not saved because it is invalid',
     'toolbar.saveScadlet': 'Save .scadlet',
     'toolbar.render': 'Render',
     'toolbar.rendering': 'Rendering…',

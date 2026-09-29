@@ -1278,6 +1278,13 @@ export class NodeEditorElement extends LitElement {
       text-align: right;
     }
 
+    /* A refused literal (e.g. a zero For step) is never stored; the field
+     * keeps showing the typed text in an invalid state until the edit ends. */
+    input[aria-invalid='true'] {
+      border-color: #e06c75;
+      outline: 1px solid #e06c75;
+    }
+
     .connection {
       overflow: visible;
       position: absolute;

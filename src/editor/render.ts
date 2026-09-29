@@ -1323,11 +1323,44 @@ function renderInterfaceRowError(message: string): HTMLElement {
  * nothing and keeps the last valid literal, matching the finite-value rule
  * `param-validation.ts` and the definition-parameter forms already enforce.
  */
-function commitNumberLiteralOnInput(input: HTMLInputElement, commit: (value: number) => void): void {
+function commitNumberLiteralOnInput(
+  input: HTMLInputElement,
+  commit: (value: number) => void,
+  control?: ClassicPreset.Control,
+): void {
+  // A semantically refused finite literal (e.g. a zero For step) is treated
+  // like a half-typed value: nothing is committed, the field explains why
+  // through its native invalid state, and finishing the edit restores the
+  // last stored value.
+  const rejectionFor = control instanceof LabeledNumberControl ? control.rejectionFor : undefined
+  const clearRejection = (): void => {
+    input.setCustomValidity('')
+    input.removeAttribute('aria-invalid')
+    if (input.dataset.rejectionTitle !== undefined) {
+      input.title = input.dataset.rejectionTitle
+      delete input.dataset.rejectionTitle
+    }
+  }
   input.addEventListener('input', () => {
     if (!Number.isFinite(input.valueAsNumber)) return
+    const rejection = rejectionFor?.(input.valueAsNumber)
+    if (rejection) {
+      input.setCustomValidity(rejection)
+      input.setAttribute('aria-invalid', 'true')
+      input.dataset.rejectionTitle ??= input.title
+      input.title = rejection
+      return
+    }
+    clearRejection()
     commit(input.valueAsNumber)
   })
+  if (rejectionFor) {
+    input.addEventListener('change', () => {
+      if (input.getAttribute('aria-invalid') !== 'true') return
+      clearRejection()
+      input.value = String((control as LabeledNumberControl).value ?? '')
+    })
+  }
 }
 
 /** Renders just the value element for a parameter row (no wrapper label, no pointerdown stop for drag-suppression - that's on the element itself). When `overridden` is true, the element is disabled: the connected value takes precedence over the inline literal. */
@@ -1340,7 +1373,7 @@ function renderParamControlValue(control: ClassicPreset.Control, overridden: boo
     if (overridden) input.title = t('control.overridden')
     input.className = 'node-param-value'
     input.addEventListener('pointerdown', (event) => event.stopPropagation())
-    commitNumberLiteralOnInput(input, (value) => (control as ClassicPreset.InputControl<'number'>).setValue(value))
+    commitNumberLiteralOnInput(input, (value) => (control as ClassicPreset.InputControl<'number'>).setValue(value), control)
     if (control instanceof OptionalNumberControl) input.addEventListener('change', () => {
       if (input.value === '') (control as unknown as { setValue(value: number | undefined): void }).setValue(undefined)
     })
@@ -1446,7 +1479,7 @@ function renderControl(key: string, control: ClassicPreset.Control, hideLabel = 
     input.value = String(control.value ?? '')
     input.disabled = control.readonly
     input.addEventListener('pointerdown', (event) => event.stopPropagation())
-    commitNumberLiteralOnInput(input, (value) => control.setValue(value))
+    commitNumberLiteralOnInput(input, (value) => control.setValue(value), control)
     wrapper.appendChild(input)
 
     return wrapper

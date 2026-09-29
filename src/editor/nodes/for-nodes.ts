@@ -100,7 +100,10 @@ export class ForHeaderNode extends ClassicPreset.Node<
     this.addControl('name', new LabeledTextControl(t('for.iterator'), { initial: params.name }))
     for (const key of ['start', 'step', 'end'] as const) {
       this.addInput(key, new ClassicPreset.Input(numberSocket, t(`for.${key}`)))
-      this.addControl(key, new LabeledNumberControl(t(`for.${key}`), { initial: params[key] }))
+      // A literal zero Step is never a valid saved fallback, so the field
+      // keeps its previous value instead of storing one.
+      const rejectionFor = key === 'step' ? (value: number) => value === 0 ? t('for.zeroStep') : null : undefined
+      this.addControl(key, new LabeledNumberControl(t(`for.${key}`), { initial: params[key], rejectionFor }))
     }
     this.addOutput('value', new ClassicPreset.Output(numberSocket, t('for.iterator')))
     this.addOutput('loop', new ClassicPreset.Output(structureSocket, t('for.structure')))

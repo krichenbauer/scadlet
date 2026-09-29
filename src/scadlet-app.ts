@@ -25,6 +25,7 @@ import { createEmptyProject, UNTITLED_PROJECT_NAME, type ScadletProjectMetadata,
 import { LocalProjectEvents, type LocalProjectEvent } from './persistence/project-events'
 import { restoreProject } from './persistence/restore'
 import { serializeProject } from './persistence/serialize'
+import { ScadletProjectError } from './persistence/validate'
 import { AUTOMATIC_RENDER_TIMEOUT_MS, RenderController, RenderTimeoutError } from './render/render-controller'
 import { ExecutionGeneration } from './render/execution-generation'
 import { LiveRenderScheduler } from './render/live-render-scheduler'
@@ -1471,7 +1472,8 @@ export class ScadletApp extends LitElement {
         this.dirty = false
       }
     } catch (error) {
-      this.renderError = error instanceof Error ? error.message : String(error)
+      const message = error instanceof Error ? error.message : String(error)
+      this.renderError = error instanceof ScadletProjectError ? `${t('toolbar.saveInvalidProject')}: ${message}` : message
     }
   }
 

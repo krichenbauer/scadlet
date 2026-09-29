@@ -52,7 +52,9 @@ library and falls back to file-only use.
 Keep canonical serialization independent of storage APIs. File access uses a
 normal input/download fallback and may use File System Access APIs where
 available; file-handle associations are external metadata. An unnamed project
-needs a meaningful name before explicit Save, Save As, or export.
+needs a meaningful name before explicit Save, Save As, or export. Explicit file
+saves validate the canonical project exactly as autosave and Open do; an
+invalid project is reported and no file is written.
 
 IndexedDB is the primary multi-project store; `localStorage` is not a project
 database. A local storage ID is separate from portable graph identity. Import
