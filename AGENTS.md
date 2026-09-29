@@ -1,162 +1,63 @@
-# SCADlet — Agent Instructions
-
-## Read this first
+# SCADlet — Agent and contributor instructions
 
 SCADlet is an open-source, browser-only visual programming environment for
-OpenSCAD. It teaches functional programming through node graphs that generate
-and transform 3D geometry. The graph is the primary interface; OpenSCAD is the
-single source of geometry semantics.
+OpenSCAD. It teaches functional programming through geometry-led node graphs
+for pupils and early university students. Prefer educational clarity, immediate
+visual results, client-side operation, and maintainable design over complete
+OpenSCAD compatibility. Desktop/laptop browsers come first; touch is secondary.
 
-Priorities, in order:
+## Read before changing an area
 
-1. A clear, learnable visual language for pupils and early university students.
-2. Geometry-first interaction and immediate visual results.
-3. A fully client-side application and clean OpenSCAD export.
-4. Simple, maintainable architecture.
-5. Desktop/laptop browsers first; touch support is secondary.
-6. Clarity over complete OpenSCAD compatibility.
+Read this file first, then every guide relevant to the task. The guides own
+subject-specific contracts; read all affected areas for changes spanning them.
 
-Do not turn SCADlet into generic CAD or a generic visual-programming framework
-without an explicit product decision.
+| Area | Authoritative reference |
+| --- | --- |
+| Layers, Rete, source generation, worker, preview, viewer | [Architecture](docs/agent-guides/architecture.md) |
+| Scopes, Modules, Functions, calls, parameters, bindings, iteration | [Definitions](docs/agent-guides/definitions.md) |
+| Selection, connections, placement, clipboard, popups, Inspect, shell | [Editor and UX](docs/agent-guides/editor-ux.md) |
+| Node layout, palette, sockets, colours, collapse, accessibility | [Node style](docs/agent-guides/node-style.md) |
+| Save/open, IndexedDB, autosave, examples, compatibility | [Persistence](docs/agent-guides/persistence.md) |
+| Exact persisted schema and historical migrations | [Format specification](docs/scadlet-format.md) |
+| Tooling, privacy, errors, verification, delivery | [Delivery and quality](docs/agent-guides/delivery-quality.md) |
+| Pending features and product decisions | [Roadmap](docs/agent-guides/roadmap.md) |
 
-## Working rules
+## Global invariants
 
 - Use TypeScript, Vite, Lit, Rete.js, OpenSCAD WASM, Three.js, pnpm, and the
-  Nix devShell. Do not add another UI framework without an architectural
-  decision.
-- Preserve the one-way path: Rete graph → OpenSCAD source → Web Worker →
-  OpenSCAD WASM → STL → Three.js viewer. The viewer is never program state or
-  an alternate geometry engine.
-- Keep Rete as the source of truth for each graph's nodes, ports, connections,
-  interaction, and dataflow. Do not add a parallel graph/AST.
-- Non-modal contextual popups use the shared outside-interaction dismissal
-  lifecycle. Pointer, keyboard, focus, and wheel interaction elsewhere closes
-  them without affecting modal dialogs, persistent UI, or hover tooltips;
-  Escape restores focus to the popup trigger.
-- Each Main or Module scope may own at most one SCAD settings node. Its
-  curated `$fn`/`$fa`/`$fs` Number inputs are scope-level code-generation
-  roots, not Geometry flow; Function scopes never contain this node.
-- Named Number, Boolean, and Vector3 nodes and Module/Function parameters are
-  variable bindings local to exactly one Main, Module, or Function scope.
-  Compact Variable reference nodes resolve only by stable binding ID plus
-  explicit scope; names are editable source text, never identity, and no
-  reference may capture across a scope boundary.
-- Number, Boolean, and Vector3 Value nodes each accept a same-typed effective
-  Value input while retaining their direct editor value as the persisted
-  fallback. A connected whole Vector3 overrides preserved component inputs
-  and fallbacks; disconnect restores them.
-- Numeric Geometry iteration uses one fixed `For`/`For result` pair in Main
-  or Module scopes. Its structural connection is persistent and immutable;
-  the stable iterator binding is readable only by dependencies that enter the
-  matching result body. Function scopes never contain the pair.
-- Graph Copy, Cut, Paste, and Duplicate use a detached, session-local payload
-  for exactly one project and semantic scope. Paste is an explicit placement
-  transaction: preview first, then atomically create fresh node, connection,
-  binding, pair, and dynamic-port IDs. Preserve valid external same-scope
-  binding references, include complete For pairs plus iterator references, and
-  never persist the clipboard or placement state.
-- Use stable, language-independent IDs for persistent graph entities. Labels,
-  localized text, names, positions, and DOM details are never semantic IDs.
-- Make the smallest change that fulfills the current task. Do not implement
-  future roadmap work speculatively.
-- Preserve existing user work: representation/signature changes must not leave
-  dangling wires or silently discard connected values.
-- Generated `.scad`, rendered previews, and exported STL must derive from the
-  same OpenSCAD source. Do not add a second evaluator.
-- A confirmed valid empty top-level Geometry result is a successful preview
-  replacement: clear any prior STL/mesh and show localized informational UI,
-  while preserving source and keeping actual OpenSCAD/WASM failures visible.
-- Direct and mutual recursion are valid for Functions and Modules. Order both
-  through the shared reachable-Call SCC dependency analysis; do not statically
-  analyse termination, which remains OpenSCAD-WASM's responsibility.
-- Keep the app static and private: no backend, analytics, CDN assets, fonts,
-  icons, or runtime APIs hosted by third parties.
-- Maintain bundled project templates only as top-level
-  `examples/example_*.scadlet` files. Build discovery must remain automatic
-  and eager/offline; templates are immutable and enter the editable project
-  lifecycle only as newly created IndexedDB copies.
-- View-recovery controls (Fit graph and Reset 3D view) are transient
-  presentation actions. They must never change semantic graph data, generated
-  source, dirty/autosave state, Inspect provenance, or persisted project view
-  state.
-- On coarse-pointer viewports at most 700px wide or 500px high, keep the live
-  application mounted but replace it visually and accessibly with the
-  non-dismissible larger-screen notice. Crossing that boundary must update
-  immediately without resetting editor or project state.
-- Every ordinary Playwright test owns its browser/application/persistence
-  state and must pass in any order and worker. Keep independent tests fully
-  parallel; express one stateful journey as one test with `test.step`, and use
-  a documented, minimal serial group only when a single independent test
-  cannot represent the case. Never use worker reuse as test setup.
+  Nix devShell. Another UI framework requires an architectural decision.
+- Rete owns nodes, ports, connections, interaction, and dataflow. Keep the path
+  Rete graph → OpenSCAD source → Web Worker → OpenSCAD WASM → STL → Three.js.
+  Do not add a parallel graph/AST, evaluator, or viewer-owned model state.
+  Preview and exports derive from the same OpenSCAD source.
+- Keep the application static and private: no backend, analytics, CDN assets,
+  external fonts/icons, or third-party runtime APIs.
+- Use stable, language-independent IDs. Names, labels, positions, and DOM details
+  are never semantic identity. Preserve existing work through edits and loads;
+  never silently discard connected values or leave dangling wires.
+- Keep UI text, accessibility labels, code, comments, examples, and documentation
+  in English. User-facing natural-language text uses the existing `t()` keys.
+- Make the smallest change that fulfills the task. Do not implement roadmap
+  items speculatively or turn SCADlet into generic CAD or a general visual
+  programming framework without an explicit product decision.
 
-## Read the relevant reference before changing its area
+## Commands and completion
 
-These files are deliberately not loaded for unrelated work. Read only those
-that apply; their constraints are part of the project contract.
+Enter `nix develop`, install dependencies with `pnpm install`, and start with
+`pnpm dev`. `pnpm preview` serves a built application.
 
-| Work area | Required reference |
-| --- | --- |
-| Rete, renderer, source generation, worker, or viewer | [Architecture](docs/agent-guides/architecture.md) |
-| Nodes, sockets, palette, canvas, controls, inspection, or localization | [Editor and UX](docs/agent-guides/editor-ux.md) |
-| Modules, Functions, scopes, calls, signatures, or definition frames | [Definitions](docs/agent-guides/definitions.md) |
-| `.scadlet`, migration, save/open, autosave, IndexedDB, or tabs | [Persistence](docs/agent-guides/persistence.md) and [format specification](docs/scadlet-format.md) |
-| Dependencies, build/development tooling, hosting, privacy, errors, or tests | [Delivery and quality](docs/agent-guides/delivery-quality.md) |
-| Work that might be a later feature | [Roadmap](docs/agent-guides/roadmap.md) |
-| Rules for node styles | [node-style](docs/agent-guides/node-style.md) |
+Update relevant tests and the owning documentation with behavioural changes.
+Explain a documented-contract change before implementing it. Completion requires
+reviewing the diff, preserving compatibility and unique constraints, validating
+links for documentation edits, and passing these checks in the Nix environment:
 
-When a change affects more than one area, read every applicable reference.
-If a decision would change a documented contract, explain the tradeoff before
-implementing it and update the relevant reference with the code.
+```bash
+pnpm test
+pnpm exec tsc --noEmit
+pnpm build
+pnpm test:e2e
+git diff --check
+```
 
-## Current product boundary
-
-The working baseline includes scoped SCAD settings (`$fn`, `$fa`, `$fs`),
-scoped named Values and compact Variable references, primitives (Cube,
-Cylinder, Sphere), transforms
-(Translate, Rotate, Scale), Boolean composition (Difference, variadic Union
-and Intersection), numeric Geometry `For` iteration, typed values/math/conditionals, project persistence,
-intermediate inspection, and reusable Modules/Functions. Keep it educational
-and geometry-led. A geometry code node, broader OpenSCAD coverage,
-and teaching refinements remain future work.
-
-OpenSCAD source import is not a current requirement. The development source
-pane is for verification, not a code editor.
-
-The compact shell keeps local IndexedDB project management and a clearly
-separate immutable Examples section in Projects, while portable
-`.scadlet`/source/STL actions stay in File. Selecting an example creates and
-activates an ordinary, independently named local copy; examples never open
-automatically. The default-on Live toggle is
-a transient session setting: semantic graph edits debounce through the normal
-render lifecycle, while layout, navigation, autosave, and other presentation
-state never schedule a render. Enabling Live, activating a different local
-project, and successfully restoring an existing local project at startup
-render the newly current stale graph immediately through that same lifecycle.
-The freshly created empty-project fallback remains idle. Live is never
-serialized or project-specific. Successful main-preview results may be reused
-from a bounded session-memory cache keyed by exact OpenSCAD source and render
-options; manual Render always executes OpenSCAD freshly. Each automatic cache
-miss has its own 15-second execution limit.
-
-Normally collapsible nodes start expanded and use their always-visible chevron
-control for explicit, persistent per-node collapse. This presentation-only
-`collapsed` state is saved with a project; omitted state in v6/v7/v8 records means
-expanded. Value Conditional and Geometry If retain their fixed compact
-interfaces and have no collapse control. Hover, selection, and a held wire
-gesture never expand a node or reveal hidden controls; its downward-chevron
-control can expand it without ending that gesture.
-
-## Decision order
-
-When alternatives are viable, prefer: educational clarity; browser-only/static
-operation; OpenSCAD as the only geometry semantics; the chosen stack; then the
-simplest solution that keeps the next committed milestone feasible. Do not
-treat unresolved product questions as settled requirements.
-
-The typed value catalog includes PI, Number negation, dynamic Minimum/Maximum,
-and one consolidated Vector Math node. Vector Math operations retain typed
-operation-specific ports; switching signatures confirms and removes only
-incompatible wires. Min/Max stores stable ordered operand records and one
-unused trailing slot; blank optional fallbacks are absent from generated
-expressions. These nodes use the normal OpenSCAD expression, persistence,
-Function, Inspect, and clipboard paths.
+Follow the delivery guide for isolation, failure handling, and the final report.
+Do not claim completion with failed, interrupted, skipped, or uncertified checks.

@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest'
 import { findCatalogEntry, NODE_CATALOG } from '../editor/node-catalog'
 import { parseScadletProject } from './validate'
 
-const EXAMPLES_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../docs/examples')
+const DOCS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../docs')
+const EXAMPLES_DIR = join(DOCS_DIR, 'examples')
+const formatDocument = readFileSync(join(DOCS_DIR, 'scadlet-format.md'), 'utf-8')
 
 const EXAMPLE_FIXTURES = ['empty-project.scadlet', 'sphere-fn50.scadlet', 'cube-sphere-union-translate.scadlet', 'recursive-functions-v6.scadlet', 'recursive-modules-v6.scadlet', 'v2-empty-cube.scadlet']
 
@@ -14,15 +16,18 @@ function readExample(filename: string): unknown {
   return JSON.parse(readFileSync(join(EXAMPLES_DIR, filename), 'utf-8'))
 }
 
-/**
- * Guards `docs/scadlet-format.md` against drifting from the actual
- * implementation: every complete example embedded in that document is
- * also kept as a real `.scadlet` fixture under `docs/examples/` and
- * parsed here through the real `parseScadletProject()` - not a hand-
- * rolled or merely-assumed-valid copy. If a future persistence change
- * breaks one of these examples, this test (not just prose review) fails.
- */
+/** Historical fixtures remain authoritative files; the specification links to
+ * them instead of maintaining duplicate JSON copies. */
 describe('docs/scadlet-format.md examples stay valid', () => {
+  it('the current envelope example parses without historical migration', () => {
+    const example = formatDocument.match(/```json\n([\s\S]*?)\n```/)?.[1]
+    expect(example, 'Expected the current envelope JSON example').toBeDefined()
+    const raw = JSON.parse(example!)
+    const project = parseScadletProject(raw)
+    expect(raw.version).toBe(project.version)
+    expect(project.graph).toEqual({ nodes: [], connections: [] })
+  })
+
   it.each(EXAMPLE_FIXTURES)('%s parses successfully through the real loader', (filename) => {
     expect(() => parseScadletProject(readExample(filename))).not.toThrow()
   })
@@ -80,40 +85,8 @@ describe('docs/scadlet-format.md examples stay valid', () => {
 
 /** Keeps the node-type list this document claims to cover in sync with the actual catalog. */
 describe('docs/scadlet-format.md documented node types stay in sync with the catalog', () => {
-  const documentedTypes = [
-    'cube',
-    'cylinder',
-    'sphere',
-    'translate',
-    'rotate',
-    'scale',
-    'difference',
-    'union',
-    'intersection',
-    'number',
-    'boolean',
-    'vector3',
-    'pi',
-    'arithmetic',
-    'trigonometry',
-    'basic-math',
-    'vector-math',
-    'min-max',
-    'exponential-log',
-    'compare',
-    'conditional',
-    'if',
-    'for',
-    'for-result',
-    'module-inputs',
-    'module-output',
-    'module-call',
-    'function-inputs',
-    'function-output',
-    'function-call',
-    'variable-reference',
-    'scad-settings',
-  ]
+  const catalogBlock = formatDocument.match(/The complete current catalog is:\n\n```text\n([\s\S]*?)\n```/)?.[1]
+  const documentedTypes = catalogBlock?.trim().split(/\s+/) ?? []
 
   it('documents exactly the node types the catalog currently implements', () => {
     const catalogTypes = NODE_CATALOG.map((entry) => entry.type).sort()

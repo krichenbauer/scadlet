@@ -1,136 +1,133 @@
-# Definitions, scopes, and calls
+# Definitions, scopes, and bindings
 
-Read this before modifying Modules, Functions, definition frames, scopes,
-calls, parameters, or their generated OpenSCAD.
+Read this for Main, Module and Function definitions, Calls, signatures, Value
+definitions, Variable references, SCAD settings, and iterator scope. Exact
+serialized fields belong in the [format specification](../scadlet-format.md).
 
-## Core model
+## Scope ownership
 
-A project has Main plus a registry of named Module/Function definitions. Each
-definition owns a separate Rete graph/scope even though Main and definitions
-currently share one infinite canvas. Frames visualize a real scope boundary,
-not a decorative group; membership is explicit, never inferred from a node's
-position inside a frame. This model must remain compatible with a future
-dedicated-definition canvas.
+A project has a Main scope and a registry of Module and Function definitions.
+Each definition owns a separate semantic graph on the shared infinite canvas.
+Frames visualize explicit membership; position inside a frame is not membership.
+Keep this model compatible with a future dedicated definition canvas.
 
-Rete is source of truth inside a graph. The small definition registry owns
-stable definition identity, kind, name/signature metadata, and graph
-membership; it is not a second AST. Names and parameter display order are
-editable source-language data, never identity. Calls use stable definition IDs;
-parameters and geometry-child slots also have stable IDs.
+The registry owns stable definition identity, kind, name/signature, and graph
+membership; Rete remains graph authority. Calls reference definition IDs.
+Parameters and Geometry inputs have stable IDs independent of name or order.
+Definition names are valid OpenSCAD identifiers, unique across the project.
 
-Ordinary wires may not cross a definition boundary. Definitions are
-self-contained through explicit parameters/calls; do not add hidden captures
-or arbitrary cross-frame connections. Named Values and definition parameters
-may be used by compact Variable reference nodes only inside that same explicit
-scope. Binding identity is stable ID plus scope; editable names are unique only
-within their scope, and identical names remain independent across Main and
-different definitions. OpenSCAD `$` variables remain a separate design.
+Ordinary connections never cross definition boundaries. Dependencies enter
+through parameters, Geometry inputs, or Calls, without hidden captures. Value
+types are Number (not separate int/float), Boolean, and Vector3. Planned types
+belong in the [roadmap](roadmap.md), not current signatures.
 
-A numeric `For` inside Main or a Module introduces one narrower lexical
-iterator region without creating another definition registry scope. The body
-is the dependency subgraph entering that pair's `For result`, never nodes
-inside a visual rectangle. Enclosing bindings remain readable; the iterator
-binding may not escape its result or shadow an enclosing binding/iterator.
-Sibling loops are independent and may reuse an iterator name. A pair transfers
-between Main/Module scopes only as a complete set, together with whatever
-references/connections are needed to remain valid. Functions reject both pair
-members because they produce Geometry.
+Each definition has exactly one protected Inputs and Output interface node.
+They may move but cannot be deleted, duplicated, or transferred. New definitions
+place Inputs left and Output right. Definition deletion confirms its impact and
+removes its graph and Calls. Rename preserves definition and Call identity.
 
-SCAD settings is the narrow exception to Output-rooted scope configuration,
-not to connection scoping: Main and each Module may contain at most one such
-node, while Functions contain none. Its Number dependencies remain ordinary
-same-scope wires. Module-local assignments appear first in that Module body
-and therefore override Main settings for geometry evaluated by the Module in
-the normal OpenSCAD lexical structure.
+## Modules and Functions
 
-Each definition has exactly one protected Inputs/Parameters node and Output
-node. They cannot be deleted or duplicated, but may be positioned normally.
-New definitions place Inputs left and Output right. Signature edits propagate
-to all calls safely; rename/reorder preserves wires, while incompatible
-type/removal changes preflight, confirm, and remove only affected connections.
+| Contract | Module definition | Function definition |
+| --- | --- | --- |
+| OpenSCAD form | `module name(parameters) { ... }` | `function name(parameters) = expression;` |
+| Output | One Geometry body input; multiple branches require an explicit Union | One Number, Boolean, or Vector3 result |
+| Permitted contents | Geometry and value nodes, Module Calls and Function Calls | Value/math/conditional nodes and Function Calls; no Geometry, Module Calls, SCAD settings, or For pair |
+| Call locations | Main or Module scope | Main, Module, or Function scope |
+| Unconnected Output | Empty Module body | Unresolved, saveable Function draft |
 
-Supported value types are Number, Boolean, and Vector3. Do not split Number
-into int/float or add String/List until a real language feature needs them.
-These are also the only variable-binding/reference types. Parameter removal
-and named-Value deletion count and confirm affected references, then remove the
-definition and its reference nodes together; individual references retain the
-ordinary unconfirmed node-deletion lifecycle.
+Value parameters have typed Inputs outputs and corresponding Call inputs.
+Definition defaults and each Call's direct fallbacks are independent. A
+connected expression overrides its fallback without erasing it. Rename/reorder
+preserves wires. Type/removal changes preflight and confirm their impact, then
+remove only incompatible connections. A parameter type change retains its ID
+and resets each Call fallback for that parameter to the new definition default.
+Parameter deletion also removes affected same-scope Variable references.
 
-PI, Number negate, Minimum/Maximum, and Vector Math are ordinary expression
-nodes available in Main, Module, and Function graphs. Their generated
-expressions participate in existing same-scope binding dependency ordering and
-Function `let(...)` generation; Vector Math's result binding type follows its
-selected operation.
+Module Geometry inputs are a separate ordered signature: Inputs outputs and
+Call inputs correspond by stable ID and generate `children(index);`. They have
+no defaults or Call fallbacks and do not imply a Union. A declaration itself
+is not Main geometry; rendering it requires a Call reachable from Main. Gaps before a later
+connected child emit `union() {}` placeholders to preserve indices.
 
-## Modules
+Function result type is inferred from Output. An unresolved Function emits no
+declaration and cannot create new Calls. Existing Calls remain disconnected,
+unresolved drafts; incompatible outgoing wires use the normal confirmation
+lifecycle. Function expressions are evaluated by OpenSCAD, never JavaScript.
 
-A Module is ordinary OpenSCAD `module name(parameters) { ... }`.
+## Dependency order and recursion
 
-- Output has exactly one Geometry input: the explicit SCADlet body root, not a
-  return value. Multiple body branches require an explicit Union.
-- Value parameters are typed Inputs outputs and Call inputs, with definition
-  defaults and independent Call literal fallbacks.
-- Geometry children are a distinct ordered signature: stable `geometry:<id>`
-  outputs on Module Inputs mirror Geometry inputs on Module Calls and emit
-  ordered `children(index);` statements. They are not value parameters,
-  defaults, or implicit unions. Positional gaps use an explicit empty
-  `union() {}` placeholder.
-- Module calls produce Geometry and are valid in Main and Module scopes.
-- Module Calls may be directly or mutually recursive inside Module scopes. A
-  Module Call remains forbidden in a Function scope. Recursive Calls use the
-  same ordinary ports, fallbacks, children, and lifecycle as acyclic Calls.
+Direct and mutual recursion are valid for both definition kinds in their
+permitted scopes. They use ordinary ports, fallbacks, and lifecycle rules.
+Generate resolved Functions, then Modules, then Main. The shared reachable-Call
+analysis collapses strongly connected components (SCCs): callees precede callers
+between components; members within a component retain project order. Only Calls
+reachable upstream from the owning Output affect this ordering; disconnected
+Calls do not. Do not statically analyse termination; OpenSCAD-WASM evaluates it.
 
-## Functions
+## Value definitions and Variable references
 
-A Function is ordinary OpenSCAD `function name(parameters) = expression;`—no
-imperative return.
+A deliberately renamed Number, Boolean, or Vector3 becomes a Value definition
+when it gains a stable binding ID and a valid unique identifier. Historical
+label-only Values remain unbound until explicitly activated. Definition
+parameters are also bindings. Names must be unique among Values and parameters
+in exactly one scope; the same name in another scope is independent.
 
-- Its Output has exactly one typed value input/result. A Function graph permits
-  values, math, conditionals, and compatible Function Calls, never Geometry
-  nodes, Module calls, or actions.
-- Function-local named Values compile to ordered `let(...)` bindings around
-  the result expression. Statement assignments are never emitted inside a
-  Function expression.
-- Result type is Number, Boolean, or Vector3. An unresolved Function is a valid
-  saveable draft but emits no declaration and cannot create new calls. Existing
-  calls become unresolved drafts and incompatible outgoing wires are handled by
-  the normal preflight/confirmation lifecycle.
-- Function calls produce the definition result type and may be direct or
-  mutually recursive within Function scopes. OpenSCAD, not JavaScript,
-  evaluates them.
+A Variable reference resolves by binding ID plus explicit scope, never by name.
+It cannot capture across scopes. Rename updates references without changing
+identity. Deleting a bound Value or parameter counts and confirms affected
+references, then removes them together; deleting one reference is an ordinary
+unconfirmed node deletion.
 
-Generate resolved Functions first, then Modules, then Main. Both declaration
-passes collapse recursive strongly connected components through the same
-dependency analysis: components remain callee-before-caller, and members of
-one component retain stable project/definition order. Only Calls reachable
-from an owning Output participate; disconnected recursive-looking drafts do
-not affect order or SCC membership. SCADlet intentionally does not prove
-termination for either definition kind; OpenSCAD-WASM remains the evaluator.
+Number and Boolean accept a same-typed Value input. Vector3 accepts a whole
+Vector3 Value input overriding its preserved X/Y/Z inputs and direct fallbacks.
+The ordinary Value output emits that effective expression; a Variable reference
+emits the binding's current identifier. Named Values are scope-level generation
+roots even without an outgoing wire. Emit their assignments in dependency-safe
+order before settings and Main/Module Geometry; Function-local assignments form
+one `let(...)` around the result. Missing, cross-scope, circular bindings and
+ordinary dataflow cycles are errors, never plausible substitute source.
 
-## Presentation and creation
+## SCAD settings
 
-Frames derive bounds from their scoped nodes; frame geometry is presentation,
-not semantic truth. Transfer of ordinary nodes between scopes happens only on a
-completed drag and is atomic: preflight all touching connections under proposed
-scopes, reject invalid cross-scope results, and never silently delete wires.
-Protected interfaces cannot transfer.
-Moving a named Value requires all of its references to remain resolvable in the
-hypothetical destination; moving only a reference is rejected. Same-scope name
-collisions with Values or parameters are rejected before membership changes.
+Main and each Module may own at most one **SCAD settings** node; Functions
+contain none. Its curated `$fn`, `$fa`, and `$fs` Number inputs use ordinary
+same-scope dependencies and preserved fallbacks. It has no Geometry sockets but
+is a generation root. Emit present assignments in `$fn`, `$fa`, `$fs` order
+after local Value bindings and before the scope body, within the Module's
+parameter context when applicable. Module-local settings use OpenSCAD's normal
+lexical behaviour. They are not viewer or worker options, and arbitrary special
+variable names are unsupported.
 
-Clipboard operations obey the same lexical rules. A payload belongs to one
-exact semantic scope and project. Copying a bound Value with its references
-remaps those references to a fresh binding on every commit; references whose
-binding is outside the payload may keep that stable ID only when it still
-resolves in the target scope. Conflicting copied binding names use the stable
-sequence `<name>_copy`, `<name>_copy_2`, and so on. A For member is inseparable
-from its partner and iterator references: all are included, and each placement
-creates a fresh pair ID, iterator binding, structural connection, and ordered
-body-slot IDs. Definition interface nodes remain protected from every graph
-clipboard action.
+## Numeric For scope
 
-The existing sidebar contains dynamic My Modules/My Functions sections. A
-definition entry creates a compact call node through the shared creation path;
-separate focus/edit/delete actions operate on the definition. Keep management
-actions identity-preserving and confirm destructive impacts. Do not expand this
-infrastructure into variables, closures, macros, or a broad type system.
+The **For** action creates one `For` header and one `For result` in Main or a
+Module. Their fixed structural connection is immutable. The header evaluates
+Start, Step, and End in the enclosing scope and carries the range and stable
+Number iterator binding to its result. The result wraps its ordered Geometry
+inputs in one OpenSCAD `for` block; JavaScript never evaluates the range.
+
+The iterator's lexical body is the dependency subgraph entering that result,
+not a visual rectangle or a new registry scope. Direct iterator wires and
+Variable references may cross only the matching result boundary. Enclosing
+bindings remain readable. Nested pairs compose normally; iterators cannot
+shadow enclosing bindings/iterators, while independent sibling pairs may reuse
+a name. Known literal zero steps and escaping dependencies are errors.
+
+A structurally valid result without connected valid Geometry emits no fragment
+and the whole pair is omitted. This draft state does not relax pair, scope,
+connection-type, iterator, or zero-step validation. Pair members move separately;
+Delete and graph clipboard actions include both members and iterator references.
+
+## Scope transfer and creation
+
+Transfer happens only on a completed drag and is atomic. Preflight all touching
+connections and binding names against proposed scopes; reject invalid results
+without silently deleting wires. A moved Value must leave all its references
+resolvable; moving only a reference to another scope is rejected. A For pair
+transfers only as a complete set with the references/connections needed to keep
+it valid. Protected interfaces never transfer.
+
+My Modules and My Functions entries create compact Calls through the shared
+creation path; separate focus/edit/delete actions manage definitions. Clipboard
+remapping and placement follow [Editor and UX](editor-ux.md#graph-clipboard).

@@ -1,265 +1,178 @@
-# Editor and UX contract
+# Editor and UX
 
-Read this before changing built-in nodes, socket/connection behavior, canvas
-interaction, palette, node controls, inspection, presentation, or UI labels.
+Read this for canvas interaction, selection, connections, placement, clipboard,
+popups, Inspect, and the application shell. [Node style](node-style.md) owns
+visual/accessibility conventions; [Definitions](definitions.md) owns scopes
+and bindings; [Architecture](architecture.md) owns preview execution.
 
-## Node semantics
+## Creation and parameter editing
 
-Geometry is the dominant visual type. Number is one type (never int/float);
-Vector3, Boolean, and later genuinely different types may have distinct typed
-sockets. Values support geometry rather than dominating the product.
+Built-ins use one stable-ID catalog and one editor-level creation path. Convert
+palette client coordinates through the current area transform without changing
+the viewport. A fresh project starts empty. Use beginner categories such as
+Primitives, Transformations, and Boolean operations rather than CSG jargon.
+Scope/singleton violations are refused with localized transient feedback before
+creating invalid nodes.
 
-Expose OpenSCAD semantics without forcing a value graph for literals:
+A node starts with its smallest useful semantic signature. Add/remove optional
+arguments explicitly; alternative forms represent one OpenSCAD parameter.
+Transforms start with a useful default vector form but allow its removal.
+An inline literal is a preserved direct fallback: a compatible connected
+expression overrides and disables it, and disconnection restores it. Whole
+Vector3 overrides retain inactive component wires and fallbacks. Representation
+and signature changes preflight and confirm affected wires, then remove only
+those connections through Rete. Cancellation leaves the graph unchanged.
+Use explicit shared mechanisms, not a generic signature DSL.
 
-- A node begins with its smallest valid OpenSCAD signature. Optional arguments
-  are explicitly added and removable; mutually exclusive forms use semantic
-  modes, not conflicting fields.
-- A semantic parameter remains one parameter even when a convenient editor
-  decomposes it (for example Vector3 X/Y/Z).
-- An inline literal is a preserved fallback. A compatible connection overrides
-  and disables it without erasing it; disconnect restores it. A whole Vector3
-  overrides component values/connections, which remain preserved but inactive.
-- Connected ports must never disappear through collapse or representation
-  changes. When removal/type change affects wires, preflight and confirm, then
-  remove only affected Rete connections through its lifecycle.
-- Function and Module Calls may be recursive in their permitted scopes. They
-  keep the same dynamic ports, fallbacks, confirmation, and restoration rules
-  as acyclic Calls; recursion adds no special syntax or UI mode.
-- Difference, Union, and Intersection use ordered Geometry-input slots with
-  stable IDs. Difference keeps its required `base` and first `subtract` ports;
-  later ordered inputs are additional subtractors. Union and Intersection keep
-  their existing minimum slot counts. When the final available slot becomes
-  connected, the editor appends one empty extension slot; disconnecting it
-  leaves that same slot available. Source generation retains slot order.
-- SCAD settings is a non-Geometry, scope-level node available only in Main and
-  Module definitions, with at most one instance per scope. Its header Add menu
-  offers only absent `$fn`, `$fa`, and `$fs` rows. Each row uses the normal
-  Number socket plus preserved direct fallback and its adjacent Remove action;
-  arbitrary special-variable names are not supported.
-  The palette and node header use the explicit semantic title **SCAD settings**.
-- A deliberately renamed Number, Boolean, or Vector3 is a variable definition
-  in its current scope. Its direct typed output remains unchanged. A small
-  icon-only **Create variable reference** action beside that output, and beside
-  each Module/Function parameter output, creates a compact same-scope reference
-  either by drag-and-drop or one-shot click-and-place. The action is disabled
-  until a Value has a valid unique identifier. Escape, scope selection, graph
-  replacement, and editor destruction cancel click-and-place without graph
-  mutation; the gesture never creates a wire.
-- Number and Boolean Value sources expose one same-typed `Value` input beside
-  their always-visible direct fallback. Vector3 additionally exposes one
-  whole-Vector3 `Value` input above its existing Number component inputs.
-  Connected expressions disable the affected fallback controls without
-  erasing them; disconnect restores those controls immediately. A connected
-  whole vector subdues and overrides preserved X/Y/Z values and wires. These
-  inputs behave identically for unnamed pass-through Values and named variable
-  definitions.
-- The **For** palette action is available in Main and Module scopes and creates
-  a header/result pair at a useful horizontal separation. Its thick structural
-  wire and muted neutral-grey anchors are not ordinary sockets and cannot be
-  picked, rewired, or selected. Each anchor occupies the final row at the
-  physical bottom of its card: below End on the header and below every current
-  Geometry child row, including the extension control, on the result. The
-  header has Number fallback rows for Start, Step, and End plus one iterator
-  Number output/reference action. The result uses stable ordered, variadic
-  Geometry child rows. Either member's Delete, Copy, Cut, or Duplicate action
-  applies to the complete pair and its iterator references; members otherwise
-  move independently. A structurally
-  valid pair with no connected result body is a normal draft and remains
-  absent from generated source until Geometry is connected.
-  Its palette entry uses the blue Geometry-family cue because the pair
-  produces Geometry. The instantiated header/result keep their distinct
-  structural anchors and muted-grey boundary wire.
+Math families use operation selectors in the palette and node title. Dragging
+creates the selected operation. Vector Math supports Add, Subtract, Scale,
+Divide, Dot product, Cross product, Norm, and Negate; a change retains compatible
+ports and confirms incompatible wire removal. Trigonometry retains `a` when
+switching to/from `atan2`; only the extra `b` input is added/removed. Failed
+signature changes roll back ports, operation, and wires.
 
-Do not build a generic signature DSL prematurely. Reuse small, explicit
-mechanisms for optional parameters, typed inputs, alternative editors, and
-ordered children.
+Difference, Union, and Intersection retain stable ordered Geometry slots.
+Difference requires Base and Subtract; later rows are additional subtractors.
+Union/Intersection need at least one connected child to evaluate. Connecting
+the last available slot appends one empty extension slot; disconnecting a child
+keeps its slot reusable. Min/Max has two fixed Number operands and ordered
+optional operands: connecting or filling the trailing input creates another
+blank slot; unused blank interior operands are removed. Blank optional operands
+are absent from generated expressions.
 
-## Canvas and node interaction
+**Create variable reference** beside a Value or parameter output supports drag
+and one-shot click-and-place; it never starts a wire. A Value needs a valid
+unique binding name to enable it. Placement carries source node and binding IDs
+and requires matching explicit source/destination scopes. Escape, scope
+selection, project replacement, or editor destruction cancels without mutation.
 
-Dark is the only theme, independent of system preference; native controls and
-their opened option lists must remain readable. Application text is
-non-selectable except normal editable controls and the copyable source pane.
+## Canvas and connections
 
-Canvas nodes drag only from non-interactive header/background. Controls,
-sockets, connections, inputs, buttons, and selects keep their native/direct
-interaction. Palette configuration selects are native controls and never begin
-a drag; dragging any other part creates the selected operation through the
-shared creation path.
+Nodes drag only from non-interactive header/background. Controls, sockets,
+connections, buttons, inputs, and native selects retain direct interaction;
+palette selects never start drags. Application text is non-selectable except
+editable controls and the copyable source pane.
 
-Ordinary connection gestures are output-origin only. Pointer, touch, Enter,
-or Space on a resolved output may start a draft; a compatible input may only
-complete that active draft. An input interaction with no active output is a
-quiet no-op and must not detach an existing wire, create preview state, or
-surface an error. Rewiring an occupied input starts from the replacement
-output and then targets that input. Existing wires remain independently
-selectable and removable. The fixed `For` boundary anchors remain outside this
-interaction model.
+Connection gestures start only at resolved outputs, through pointer, touch,
+Enter, or Space. Compatible inputs complete an active draft. An input alone is
+a quiet no-op: no detach, preview, or error. Replace an occupied input by starting
+from the new output and targeting that input. Existing wires are independently
+selectable/removable. The fixed For structural connection and anchors cannot be
+picked, rewired, selected, or deleted as an ordinary semantic connection.
 
-Rete remains selection authority: a plain interaction with an unselected node
-replaces the selection, Shift/Ctrl/Cmd-click toggles selection membership,
-Shift-drag empty canvas creates a marquee, and dragging a selected member moves
-the complete explicit selection. Connections never implicitly select their
-other endpoint. Delete/Backspace removes selected nodes/connections only while
-the canvas has focus, never while editing a control. One selected connection
-may be deleted before node deletion. No selection/hover/gesture state changes
-program semantics or persistence.
+Rete owns selection. A plain interaction with an unselected node replaces it;
+Shift/Ctrl/Cmd-click toggles membership; Shift-drag on empty canvas creates a
+marquee. Dragging a selected member moves the explicit group. Connections never
+implicitly select endpoints. Delete/Backspace acts only with canvas focus, never
+while editing a control; a selected connection takes precedence over node
+deletion. Selection, hover, and connection drafts are non-semantic and transient.
+Use Rete DOM ordering to bring interacted nodes forward, not a parallel z-index
+model. Collapse behaviour belongs in [Node style](node-style.md#collapse).
 
-Graph Copy, Cut, Paste, and Duplicate are session-local editor commands on
-Command for Apple platforms and Control elsewhere. They never intercept native
-clipboard/editing shortcuts in inputs, textareas, selects, or contenteditable
-surfaces. Copy and Cut use the explicit node selection; Duplicate uses that
-selection without replacing the clipboard. Node More actions always target
-only that node. A graph context menu opened by secondary click, Shift+F10 or
-the Context Menu key, or a deliberate touch hold uses the clicked node when it
-was unselected and preserves an already selected group. Empty-canvas context
-offers Paste only. Context menus use the shared transient-popup lifecycle and
-Escape restores focus to their trigger.
+## Graph clipboard
 
-Paste and Duplicate are deferred placement gestures. The ghost preserves
-relative layout, tracks the pointer through pan and zoom, shows internal wires,
-and commits only on a primary canvas click. Escape, a replacement placement,
-an incompatible scope change, project replacement, or editor destruction
-cancels the ghost without mutating the graph or clearing a valid clipboard.
-Commit creates fresh identities and selects exactly the new nodes. Copy alone
-is non-semantic; Cut and a successful placement each form one atomic semantic
-change. Paste is rejected before mutation for an incompatible project/scope,
-protected interface data, invalid bindings or For structure, or a duplicate
-SCAD settings singleton.
+The graph clipboard is detached plain data for one exact active-project identity
+and semantic scope, held only in the session. It never uses the operating-system
+clipboard. Copy/Cut/Paste/Duplicate use Cmd+C/X/V/D on Apple platforms and
+Ctrl+C/X/V/D elsewhere, without intercepting native editing shortcuts in inputs,
+textareas, selects, or contenteditable surfaces.
 
-Nodes are compact/collapsible presentation only. Normally collapsible nodes
-start expanded and provide an always-visible chevron header button to collapse
-or expand explicitly; its accessible name states the next action. Value
-Conditional and Geometry If keep their fixed compact interfaces and show no
-such control. Keep structural input/output anchors stable in a fixed row;
-expansion grows below. Reveal connected inputs while compact, but never reveal
-hidden rows merely because of hover, selection, or a connection gesture.
-Activating the downward chevron during a held wire gesture expands the node
-without ending that gesture. Use
-Rete DOM ordering—not a parallel z-index model—to bring an explicitly
-interacted node forward where needed.
+Copy and Cut use explicit selection. Duplicate uses selection without replacing
+the clipboard. Node More actions target that node only. A graph context menu
+opened by secondary click, Shift+F10, the Context Menu key, or deliberate touch
+hold targets an unselected clicked node or preserves an already selected group.
+On a node it offers Copy, Cut, Paste, Duplicate, and Delete; empty canvas offers
+Paste only. Protected definition interfaces are excluded.
 
-Geometry-output nodes receive the restrained complete blue border based on
-canonical output socket type/identity, never labels or port keys. Value-only
-nodes remain neutral. Palette geometry cues follow the same principle.
+Snapshots contain ordinary connections only when both endpoints are included.
+Selecting either For member includes the whole pair and every reference to its
+iterator; its structural connection is reconstructed separately. Internal Value
+references follow copied bindings; external references retain their binding ID
+only if it still resolves in the same scope. Copied binding-name conflicts use
+`<name>_copy`, `<name>_copy_2`, and so on.
 
-Resizable panes must resize existing editor/viewer instances without resetting
-the graph, viewport, or camera.
+Paste/Duplicate first show a placement ghost with relative layout and internal
+wires, tracking through pan and zoom. No Rete mutation occurs until a primary
+canvas click. Escape, replacement placement, incompatible scope change, project
+replacement, or editor destruction cancels the ghost without clearing a valid
+clipboard. Stale payloads cannot retarget another scope/project.
 
-Each canvas/viewer has one compact, keyboard-reachable recovery control in its
-corner: **Fit graph** frames all rendered nodes plus visible definition frames
-with consistent padding; **Reset 3D view** frames the currently displayed
-nonempty mesh from the stable Z-up default perspective. They are transient
-presentation actions, so they preserve graph data, source, dirty/autosave
-state, selection, and Inspect provenance. The mesh action is disabled when
-the preview is empty. Use localized accessible names and a title; the compact
-icon is supplementary rather than its only label.
+Commit plans fresh node, connection, binding, For pair/iterator, and dynamic
+Geometry/operand-slot IDs and validates the combined target scope before adding
+anything. Mixed scopes, invalid bindings/pairs, protected interfaces, and a
+second SCAD settings node fail preflight. Commit is atomic, selects exactly the
+new nodes, and emits one semantic change; failure rolls back and retains the
+clipboard. Every Paste creates a new plan. Copy is non-semantic; Cut is one
+atomic semantic change.
 
-## Creation, inspect, and labels
+## Transient popups and focus
 
-The Number/Vector3 value vocabulary includes PI, Number negate, Minimum and
-Maximum with ordered variadic Number operands, and one Vector Math node whose
-dropdown selects Add, Subtract, Scale, Divide, Dot product, Cross product,
-Norm, or Negate. A Vector Math operation change retains compatible sockets;
-the editor confirms before removing incompatible connected ports. Min/Max
-grows one trailing blank Number input when the current trailing input is
-connected or receives an explicit fallback.
+File, Projects, graph context menus, node Add/More and nested menus,
+definition-frame More, and anchored parameter forms share one shadow-DOM-aware
+outside-interaction dismissal lifecycle. Pointer, keyboard, focus, or wheel
+interaction outside both surface and trigger closes it immediately, including
+interactions in the viewer. Opening an unrelated popup closes the previous one.
+Outside dismissal does not steal focus; Escape restores focus to the trigger.
+Inside controls and scrolling remain usable. Do not add listeners per node or
+render. Modal dialogs, persistent inline editors, and palette hover tooltips
+have their own lifecycles.
 
-Built-ins come from one stable-ID node catalog and one editor-level creation
-path. Palette drop coordinates must convert browser coordinates to the current
-area transform; creation must not disturb viewport state. A fresh project is
-empty (no automatic Cube). Beginner labels use categories such as Primitives,
-Transformations, and Boolean operations rather than CSG jargon.
-Scope-restricted creation uses that same path: a duplicate SCAD settings drop
-or a drop into a Function is refused with the editor's localized transient
-feedback and does not create a temporary invalid node.
-Variable-reference placement uses the same client-to-graph coordinate
-conversion but additionally carries the source node ID and stable binding ID.
-The explicit source and destination scopes must match; a drop outside that
-scope is rejected rather than retargeted by a coincidentally equal name or ID.
+Rename uses selected inline title text: Enter or focus loss validates/commits;
+Escape cancels. Interface parameter/Geometry-input pencils use the same editing
+model without changing identity. Parameter Add opens an anchored form with
+explicit confirm/cancel, not permanent rows or keyboard stops.
 
-Double-clicking a geometry output performs one-shot upstream Geometry Inspect;
-double-clicking a value output runs OpenSCAD headlessly and displays the value.
-Inspect is presentation state: it never rewires, copies, or changes graph
-semantics. A plain empty-canvas click ends the active Inspect alongside normal
-selection clearing; node/control/connection interaction, panning, and marquee
-gestures do not. Successfully dropping a new palette node also ends Inspect;
-merely starting or cancelling a palette drag does not. Its Geometry marker is
-provenance: it means the currently displayed mesh was successfully produced by
-Inspecting that node. A confirmed valid
-empty Geometry Inspect clears the preview and does not create or retain that
-marker; its restrained localized preview status is not an error. Normal Render
-clears the marker immediately and always renders the full project, including if
-it later fails. Every non-manual Inspect exit resumes the normal debounced Live
-pipeline for the main graph; an explicit Render cancels that pending request so
-it cannot render twice. A changed semantic graph clears Inspect provenance
-(while the last valid Geometry mesh may remain visible); presentation-only
-interactions do not. A failed Inspect preserves the previous successful result and its marker.
-Clear Inspect after a committed project replacement and when its node is
-deleted. Keep it inside the existing Rete/dataflow/codegen route.
+## Inspect and preview controls
 
-All user-facing/accessibility natural-language labels use `t()` keys; internal
-node, category, port, and operation IDs remain stable and language-independent.
-The current dictionary is English-only. Do not add a full i18n framework or a
-language switcher merely in anticipation of another language.
+Inspect from a node's More menu or double-click on its non-interactive surface
+runs its upstream output through normal Rete/codegen/OpenSCAD evaluation.
+Geometry replaces the preview; values run headlessly and display the result.
+Inspect never rewires, copies, or changes graph semantics.
 
-## Application shell
+The Geometry marker is provenance of the successfully displayed inspected mesh.
+A valid empty Geometry Inspect clears the mesh and marker and shows informational
+status. Failed Inspect preserves the previous successful result/marker. A
+semantic edit clears provenance, though the last valid mesh may remain.
 
-SCADlet treats genuinely small touch layouts as an explicit unsupported
-presentation state. When the primary pointer is coarse and the viewport is at
-most 700px wide or at most 500px high, hide the full application shell and show
-the non-dismissible larger-screen notice. The 700px boundary matches the
-existing narrow-layout cutoff: below it, the 200px palette plus the editor's
-280px and preview's 240px minimum widths cannot form the intended workspace.
-The 500px height guard also catches phone landscape, where the header plus the
-160px viewer, 60px output, splitter, and a meaningful node-canvas area do not
-fit comfortably. A 768×1024 or 1024×768 coarse-pointer tablet remains
-supported.
+A plain empty-canvas click ends Inspect alongside selection clearing. A
+non-interactive header/background interaction outside the inspected dependency
+set also ends it; participating node/control interactions, wires, panning, and
+marquee gestures preserve it.
+Inspecting the same node again toggles Inspect off; choosing another switches
+the root. A successful palette drop ends it; starting/cancelling a drag does not.
+Project replacement or deletion of the inspected node clears it. Non-manual exit queues normal debounced Live
+preview; manual Render cancels that delay, clears provenance immediately, and
+renders the full project even if that render later fails.
 
-Use a live media-query listener so resize and rotation switch the presentation
-immediately. Keep the editor/application mounted underneath the notice: this
-boundary is presentation only and must not reset graph state, project
-persistence, rendering, or editor interaction when the viewport becomes usable
-again. Fine-pointer desktop windows do not show the notice merely because they
-are narrow.
+The viewer's bottom strip holds **Render** and default-on **Live**, a labelled
+accessible switch. **Stop** and the upper-left spinner appear after 200 ms of
+execution. Scheduling, timeout, cancellation, startup, and cache rules are owned
+by [Architecture](architecture.md#program-and-render-flow).
 
-The header contains SCADlet, the directly editable active-project name, a
-Projects popover, File menu, and the GitHub icon. Enter and focus loss commit
-the project name through the normal dirty/autosave lifecycle. Projects manages
-local IndexedDB records with New, Duplicate active, Delete active, active
-first, and ordering of the remaining rows. It also contains a clearly
-separated Examples section of immutable bundled templates. Selecting a
-template creates and activates an independently named ordinary local copy;
-templates themselves have no rename/delete affordances. Portable
-open/save/export actions belong only in File. Do not add row-level
-rename/delete affordances or another top-level examples menu. Examples never
-open automatically and do not introduce first-run UI.
+## View recovery
 
-File, Projects, node Add/More menus (including nested Add choices), definition
-frame More menus, and the anchored parameter form are transient contextual
-surfaces. They share one shadow-DOM-aware dismissal lifecycle: an interaction
-outside both the open surface and its trigger closes it immediately. This
-includes node/canvas/socket gestures and pointer, wheel, control, or recovery
-interaction in the 3D viewer. Opening an unrelated contextual surface closes
-the previous one. Interactions and scrolling inside remain usable; Escape
-closes the surface and restores focus to its trigger. Modal dialogs, persistent
-inline editors, native controls inside a popup, and palette hover tooltips are
-outside this rule.
+Resizable panes resize existing instances without resetting graph, viewport, or
+camera. **Fit graph** frames rendered nodes and visible definition frames with
+padding; **Reset 3D view** frames the current nonempty mesh from the stable Z-up
+default perspective and is disabled for an empty preview. Both controls are
+keyboard-reachable. Recovery preserves graph/source, dirty/autosave state,
+selection, Inspect provenance, and persisted viewport/camera state.
 
-The viewer's bottom-edge strip holds the manual Render action and a default-on
-Live toggle. Live is an accessible, session-only switch: semantic graph edits
-start one background render after 400 ms of quiet, whereas selection, dragging,
-canvas/preview navigation, Inspect, menus, and autosave do not. Manual Render
-flushes a pending delay; Stop works for manual and Live runs, appearing after
-200 ms with the same upper-left spinner. Each uncached automatic Preview has a
-fresh 15-second execution limit; reaching it stops that attempt, turns off Live,
-and announces why through the preview's accessible status. Cached automatic
-results do not start that timer. Turning Live on, switching to another local
-project while Live is on, or successfully restoring an existing local project
-on page load renders the current graph immediately rather than waiting for the
-edit debounce. The first empty project created for an empty library remains
-idle. Its checked state and preview cache are never persisted in a project.
+## Projects and small screens
 
-Compact shell actions use the small local inline-SVG vocabulary rather than an
-external icon library. Icon-only controls retain a localized accessible name,
-native title tooltip, visible focus ring, and a 32px touch target. The Live
-control is labelled text plus an accessible `switch` slider with checked state.
+The header contains SCADlet, the editable active-project name, Projects, File,
+and GitHub. Enter/focus loss commits the name through normal dirty/autosave.
+Projects manages local records with New, Duplicate active, Delete active, and
+the active project first. Its separate Examples section lists immutable
+templates without rename/delete actions. Selection creates an ordinary local
+copy through [Persistence](persistence.md#bundled-examples). Keep portable
+open/save/export in File, with no per-row rename/delete, extra examples menu,
+automatic example opening, or first-run screen.
+
+With a coarse primary pointer and viewport width ≤700px or height ≤500px,
+visually and accessibly replace the shell with a non-dismissible larger-screen
+notice. A live media-query listener reacts immediately to resize/rotation.
+Keep the application mounted and preserve editor, project, and render state;
+returning to a supported viewport restores access without resetting it.
+768×1024 and 1024×768 tablets remain supported. Fine-pointer narrow windows do
+not trigger the notice.

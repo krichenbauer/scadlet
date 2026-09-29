@@ -1,12 +1,4 @@
-# Delivery, quality, and operating constraints
-
-New value/math operations should be tested at the catalog, typed-port,
-OpenSCAD-expression, persistence, scope, and interaction boundaries. For
-operation-selected outputs, cover compatible transitions and confirmed
-cleanup of incompatible connections; for dynamic inputs, cover stable-id
-round trips and one trailing empty slot. E2E journeys should remain isolated
-per test and cover user-visible dropdown, socket, persistence, and export
-behavior without serializing unrelated tests.
+# Delivery and quality
 
 Read this before changing dependencies, build/tooling, deployment, runtime
 resources, error handling, or test setup.
@@ -22,11 +14,7 @@ for development and non-GitHub hosting.
 Runtime resources must ship with the application. Do not add CDN JavaScript,
 external fonts/icons, analytics, trackers, or third-party runtime APIs.
 Normal use needs no network after the application loads.
-Top-level `examples/example_*.scadlet` templates are eager raw Vite imports,
-not separately fetched public assets, so GitHub Pages and other production
-builds include every matching example in the application bundle.
-
-The intended license is GPL-3.0-or-later. New dependencies must be GPL
+The license is GPL-3.0-or-later. New dependencies must be GPL
 compatible, retain required notices, and have clear licensing.
 
 ## Development and tests
@@ -66,37 +54,43 @@ Worker-repeat diagnostics must use test-owned output paths. Retain failure
 traces, screenshots, videos, browser errors, generated source, render errors,
 and persistence status where available.
 
-Recursion regressions must exercise direct and mutual Function/Module source
-through the bundled OpenSCAD-WASM. Do not substitute JavaScript evaluation or
-assume OpenSCAD declaration-order behavior without a real runtime check.
-Scope-level SCAD settings regressions must cover the normal generated-source,
-WASM preview, and `.scad` export route so no alternate render-option path can
-silently diverge from exported code.
-Numeric For regressions must cover the fixed pair lifecycle, iterator lexical
-boundary, nested Main/Module source, persistence rejection, and the normal
-WASM preview/export path; JavaScript must never evaluate the range itself.
-Graph-clipboard regressions must cover platform shortcuts and native-editor
-isolation; effective selection in More/context menus; deferred placement and
-Escape; fresh IDs on repeated Paste; binding, dynamic-port, and For-pair
-remapping; singleton/protected-node rejection; scope/project invalidation; and
-atomic Cut/Paste dirty notifications. Clipboard snapshots must be tested as
-detached plain data rather than live Rete objects.
-Ordered Boolean Geometry-input regressions cover Difference's required base
-and first subtractor plus optional ordered subtractors, Intersection's
-ordered inputs, automatic extension after the final available slot is
-connected, disconnect/reuse of the trailing slot, and unchanged Union
-behavior. Unit and browser coverage also checks stable three-input source,
-restore, scope transfer, Inspect, preview rendering, and `.scad` export; copy
-and paste coverage must preserve ordered dynamic ports and internal wires.
-Directional-connector browser regressions must cover output-origin creation,
-input-origin pointer/touch/keyboard no-ops, output-origin replacement of an
-occupied input, wire selection/removal, representative static and dynamic
-ports, accessible source/target descriptions, retained type colours and
-compact bounds, and the visual/behavioral separation of fixed `For` anchors.
-Transient-popup browser coverage must cross the application, graph-editor,
-and viewer shadow roots, including outside pointer/wheel interactions, popup
-switching, inside controls, Escape focus restoration, and expanded-state
-cleanup without altering hover tooltips or modal dialogs.
+Changes need focused coverage of their semantic and user-visible boundaries:
+catalog/types, generated source, scope safety, connection preservation,
+persistence/restore, and interaction as applicable. Geometry and recursion
+regressions must exercise bundled OpenSCAD-WASM and the preview/export route;
+JavaScript evaluation is not a substitute. Cover keyboard, pointer, focus,
+accessible names/status, and touch behaviour for changed interactions, including
+cross-shadow-root popup dismissal. The configured browser suite is Chromium;
+do not describe it as certified coverage of other browsers.
+
+## Required checks and completion report
+
+Inside `nix develop`, install with `pnpm install`; use `pnpm dev` to develop and
+`pnpm preview` to inspect a production build. On macOS, where the devShell does
+not supply Chromium, use `pnpm exec playwright install chromium` if needed.
+
+Run all of these for completion, including documentation-only changes:
+
+```bash
+pnpm test
+pnpm exec tsc --noEmit
+pnpm build
+pnpm test:e2e
+git diff --check
+```
+
+There is no separate Markdown lint or link-check script. For documentation
+changes, follow local links and heading references, review for stale or
+duplicated contracts, and run the documentation-fixture tests included in
+`pnpm test`. Those tests validate referenced fixture files and the catalog
+list extracted from the specification and its current envelope example; they
+do not certify prose or links.
+
+Report changed files, resulting behaviour or documentation ownership, relevant
+compatibility decisions, and the exact result of each required check. Identify
+unresolved defects and environmental blockers separately. A failed, interrupted,
+skipped, or uncertified check is not a pass; investigate failures and retain
+evidence. Do not alter tests to endorse inaccurate documentation or hide flakes.
 
 ## Implementation quality
 
@@ -110,7 +104,5 @@ the app; surface OpenSCAD/WASM failures; retain the previous valid preview when
 practical; prevent or clearly report malformed connections. Do not silently
 swallow errors. Detailed source-to-node diagnostics remain later work.
 
-A confirmed valid empty top-level Geometry result is the narrow exception to
-render-error UI: clear the old preview and use the localized informational
-preview status. This must not suppress arbitrary sparse diagnostics, compiler
-errors, or worker failures.
+Valid empty Geometry follows [the worker contract](architecture.md#program-and-render-flow),
+including its narrow diagnostic classification and informational preview UI.

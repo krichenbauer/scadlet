@@ -1,1384 +1,469 @@
-# The `.scadlet` project file format (v8)
+# The `.scadlet` project format
 
-This document specifies the `.scadlet` project file format as it is
-**actually implemented** in this repository, not as originally sketched in
-`AGENTS.md`. If you find a discrepancy between this document and the code,
-the code under `src/persistence/` and `src/editor/node-catalog.ts` is the
-source of truth until this document is updated to match it.
+This is the canonical specification of SCADlet's persisted project data.
+The current version is **8** (`SCADLET_VERSION` in
+[`project.ts`](../src/persistence/project.ts)). Writers and autosave emit v8;
+the loader accepts versions 1–8 and migrates older records before validation.
+The application/package version is independent of the format version.
 
-## Version 8: scoped variable bindings, references, and numeric For pairs
+Files are UTF-8 JSON with extension `.scadlet` and MIME type `application/json`.
+The writer uses two-space indentation. No formal JSON Schema is provided;
+[`validate.ts`](../src/persistence/validate.ts) and the
+[node catalog](../src/editor/node-catalog.ts) implement validation.
+Storage, rollback, autosave, and version-change policy belong in
+[Persistence](agent-guides/persistence.md). Behavioural semantics belong in
+[Definitions](agent-guides/definitions.md) and [Editor and UX](agent-guides/editor-ux.md).
 
-Version 8 adds an optional `bindingId` to Number, Boolean, and Vector3
-parameters plus the non-palette `variable-reference` node. A Value with no
-`bindingId` keeps its historical unbound, label-only behavior even when its
-`name` looks like an identifier. It may still act as an ordinary typed
-input-or-fallback pass-through. A bound Value requires a valid OpenSCAD
-identifier name. Its stable binding ID, not that mutable name, is the reference
-identity.
+## Envelope and metadata
 
-Module and Function parameter IDs are binding IDs in their own definition
-scope. Within Main or one definition graph, binding IDs and names must be
-unique across bound Values and parameters. The same name or imported ID may be
-used independently in another scope. A reference stores only
-`{ "bindingId": "..." }`, must resolve in its enclosing graph, and exposes one
-typed `value` output matching its binding. Missing, stale, duplicate, and
-cross-scope binding data is rejected rather than resolved by name.
-
-Named Values emit dependency-ordered assignments before scoped settings and
-Main/Module Geometry. Function-local Values emit ordered `let(...)` bindings around the Function
-expression. A reference emits only the current identifier, while the original
-Value output retains its prior literal/expression semantics. Binding dependency
-cycles are rejected.
-
-Number and Boolean each have a same-typed `value` input. Vector3 has a whole
-Vector3 `value` input in addition to its Number `x`, `y`, and `z` inputs. A
-connected `value` expression is the node's effective output; otherwise the
-persisted direct value is used. For Vector3, the whole input takes precedence
-over preserved component connections and fallbacks. These additive stable
-ports require no schema version bump: connections already persist by node and
-port ID, and old records simply have no incoming override edge.
-
-The v7→v8 migration changes only the version number. It deliberately adds no
-binding IDs, so every pre-v8 Value name remains a generic label and generated
-OpenSCAD is unchanged.
-
-Numeric Geometry iteration is an additive v8 representation. A `for` header
-stores `{ "pairId", "bindingId", "name", "start", "step", "end" }`; its
-Number fallbacks are overridden by ordinary same-scope connections. Its paired
-`for-result` stores the same `pairId` plus stable ordered Geometry child slots.
-Exactly one persisted connection from the header's `loop` output to the
-result's `loop` input is the fixed structural boundary. It has the dedicated
-`structure` socket type, is rendered as a non-interactive thick wire, and is
-not ordinary Value or Geometry flow.
-
-Both members must be in the same Main or Module graph. Pair IDs and header
-binding IDs are unique in that graph. The iterator is a Number binding whose
-references and direct output may contribute only to dependencies entering the
-matching result body. Enclosing bindings remain visible, nested pairs are
-valid, nested iterators cannot shadow, and independent sibling pairs may reuse
-an iterator name. Invalid/orphaned pairs, stale references, zero fallback
-steps, and iterator escapes are rejected before restore. Existing v8 and
-migrated older projects contain no pair records and need no rewrite.
-
-## Version 7: scoped SCAD settings
-
-Version 7 adds the `scad-settings` node type. Main and every Module graph may
-contain at most one; Function graphs may not contain one. Its parameters are a
-closed object with optional finite Number fallbacks `fn`, `fa`, and `fs`.
-Presence of a field activates the matching Number input port with the same
-stable id. Connected Number expressions override but do not erase the saved
-fallback. The node has no outputs or Geometry sockets.
-
-The node is nevertheless a code-generation root for its entire graph scope.
-Assignments are emitted in canonical `$fn`, `$fa`, `$fs` order before Main
-geometry or at the beginning of a Module body. v6 projects migrate to v7 by
-changing only the version number: no Settings node means the existing
-OpenSCAD defaults continue to apply.
-
-## Version 6: consolidated arithmetic and math families
-
-Version 6 replaces the v5 `add`, `subtract`, `multiply`, and `divide` node
-types with one canonical `arithmetic` type. The migration maps them to the
-canonical operation identifiers `addition`, `subtraction`, `multiplication`,
-and `division`. Their `a`/`b` inputs and `value` output are unchanged, so node
-IDs, positions, scope membership, connection IDs, endpoints, and generated
-OpenSCAD semantics are preserved. The migration runs across
-Main and every Module/Function definition graph.
-
-v6 also adds the canonical `trigonometry`, `basic-math`, and
-`exponential-log` families described below. Writers and autosave only emit
-these consolidated types; the four v5 types are migration input, not live
-catalog entries.
-
-Recursive Function and Module support does not change the v6 representation.
-Direct and mutual Calls already use the existing stable `definitionId`, scoped
-graph, ports, fallbacks, Geometry-child ordering, and connection records, so no
-version bump or migration is needed. See
-`docs/examples/recursive-functions-v6.scadlet` and
-`docs/examples/recursive-modules-v6.scadlet` for validated direct-and-mutual
-recursion fixtures. SCADlet does not statically analyse termination;
-OpenSCAD-WASM remains the evaluator.
-
-## Version 5: Function definitions
-
-Version 5 adds user-defined Functions alongside Modules - see "Function
-definitions (version 5)" below. Existing v4 (Module-only) projects migrate
-to v5 unchanged, with an empty Function registry, then continue through the
-v5 → v6 arithmetic migration.
-
-## Version 4 definitions and semantic signatures
-
-v2 records each node's OpenSCAD semantic arguments rather than renderer
-controls. A new Cube therefore has `{}` parameters and generates `cube()`.
-When Size is active, `sizeRepresentation` is `"scalar"`, `"xyz"`, or
-`"vector"`; scalar and XYZ literals are retained independently as
-`sizeScalar`/`sizeVector`, while `size` contains the active literal form
-(and is absent for the connection-only Vector representation). Adding Center
-stores `"center": true` only when it changes the signature.
-Cylinder and Sphere similarly omit unset optional arguments. Connections are
-still stored separately and address the semantic parameter port (`size`,
-`vector`, `x`, `y`, `z`, `h`, `r`, `center`, and so on), never a DOM
-control. The ordinary data socket vocabulary is Geometry, Number, Vector3,
-and Boolean; a connection is valid only when both ports have the same type.
-For pairs additionally use a dedicated, fixed Structure boundary socket.
-
-Union and Intersection use `parameters.children`, an ordered non-empty list
-of `{ "id": "..." }` stable child-slot identities. Their target input ports
-are `child:<id>`; a trailing empty slot is retained so adding a connection
-never renumbers earlier children. Difference keeps its historical required
-`base` and `subtract` ports and may add an ordered `children` list: the first
-two IDs represent those same ports and later IDs map to stable
-`child:<id>` subtractor ports. Existing Difference records without `children`
-restore with the two historical inputs. All three nodes append one further
-empty slot when their final available Geometry input is connected. This is
-additive v8 state and requires no migration; connections continue to address
-stable input port IDs rather than row positions.
-
-The loader migrates v1 Cubes from `sizeX`/`sizeY`/`sizeZ` into v2 `size`, and
-migrates v1 Union/Intersection `a`/`b` connection endpoints into deterministic
-v2 child slots. v3 adds a project-level `definitions` array; v4 adds an
-ordered Module Geometry-child signature. Existing v1/v2 projects migrate to
-an empty definition array and v3 projects migrate their one structural child
-port into the first Geometry input. It validates the migrated result before opening it. Unsupported
-newer versions are rejected instead of being guessed at.
-
-## Status and compatibility
-
-- `.scadlet` files are plain **JSON** (UTF-8 text), pretty-printed with
-  2-space indentation by SCADlet's own writer (`JSON.stringify(project,
-  null, 2)` in `src/persistence/file-service.ts`). They are meant to be
-  human-readable and diff-friendly, not compressed or base64-encoded.
-- The top-level object always has `"format": "scadlet"` and an integer
-  `"version"`. The format version is **independent of the SCADlet
-  application/package version** - bumping the app's `package.json`
-  version never implies a format change, and vice versa.
-- The current format version is **`8`**. Versions 1–7 are accepted on input
-  and explicitly migrated to v8; writers and browser autosave always emit v8.
-- Unknown/future format versions are rejected outright with a clear error
-  (`Unsupported SCADlet project version: N`) - there is no attempt to
-  guess-parse a newer format. See "Versioning and migrations" below.
-- **Compatibility status: v1 should be treated as internal-but-versioned,
-  not yet a stable long-term public format.** SCADlet is pre-1.0,
-  Milestone 5 (persistence) only just landed, and no external tooling or
-  released version depends on `.scadlet` files yet. The format is
-  explicit and validated (so existing files won't silently corrupt), but
-  no long-term backward-compatibility promise is made beyond "version 1
-  files keep parsing as version 1 files, or a future version will ship an
-  explicit migration". Treat early v1 files as good test/example fixtures
-  rather than as an archival guarantee.
-
-## Top-level structure
-
-A complete example (see `docs/examples/empty-project.scadlet` for the
-exact, test-verified fixture this is based on):
+A complete current empty project:
 
 ```json
 {
   "format": "scadlet",
   "version": 8,
   "metadata": {
-    "name": "Gearbox Experiment",
+    "name": "Empty Project",
     "createdAt": "2026-09-01T00:00:00.000Z",
     "updatedAt": "2026-09-01T00:00:00.000Z"
   },
-  "graph": {
-    "nodes": [],
-    "connections": []
-  },
+  "graph": { "nodes": [], "connections": [] },
   "definitions": [],
-  "editor": {
-    "viewport": {
-      "x": 0,
-      "y": 0,
-      "zoom": 1
-    }
-  },
-  "viewer": {
-    "camera": {
-      "position": [80, 80, 60],
-      "target": [0, 0, 0]
-    }
-  }
+  "editor": { "viewport": { "x": 0, "y": 0, "zoom": 1 } },
+  "viewer": { "camera": { "position": [80, 80, 60], "target": [0, 0, 0] } }
 }
 ```
 
-| Field      | Type                | Required | Meaning                                                          |
-| ---------- | ------------------- | -------- | ----------------------------------------------------------------- |
-| `format`   | `"scadlet"` literal | Yes      | Discriminates this file as a SCADlet project, not arbitrary JSON.  |
-| `version`  | integer             | Yes      | Format version. Versions `1`–`7` migrate; v8 is current.          |
-| `metadata` | object              | Yes      | Project-level descriptive information. See below.                 |
-| `graph`    | object               | Yes      | Semantic program graph: nodes + connections. See below.           |
-| `definitions` | array              | Yes      | Project-owned Module and Function definition graphs. See below.    |
-| `editor`   | object               | Yes      | Editor/canvas presentation state (currently just the viewport).   |
-| `viewer`   | object               | Yes      | 3D viewer presentation state (currently just the camera).         |
+| Field | Required shape |
+| --- | --- |
+| `format` | Exactly `"scadlet"` |
+| `version` | Numeric supported version; the current value is `8` |
+| `metadata` | Object with `name`, nonempty after trimming; optional string `createdAt` and `updatedAt` |
+| `graph` | Main graph object with `nodes` and `connections` arrays |
+| `definitions` | Array of Module and Function definitions, including `[]` for none |
+| `editor` | Object containing `viewport` |
+| `viewer` | Object containing `camera` |
 
-`metadata`, `graph`, `editor`, and `viewer` are required objects, and
-`definitions` is a required array;
-omitting any of them fails validation (`Project "X" must be an object.`).
+All seven envelope fields are required in v8. Metadata timestamps are written
+as ISO 8601 UTC strings but loading validates only their string type. The name
+is independent of the disk filename; filename sanitization supplies a default
+Save As name, not graph identity. `ScadletProjectV8` is the canonical TypeScript
+type; `ScadletProjectV1` and `ScadletProjectV7` remain compatibility aliases.
 
-Implementation: `ScadletProjectV1` in
-[`src/persistence/project.ts`](../src/persistence/project.ts); parsed and
-validated by `parseScadletProject`/`parseScadletProjectText` in
-[`src/persistence/validate.ts`](../src/persistence/validate.ts).
+## Graph records and identities
 
-## `metadata`
+Every graph requires both arrays, even when empty. Nodes belong to exactly one
+Main or definition graph. This containment is scope membership; frame positions
+are not membership. Node IDs must be nonempty strings, unique across the entire
+project. Definition IDs are nonempty and project-unique. Connection IDs are
+nonempty and unique within their graph. IDs are opaque: no UUID shape is required.
 
-```json
-{
-  "name": "Gearbox Experiment",
-  "createdAt": "2026-09-01T00:00:00.000Z",
-  "updatedAt": "2026-09-01T00:00:00.000Z"
-}
-```
-
-| Field       | Type   | Required | Meaning                                                              |
-| ----------- | ------ | -------- | ---------------------------------------------------------------------- |
-| `name`      | string | Yes      | The project's display name. Must be non-empty after trimming whitespace. |
-| `createdAt` | string | No       | Timestamp of the project's first save.                                |
-| `updatedAt` | string | No       | Timestamp of the most recent save.                                    |
-
-- SCADlet's own writer always emits `createdAt`/`updatedAt` as
-  `Date.toISOString()` (ISO 8601, UTC, millisecond precision), but **the
-  loader does not verify their format** - it only checks that, if
-  present, they are strings (`typeof === 'string'`). A file with
-  `"createdAt": "not a date"` currently loads without error; only a
-  non-string value (e.g. a number) is rejected.
-- `metadata` never affects graph/OpenSCAD semantics. It is pure
-  descriptive information.
-- **The project name in the file is independent of the filename on
-  disk.** `src/persistence/filename.ts`'s `toScadletFilename()` derives a
-  *default* Save-As filename from `metadata.name` (sanitized and given a
-  `.scadlet` extension), but nothing re-checks or enforces that a file's
-  `metadata.name` still matches the filename it happens to be saved as -
-  a user can freely rename the file on disk, or open a `foo.scadlet` file
-  whose `metadata.name` is `"Bar"`.
-
-## `graph`
-
-```json
-{
-  "nodes": [ /* ScadletNodeDTO[] */ ],
-  "connections": [ /* ScadletConnectionDTO[] */ ]
-}
-```
-
-Both `nodes` and `connections` are **required arrays** (an empty project
-still has `"nodes": []` and `"connections": []` explicitly present, not
-omitted).
-
-`graph` intentionally mixes two different kinds of state in the same
-subtree, as a pragmatic choice rather than an architectural ideal:
-
-- **Semantic state** (defines the OpenSCAD model): each node's `type` and
-  `parameters`, and all `connections`.
-- **Visual/editor state** (defines how the graph looks in the editor):
-  each node's `position`, and its optional `collapsed` flag.
-
-If a future refactor separates these more strictly (e.g. moving
-`position`/`collapsed` into `editor`), that would be a structural format
-change requiring a new version - see "Versioning and migrations".
-
-### Node record (`ScadletNodeDTO`)
+### Nodes
 
 ```json
 {
   "id": "sphere-1",
   "type": "sphere",
   "position": { "x": 270.65, "y": 313.2 },
-  "parameters": { "mode": "radius", "r": 5, "d": 10 },
+  "parameters": { "mode": "radius", "r": 5, "fn": 50 },
   "collapsed": true
 }
 ```
 
-| Field        | Type                   | Required | Meaning |
-| ------------ | ---------------------- | -------- | ------- |
-| `id`         | string                 | Yes      | Persistent node identity. Must be non-empty and unique within `graph.nodes`. Connections reference nodes by this id. |
-| `type`       | string                 | Yes      | Stable, language-independent node-type id. Must match a known catalog type (see below) - never a translated UI label, class name, or DOM id. |
-| `position`   | `{ x: number, y: number }` | Yes  | The node's top-left origin in the editor's infinite-canvas graph coordinate space (the same space `AreaPlugin.translate(id, position)` uses) - editor layout, not OpenSCAD semantics. Both fields must be finite numbers. |
-| `parameters` | object                 | Yes*     | This node type's full semantic state - see "Per-node parameter schemas". `*` May be omitted, in which case it defaults to `{}` before validation; this only actually succeeds for the three parameterless Boolean-operation node types (any node type with required fields will fail validation against an empty object). |
-| `collapsed`  | boolean                | No       | Explicit node compact presentation state. Omission means expanded (`false`). See below. |
+| Field | Contract |
+| --- | --- |
+| `id` | Stable node identity |
+| `type` | Known language-independent catalog ID, never a label/class/DOM name |
+| `position` | Required finite `x` and `y`, the node's top-left graph coordinates |
+| `parameters` | Node-specific object described below; omitted or `null` is normalized to `{}` before its validator runs, succeeding only where empty parameters are valid |
+| `collapsed` | Optional boolean; omission means expanded. The writer omits it for expanded nodes |
 
-#### `id`
-
-Node ids are opaque strings (SCADlet itself generates Rete's own
-`crypto.randomUUID()`-style ids at creation time, but the format does not
-require any particular id shape). Duplicate ids within the same file are
-rejected (`Duplicate node id: "..."`).
-
-#### `type`
-
-The currently valid `type` values, all defined in the single node catalog
-([`src/editor/node-catalog.ts`](../src/editor/node-catalog.ts)):
+`position` and `collapsed` are presentation state, not OpenSCAD parameters.
+The complete current catalog is:
 
 ```text
-cube
-cylinder
-sphere
-translate
-rotate
-scale
-difference
-union
-intersection
-number
-boolean
-vector3
-pi
-arithmetic
-trigonometry
-basic-math
-vector-math
-min-max
-exponential-log
-compare
-conditional
-if
-for
-for-result
-module-inputs
-module-output
-module-call
-function-inputs
-function-output
-function-call
-scad-settings
+cube cylinder sphere translate rotate scale difference union intersection
+number boolean vector3 pi arithmetic trigonometry basic-math vector-math
+min-max exponential-log compare conditional if for for-result scad-settings
+module-inputs module-output module-call function-inputs function-output
+function-call variable-reference
 ```
 
-An unrecognized `type` fails with `Unknown node type: "<value>"`. See
-"Per-node parameter schemas" for each type's `parameters` shape and
-"Connections" for each type's valid port ids.
-
-#### `position`
-
-Interpreted in the node-editor's own graph coordinate space - the same
-space node positions have always lived in since before persistence
-existed (`clientToGraphPosition`, `area.translate(id, position)` in
-`src/editor/editor.ts`/`coordinates.ts`). It has no relationship to
-OpenSCAD's 3D coordinate system.
-
-#### `parameters`
-
-Node-type-specific semantic state, validated and shaped entirely by that
-node type's own validator (`NodeCatalogEntry.validateParams`) - never a
-raw dump of Rete `ClassicPreset.Control` instances. See the per-node
-sections below for exact shapes.
-
-#### `collapsed`
-
-- Optional; **omitting the key means expanded** (the
-  `NodePresentationManager` default). When present, it must be a literal
-  boolean.
-- This is deliberately *presentation* state, not a graph/OpenSCAD
-  parameter: a collapsed node renders its compact editor body without
-  changing generated OpenSCAD.
-- Explicit collapse is persisted because it is a deliberate user action.
-  Hover, selection, and held wire gestures do not change this field or reveal
-  hidden controls.
-- The writer (`serializeProject` in `src/persistence/serialize.ts`) omits
-  `collapsed` for an expanded node rather than writing `"collapsed": false`.
-  This optional default lets old v6/v7/v8 records lacking the field restore normally
-  expanded without a schema bump.
-
-## `definitions`
-
-Version 3 introduces a separate semantic graph for each project-owned Module.
-The Main `graph` remains the program body; a definition is never inferred from
-the position of its visible same-canvas frame. Its stable `id` is independent
-from its user-editable OpenSCAD-style `name`.
+### Connections
 
 ```json
 {
-  "id": "definition-wheel",
-  "kind": "module",
-  "name": "wheel",
-  "interface": {
-    "inputs": "wheel-inputs",
-    "output": "wheel-output"
-  },
-  "geometryInputs": [
-    { "id": "geometry-profile", "name": "Profile" }
-  ],
-  "parameters": [
-    { "id": "parameter-radius", "name": "radius", "type": "number", "default": 10 }
-  ],
-  "graph": {
-    "nodes": [
-      { "id": "wheel-inputs", "type": "module-inputs", "position": { "x": 10, "y": 20 }, "parameters": {} },
-      { "id": "wheel-cube", "type": "cube", "position": { "x": 170, "y": 20 }, "parameters": {} },
-      { "id": "wheel-output", "type": "module-output", "position": { "x": 330, "y": 20 }, "parameters": {} }
-    ],
-    "connections": [{ "id": "wheel-body", "source": "wheel-cube", "sourceOutput": "geometry", "target": "wheel-output", "targetInput": "geometry" }]
-  }
+  "id": "connection-1",
+  "source": "cube-1",
+  "sourceOutput": "geometry",
+  "target": "union-1",
+  "targetInput": "child:slot-1"
 }
 ```
 
-- `definitions` is always an array; v1/v2 files migrate to `[]`.
-- Module names are non-empty OpenSCAD-style identifiers and unique per
-  project. Names are not definition identity.
-- `parameters` is an ordered signature. Each item has a stable non-empty
-  `id`, a scope-unique OpenSCAD-style binding name, one of `number`, `boolean`,
-  or `vector3`, and a matching finite literal default. Its ID also identifies
-  same-scope Variable references. A parameter name may not collide with a
-  bound Value in that definition. Missing `parameters` in
-  a historically written parameterless v3 record is normalized to `[]`;
-  writers always include the array. The `module-inputs` node's own
-  `parameters` remains `{}` in both forms: its dynamic ports are derived from
-  the enclosing definition signature, never copied into node state.
-- Parameter port IDs are `parameter:<id>`, derived from the signature during
-  restore rather than serialized as renderer sockets. Future rename/reorder
-operations therefore preserve existing wires through the stable ID.
-Module names are mutable source labels: renaming a definition preserves its
-stable definition ID, definition graph, and all `module-call.definitionId`
-references. Deleting a definition removes its definition record, scoped graph,
-and Calls as an ordinary v3 semantic mutation; no format-version change is
-required.
-`geometryInputs` is a distinct ordered signature of `{ id, name }` values.
-Each stable id derives the matching Inputs output and Call input port
-`geometry:<id>`. The Inputs output emits `children(index);`, where `index` is
-its current signature order. Names are UI labels only, never port identity or
-OpenSCAD identifiers. Calls emit connected child geometry in that order; gaps
-before a later connected input use `union() {}` placeholders so child indices
-never compact. There are no Geometry defaults or Call fallbacks.
-Type changes retain the parameter ID but reset every Call fallback for that ID
-to the new definition default after attached connections are removed. Deletion
-preflights the complete dynamic signature and removes the ID, its Call fallback
-entries, its same-scope Variable references, and only affected connections as
-one editor operation; cancellation or failure leaves the stored payload unchanged. These edits do
-not change the v3 schema.
-- Each Module has exactly one `module-inputs` node and one `module-output`
-  node. The latter owns the one stable Geometry input `geometry`.
-- Ordinary catalog nodes may be created in this graph by dropping a static
-  palette node into its frame. Their ownership is explicit in this enclosing
-  graph record, never inferred continuously from their current coordinates.
-  A completed ordinary-node drop may explicitly transfer a node/group between
-  this graph, another Module graph, and Main when its connections remain
-  scope-valid; the resulting enclosing graph is what persists.
-- Nodes and connections are contained in exactly one graph scope. A
-  connection cannot cross between Main and a definition graph.
-- Definition-frame bounds are derived editor presentation from these member
-  node positions; frame geometry is not serialized as semantic membership.
+All five fields are required strings. Endpoints must exist in the same graph.
+Ports are stable semantic IDs validated against catalog state and definition
+signatures; row indices, labels, and inactive alternative ports are invalid.
+Each input accepts at most one connection. Ordinary connections require equal
+Geometry, Number, Boolean, or Vector3 types, without implicit conversion.
+Unresolved is presentation metadata, not a persisted value type.
 
-Definitions are emitted as OpenSCAD declarations in deterministic dependency
-order: resolved Functions first, then Modules in effective callee-before-caller
-order. Function and Module dependencies use the same strongly connected
-component (SCC) architecture: acyclic callees precede callers, recursive SCC
-members retain stable definition/project order, and SCCs remain dependency
-ordered.
-The `module-output` Geometry connection is the one body root;
-an unconnected Output emits an empty body. A declaration itself is never Main
-geometry, so an unused definition does not render until a Main `module-call`
-uses it.
+Each complete graph must be acyclic, including disconnected drafts. Binding
+cycles are checked separately. This does not prohibit recursive definition
+Calls, whose dependencies are distinct from node-dataflow edges. For pairs have
+one persisted fixed `loop`→`loop` connection with the dedicated `structure`
+socket type; it is not an ordinary semantic connection.
 
-### `module-call`
+Connection IDs and endpoints survive restore unchanged. Round trips preserve
+identity and meaning; normalization, metadata updates, and omitted defaults
+mean byte-identical files are not guaranteed.
 
-`module-call` is a generic Geometry-producing node, not a generated node type
-named after a Module. It may occur in Main or in a Module definition graph.
-Its parameter record contains the stable
-definition reference plus independent literal fallbacks keyed by parameter ID:
+## Definitions and Calls
+
+A Module record has this shape (the graph is abbreviated here):
+
+```text
+{
+  id, kind: "module", name,
+  interface: { inputs: <node ID>, output: <node ID> },
+  parameters: [{ id, name, type, default }],
+  geometryInputs: [{ id, name }],
+  graph: { nodes: [...], connections: [...] }
+}
+```
+
+A Function uses `kind: "function"`, no `geometryInputs`, and optional
+`resultType: "number" | "boolean" | "vector3"`. Omit unresolved `resultType`;
+`null` is invalid. Both kinds share the ordered parameter signature and interface
+roles. Names are project-unique across both kinds and match
+`^[A-Za-z_][A-Za-z0-9_]*$`; the validator does not check OpenSCAD reserved words.
+
+| Signature field | Validation and identity |
+| --- | --- |
+| Parameter `id` | Nonempty, unique within signature; also a same-scope binding ID |
+| Parameter `name` | Identifier, unique among parameters and bound Values in that scope |
+| Parameter `type` | `number`, `boolean`, or `vector3` |
+| Parameter `default` | Finite number, boolean, or exactly three finite numbers matching type |
+| Geometry input `id` | Nonempty and unique within the ordered Geometry signature |
+| Geometry input `name` | Nonempty after trim; display label, not an OpenSCAD identifier |
+
+Missing definition `parameters` normalizes to `[]` for compatibility with old
+parameterless records; writers include it. Module `geometryInputs` is required.
+Each definition graph contains exactly one matching Inputs and Output node,
+whose IDs match `interface`. These nodes have `{}` parameters; their ports
+are derived from the owning signature. Interfaces are forbidden in Main;
+Module and Function interfaces cannot appear in each other's scopes.
+
+Module Inputs outputs `parameter:<id>` and Geometry `geometry:<id>`; Module
+Output has one Geometry input `geometry`. Geometry signature order determines
+`children(index);`; Call gaps before later connected children remain explicit
+empty child blocks. Frame bounds are derived and are not persisted.
+
+Function Inputs outputs only typed `parameter:<id>` ports. Function Output has
+one `result` input. A resolved `resultType` requires exactly one matching result
+connection; unresolved requires none. Function graphs permit only
+`function-inputs`, `function-output`, `function-call`, `variable-reference`,
+`number`, `boolean`, `vector3`, `pi`, `arithmetic`, `trigonometry`, `basic-math`,
+`vector-math`, `min-max`, `exponential-log`, `compare`, and `conditional`.
+
+### Call parameters
+
+Both Call kinds store a nonempty `definitionId` and optional `arguments` object:
 
 ```json
 { "definitionId": "definition-wheel", "arguments": { "parameter-radius": 25 } }
 ```
 
-The referenced definition must exist in the same project's `definitions`
-array and have `kind: "module"`; dangling references are rejected. The
-The Module name/signature are resolved from the definition at load/runtime and
-generate explicit named arguments such as `wheel(radius = 25);`; they are not
-duplicated as authoritative call state. A connected typed value overrides but
-does not erase the stored fallback.
-Module Calls remain forbidden inside Function definition graphs. Function
-Calls are permitted in Main, Module, and Function graphs, as described below.
+The referenced definition must exist and have the corresponding kind.
+`arguments` keys are parameter IDs, not names; unknown keys and wrong-typed
+fallbacks are rejected. Missing fallbacks use the definition default when
+constructed. Both Calls expose typed `parameter:<id>` inputs; Module Calls also
+expose Geometry `geometry:<id>` inputs. Connected expressions override retained
+Call fallbacks. Module
+Calls occur only in Main/Module graphs and output `geometry`; Function Calls
+occur in all three scopes and output `value` with the callee's result type.
+A Call to an unresolved Function may persist as a disconnected draft but cannot
+have outgoing wires. Deleting a callee does not license dangling Call records.
 
-## Function definitions (version 5)
+Direct and mutual recursion use these same fields without extra durable state.
+Declaration ordering and safe signature edits are specified in
+[Definitions](agent-guides/definitions.md).
 
-Version 5 adds a second `kind` to `definitions`: `"function"`, sharing the
-exact same stable-id parameter-signature and interface-role shape as a
-Module (`interface.inputs`/`interface.output`, ordered `parameters`), but
-with two differences: there is no `geometryInputs` field, and an optional
-`resultType` records the Function's inferred value type once resolved.
+## Per-node parameters and ports
 
-```json
-{
-  "id": "definition-double-size",
-  "kind": "function",
-  "name": "double_size",
-  "interface": { "inputs": "double-size-inputs", "output": "double-size-output" },
-  "parameters": [
-    { "id": "parameter-x", "name": "x", "type": "number", "default": 1 }
-  ],
-  "resultType": "number",
-  "graph": {
-    "nodes": [
-      { "id": "double-size-inputs", "type": "function-inputs", "position": { "x": 10, "y": 20 }, "parameters": {} },
-      { "id": "double-size-multiply", "type": "arithmetic", "position": { "x": 170, "y": 20 }, "parameters": { "operation": "multiplication", "a": 0, "b": 2 } },
-      { "id": "double-size-output", "type": "function-output", "position": { "x": 330, "y": 20 }, "parameters": {} }
-    ],
-    "connections": [
-      { "id": "x-to-a", "source": "double-size-inputs", "sourceOutput": "parameter:parameter-x", "target": "double-size-multiply", "targetInput": "a" },
-      { "id": "multiply-to-output", "source": "double-size-multiply", "sourceOutput": "value", "target": "double-size-output", "targetInput": "result" }
-    ]
-  }
-}
-```
+All numeric fields below must be finite. Optional fields are omitted when
+inactive unless explicitly retained as fallbacks. Ports are case-sensitive;
+type names in prose are UI terminology, while lowercase IDs are serialized.
 
-- `resultType` is one of `"number"`, `"boolean"`, or `"vector3"`, or omitted
-  entirely while the Function is still an unresolved editor draft. It is
-  never written as `null`.
-- `resultType` and the graph's connections into `function-output`'s `result`
-  input must agree: a resolved `resultType` requires exactly one such
-  connection; an unresolved Function must have none. Either mismatch is
-  rejected at load time.
-- `function-inputs` has no Geometry outputs, only the same
-  `parameter:<id>` typed value outputs Module Inputs uses for its own value
-  parameters - a Function's parameter signature never includes a Geometry
-  type.
-- `function-output` has exactly one input, the stable port id `result`. Its
-  socket type is the owning Function's `resultType` when resolved; while
-  unresolved it accepts no real connection at all (see above), and is
-  rendered as a neutral/grey socket rather than any of the three real types.
-- A Function definition graph may only contain `function-inputs`,
-  `function-output`, `function-call`, and the existing value/math vocabulary
-  (`number`, `boolean`, `vector3`, `arithmetic`, `trigonometry`,
-  `basic-math`, `exponential-log`, `compare`, `conditional`).
-  Any Geometry-producing/consuming node type, Module interface node, or
-  `module-call` is rejected.
-- Effective dependencies are derived only from Calls whose values/Geometry can
-  reach their owning Function/Module Output. Disconnected/dead Calls do not
-  affect declaration order or SCC membership. Resolved
-  Functions are emitted before Modules. Acyclic Function dependencies remain
-  callee-before-caller; directly and mutually recursive Functions form SCCs
-  whose members are emitted in stable definition/project order. Modules then
-  use the same rules: acyclic dependencies remain callee-before-caller, while
-  direct and mutually recursive Modules form deterministically ordered SCCs
-  with members in stable definition/project order.
-- Function Calls are allowed in Main, Module definitions, and Function
-  definitions (including self- and mutually recursive Calls). Module Calls are
-  allowed in Main and Module definitions only. OpenSCAD-WASM is the sole
-  evaluator; schema validation does not and cannot prove that recursion
-  terminates at runtime.
-- An unresolved Function is not emitted and cannot be used to create a new
-  Call. Existing Calls may remain as disconnected drafts with an unresolved
-  output so result disconnection and callee deletion can be saved safely.
+### Primitive Geometry
 
-### `function-call`
+Primitives output `geometry`. Inputs are Number except Boolean `center` and
+Cube's Vector3 `sizeVector`. Empty parameters are valid for Cube, Cylinder,
+and Sphere and represent omitted OpenSCAD arguments.
 
-`function-call` is a generic value-producing node, exactly parallel to
-`module-call` but producing one typed value output (port id `value`) instead
-of Geometry. It may occur in Main, a Module definition graph, or a Function
-definition graph:
+| Type | Parameters | Active input ports |
+| --- | --- | --- |
+| `cube` | Optional `size` (number or `{x,y,z}`), `sizeRepresentation` (`scalar`, `xyz`, `vector`), retained `sizeScalar` (number), retained `sizeVector` (`{x,y,z}`), `center` (boolean) | Scalar: Number `size`; XYZ: Number `sizeX`, `sizeY`, `sizeZ`; Vector: Vector3 `sizeVector`; Boolean `center` when present |
+| `cylinder` | Optional `h`, `r`, `d`, `r1`, `r2`, `fn` (numbers), `center` (boolean), `mode` (`radius`, `diameter`, `tapered`) | Present `h`, `fn`, `center`; present `r` in radius mode, `d` in diameter mode, `r1`/`r2` in tapered mode |
+| `sphere` | Optional `r`, `d`, `fn` (numbers), `mode` (`radius`, `diameter`) | Present `fn`; present `r` or `d` in the selected mode |
 
-```json
-{ "definitionId": "definition-double-size", "arguments": { "parameter-x": 10 } }
-```
+Cube's writer retains Scalar/XYZ literals independently and omits active `size`
+for connection-only Vector form. Its validator accepts optional retained fields
+and infers missing `sizeRepresentation` from `size`: number → Scalar, object →
+XYZ. It also recognizes the legacy `sizeX`/`sizeY`/`sizeZ` plus boolean `center`
+shape; v1 migration converts normal v1 records as described below.
 
-The referenced definition must exist and have `kind: "function"`. A resolved
-callee gives the Call its `resultType`; its stable parameter IDs define typed
-`parameter:<id>` inputs and its per-Call fallbacks remain independent. A Call
-inside another Function participates in that caller's expression normally.
-It may target that same Function or a peer in a mutually recursive SCC.
-New Calls cannot be created for an unresolved Function, but a previously
-existing disconnected Call is valid persisted draft state and restores with
-an unresolved output. Any outgoing wire from such a Call is invalid.
+Cylinder/Sphere may retain inactive sizing literals, which are validated but do
+not activate ports. Cylinder `h` is height; `r1`/`r2` are bottom/top radii.
+`r` and `d` are radius and diameter. Sphere has no `center` parameter and is
+centred at the origin. `fn` represents `$fn`;
+omission leaves OpenSCAD's default. Validators do not require positive dimensions
+or integer facet counts. See [Cube](../src/openscad/cube.ts),
+[Cylinder](../src/openscad/cylinder.ts), and [Sphere](../src/openscad/sphere.ts).
 
-Recursive Function and Module Calls need no new durable fields: the existing
-stable definition ID, scoped graph membership, parameter and Geometry-child
-ports/fallbacks, and connections fully represent them. They therefore remain
-the same canonical representation in v8; the v4 → v5 → v6 → v7 → v8 migration
-chain preserves it unchanged.
+### Transforms
 
-Module Calls remain forbidden inside Function definitions; both Call kinds are
-valid in Module definitions.
+`translate`, `rotate`, and `scale` require numeric `x`, `y`, `z`; optional
+`representation` is `xyz`, `vector`, or `none`, defaulting to `xyz` when omitted.
+All have Geometry input/output `geometry`. XYZ exposes Number inputs `x`/`y`/`z`;
+Vector exposes only Vector3 `vector`; None exposes no value inputs and emits an
+argumentless transform around its Geometry. XYZ literals remain stored in every
+representation. Default Translate/Rotate values are zero; Scale values are one.
+Rotate uses Euler degrees, not axis-angle form.
 
-Existing v4 projects (Modules only, no Functions) migrate through v5 and then
-to v8, with no Function entries added to the shared `definitions` array.
+### Ordered Boolean Geometry inputs
 
-## Per-node parameter schemas
+`union` and `intersection` require `children: [{ "id": "..." }]`, a nonempty
+ordered list of nonempty unique IDs; ports are `child:<id>`. `difference` uses
+the same list with at least two entries: positions zero and one map to stable
+ports `base` and `subtract`, and later IDs map to `child:<id>`. Missing Difference
+`children` normalizes to `[{id: "base"}, {id: "subtract"}]`.
 
-Every parameter name below is the exact, persisted property name (as
-returned by that node class's own `getPersistedParams()` method and
-validated by that type's `validate*Params` function) - not a UI label.
-Optional semantic parameters are omitted while inactive. A representation
-may retain literal editor state (for example Cube's Scalar and XYZ forms)
-without retaining inactive sockets or connections.
+All output `geometry`. The editor retains an empty extension slot and appends
+one when the last slot is connected; the file validator checks list shape and
+port addressing but does not require a trailing disconnected Geometry slot.
+Disconnecting Geometry leaves reusable slots; their order controls source order.
 
-### `scad-settings`
+Legacy Union/Intersection slot IDs `a` and `b` restore with bare `a`/`b` port
+keys. The validator also accepts bare IDs for other children, but restoration
+constructs only `child:<id>` for those slots and rejects such edges during
+preparation. Use canonical prefixed ports for non-legacy slots; this existing
+validation/restoration mismatch does not change the format version.
 
-`scad-settings` stores an object containing zero or more of `{ "fn": number,
-"fa": number, "fs": number }`. Every present value must be finite. A present
-field activates the same-named Number input; an absent field means the row and
-port do not exist. The input may carry any ordinary same-scope Number
-expression, which overrides but does not erase the saved fallback.
+### SCAD settings
 
-The node has no output and no Geometry participation. Main and each Module may
-contain at most one, and Function graphs reject it. Code generation still
-roots it once for its scope and emits `$fn`, `$fa`, `$fs` assignments in that
-canonical order before the scope body. There is no arbitrary-name or generic
-special-variable representation.
+`scad-settings` stores optional finite `fn`, `fa`, and `fs`. Present fields
+activate matching Number inputs, with connected expressions overriding retained
+fallbacks. There are no outputs. Main and each Module allow at most one;
+Functions reject it. These are scope-level source settings, not render options.
+Only these three names are recognized; unknown fields are discarded.
 
-### `for` and `for-result`
+### Values and Variable references
 
-`for` stores a stable pair ID, stable iterator binding ID, valid OpenSCAD
-identifier name, and finite Number fallbacks for `start`, `step`, and `end`.
-Its ports are Number inputs `start`/`step`/`end`, Number output `value`, and
-structural output `loop`. A known literal zero step is invalid.
+| Type | Required parameters | Optional parameters | Inputs | Output |
+| --- | --- | --- | --- | --- |
+| `number` | `value` (number) | `name`, `bindingId` | Number `value` | Number `value` |
+| `boolean` | `value` (boolean) | `name`, `bindingId` | Boolean `value` | Boolean `value` |
+| `vector3` | Numeric `x`, `y`, `z` | `name`, `bindingId` | Vector3 `value`; Number `x`, `y`, `z` | Vector3 `value` |
+| `variable-reference` | Nonempty string `bindingId` | None | None | `value`, resolved from same-scope binding |
+| `pi` | None (`{}`) | None | None | Number `value`, expression `PI` |
 
-`for-result` stores the matching pair ID and a non-empty ordered
-`children: [{ id }]` list. Geometry inputs use `child:<id>`, retaining one
-empty extension slot, and its normal `geometry` output represents the complete
-loop. Its structural `loop` input accepts only the matching header's fixed
-connection. All connected Geometry child statements are emitted, in slot
-order, inside `for (name = [start : step : end]) { ... }`. A structurally
-valid result with no connected Geometry child is a valid persisted editing
-state and emits no source at all; it does not emit an empty `for` block.
+Missing or non-string Value `name` normalizes to `Number`, `Boolean`, or
+`Vector3`. Without `bindingId`, it remains a label. A present `bindingId` must
+be a nonempty string and requires an identifier name unique among bound Values
+and parameters in its scope. IDs also must be scope-unique. A reference stores
+only binding identity, not a copied name/type, and cannot resolve across scopes.
+Initial editor activation uses the Value node ID as its binding ID; later rename
+or valid scope transfer preserves it. Clipboard copies receive fresh IDs.
 
-### Value and math nodes
+Direct fields remain saved fallbacks. Whole-Vector3 `value` overrides preserved
+component inputs/fallbacks. Binding assignment ordering and reference evaluation
+follow [Definitions](agent-guides/definitions.md#value-definitions-and-variable-references).
 
-`number` stores `{ "value": number, "name": string, "bindingId"?: string }`;
-`boolean` stores `{ "value": boolean, "name": string, "bindingId"?: string }`;
-and `vector3` stores finite numeric
-`{ "x": number, "y": number, "z": number, "name": string, "bindingId"?: string }`.
-When omitted, `bindingId` preserves the legacy label-only behavior. When
-present it must be non-empty, `name` must be a valid scope-unique OpenSCAD
-identifier, and the Value becomes an assignment root. The binding ID normally
-starts as the Value node's own stable ID when the user first commits a valid
-name; it remains stable through later renames and scope-valid movement.
+### Math families
 
-The direct fields above are always retained as fallbacks. `number.value` and
-`boolean.value` are overridden by a compatible incoming connection to the
-stable `value` input port. For `vector3`, an incoming Vector3 on `value`
-overrides the `[x, y, z]` expression assembled from its component Number inputs
-and fallbacks. Disconnecting an override requires no parameter rewrite and
-immediately restores the saved fallback expression. Named assignments,
-ordinary direct outputs, and downstream references all use this same effective
-input-or-fallback evaluation.
+All output Number `value` except operation-dependent Vector Math.
 
-`variable-reference` stores exactly `{ "bindingId": string }`. It has no
-inputs or editable value and exposes one `value` output whose Number, Boolean,
-or Vector3 type is resolved from the same-scope binding during validation and
-restore. Its visible label is projected from that binding and is not persisted
-as duplicate authority. References are permitted in Main, Module, and Function
-graphs but never resolve outside their enclosing graph.
-
-`arithmetic` stores `{ "operation": id, "a": number, "b": number }`, where
-`id` is exactly `addition`, `subtraction`, `multiplication`, `division`,
-`modulo`, or `power`. It emits `(a + b)`, `(a - b)`, `(a * b)`, `(a / b)`,
-`(a % b)`, or `pow(a, b)` respectively.
-
-`trigonometry` stores `{ "operation": id, "a": number, "b": number,
-"inputPorts": [...] }`. Canonical operation IDs are `sin`, `cos`, `tan`,
-`asin`, `acos`, `atan`, and `atan2`. Unary operations require exactly
-`"inputPorts": ["a"]`; `atan2` requires exactly `["a", "b"]` and emits
-`atan2(y, x)`. The stable `a` input is visibly labelled X for unary operations
-and Y for `atan2`; the dynamic `b` input is labelled X. Duplicate, missing,
-out-of-order, or operation-incompatible port metadata is rejected.
-
-`basic-math` stores `{ "operation": id, "x": number }`, with `abs`, `sign`,
-`sqrt`, `floor`, `ceil`, `round`, or `negate`. `exponential-log` uses the same shape with
-`exp`, `ln`, or `log`. These numbers are fallback literals for their
-input ports, not precomputed results. Generated graph values remain OpenSCAD
-expressions: a Vector3 emits `[x, y, z]`. Connecting a value replaces the
-relevant fallback during evaluation but does not erase it from this persisted
-record.
-
-All four families are valid in Main, Module definitions, and Function
-definitions. Their operation is selected by canonical model state, while the
-palette and node header render the corresponding symbol/name directly. The
-header dropdown is the visible title; no redundant operation row is stored or
-rendered. Palette selection is included in the creation payload, so a dragged
-node enters Rete already configured for that operation.
-
-`vector-math` stores `{ "operation": id, "a": number, "b": number,
-"factor": number }`. Its operation is one of `add`, `subtract`, `scale`,
-`divide`, `dot`, `cross`, `norm`, or `negate`; active typed ports and the
-Number or Vector3 result type follow the operation. `min-max` stores
-`{ "operation": "minimum"|"maximum", "operands": [{ "id": string,
-"value"?: number }, ...] }`. The first two records are fixed `a` and `b`
-inputs. Later records have stable port ids and optional direct fallbacks, with
-one final empty record reserved as the extension input. `pi` stores an empty
-parameter object and generates the OpenSCAD constant `PI`. These additive
-catalog entries do not change the v8 envelope or migration rules.
-
-Changing between unary trigonometric operations preserves every wire.
-Changing to `atan2` retains the stable `a` wire, relabels it Y, and adds one
-`b`/X input. Changing back removes only `b`; if it is connected, the editor
-confirms first and removes that wire through Rete before the port. Cancellation
-is a complete no-op, and failures roll back the operation, port, and wire.
-
-`compare` stores `{ "operator": "<" | "<=" | ">" | ">=" | "==" | "!=", "a": number, "b": number }`
-and has Number inputs `a`/`b` plus a Boolean `value` output. `a` and `b` are
-independent inline fallback literals, each defaulting to `0`; a connected
-Number overrides but does not erase its fallback. Historical v6 Compare
-records containing only `operator` normalize both fallbacks to `0` on load.
-Its palette and
-node header use the same direct operation selector as the four Math families,
-while the six established symbolic identifiers and generated semantics remain
-unchanged. `conditional`
-stores either `{}` while unresolved or `{ "valueType": "number" | "boolean"
-| "vector3" }` after a branch establishes its type. Its stable inputs are
-`condition` (Boolean), `true`, and `false`; its stable output is `result`.
-The two branches and Result must share `valueType`. An unresolved Conditional
-cannot have branch/Result connections; a resolved one must retain at least one
-branch connection. A Result connection is valid only once all three inputs are
-connected. These rules let restore reconstruct the same socket state without a
-schema-version change.
-
-`if` is the Geometry-producing counterpart to value-only `conditional`. It
-stores no parameters and has fixed ports: Boolean input `condition`, required
-Geometry input `then`, optional Geometry input `else`, and Geometry output
-`geometry`. A reachable If without Condition or Then is rejected before source
-generation; an Else-less If is valid and emits an ordinary OpenSCAD `if` block.
-It is valid in Main and Module graphs, never Function graphs. Every connected
-branch of a reachable If participates in effective definition dependencies;
-dead/disconnected If drafts do not.
-
-All source and math value outputs use the stable port id `value`; Vector3
-uses Number inputs `x`, `y`, and `z`; Arithmetic and Compare use `a`/`b`,
-Trigonometry uses `a` plus dynamic `b`, and the other unary families use `x`.
-Without `bindingId`, `name` remains a SCADlet-only human-readable source label,
-not an OpenSCAD variable or graph identity. It is optional when loading older
-v2 files and normalizes to the source type name. With `bindingId`, `name` is
-the mutable OpenSCAD identifier while the ID remains identity. Number/Boolean
-sources have no inputs.
-Transient inspect selection and the
-value result returned by OpenSCAD `echo()` are deliberately excluded from
-the project file.
-
-### `cube`
-
-Source: [`src/openscad/cube.ts`](../src/openscad/cube.ts)
-(`CubeParams`/`validateCubeParams`).
-
-```json
-{
-  "sizeRepresentation": "xyz",
-  "size": { "x": 20, "y": 10, "z": 10 },
-  "sizeScalar": 20,
-  "sizeVector": { "x": 20, "y": 10, "z": 10 },
-  "center": true
-}
-```
-
-| Field | Type | Required | Meaning |
+| Type | Parameters | Operation IDs | Inputs |
 | --- | --- | --- | --- |
-| `sizeRepresentation` | `"scalar"` / `"xyz"` / `"vector"` | when Size is active | The sole active editor/input representation of semantic `size`. |
-| `size` | number or `{x,y,z}` | Scalar/XYZ only | The active inline OpenSCAD literal. Omitted for connection-only Vector. |
-| `sizeScalar` | number | when Size is active | Retained Scalar literal for later representation switching. |
-| `sizeVector` | `{x,y,z}` | when Size is active | Retained XYZ literals for later representation switching. |
-| `center` | boolean | no | OpenSCAD's optional `center` flag. |
-
-Only the active representation's input ports may appear in `connections`:
-`size` for Scalar, `sizeX`/`sizeY`/`sizeZ` for XYZ, or `sizeVector` for
-Vector. Older v2 Cube records without `sizeRepresentation` are normalized
-from their `size` literal (`number` → Scalar, vector → XYZ).
-
-### `cylinder`
-
-Source: [`src/openscad/cylinder.ts`](../src/openscad/cylinder.ts)
-(`CylinderParams`/`validateCylinderParams`).
-
-```json
-{ "h": 10, "mode": "radius", "r": 5, "center": true, "fn": 50 }
-```
-
-| Field    | Type              | Required | Constraint                                  | Meaning |
-| -------- | ----------------- | -------- | -------------------------------------------- | ------- |
-| `h`      | number             | No       | finite                                        | Cylinder height. |
-| `mode`   | string             | No       | one of `"radius"`, `"diameter"`, `"tapered"`  | Which of OpenSCAD's mutually exclusive sizing forms is active. |
-| `r`      | number             | No       | finite                                        | Radius, only valid/active in `"radius"` mode. |
-| `d`      | number             | No       | finite                                        | Diameter, only valid/active in `"diameter"` mode. |
-| `r1`     | number             | No       | finite                                        | Bottom radius, only valid/active in `"tapered"` mode. |
-| `r2`     | number             | No       | finite                                        | Top radius, only valid/active in `"tapered"` mode. |
-| `center` | boolean            | No       | -                                              | OpenSCAD's `center` flag; its port is Boolean. |
-| `fn`     | number (optional)  | No       | finite when present                           | `$fn` facet count. Omission means "not set" (OpenSCAD's own default applies). |
-
-Only the active sizing form's Number ports exist: `r`, `d`, or `r1`/`r2`.
-Inactive sizing ports cannot be referenced by a persisted connection.
-
-### `sphere`
-
-Source: [`src/openscad/sphere.ts`](../src/openscad/sphere.ts)
-(`SphereParams`/`validateSphereParams`).
-
-```json
-{ "mode": "radius", "r": 25, "fn": 50 }
-```
-
-| Field  | Type              | Required | Constraint                        | Meaning |
-| ------ | ----------------- | -------- | ---------------------------------- | ------- |
-| `mode` | string             | No       | one of `"radius"`, `"diameter"`    | Which sizing form is active. |
-| `r`    | number             | No       | finite                              | Radius, only active in `"radius"` mode. |
-| `d`    | number             | No       | finite                              | Diameter, only active in `"diameter"` mode. |
-| `fn`   | number (optional)  | No       | finite when present                | `$fn` facet count; omission means "not set". |
-
-Sphere has no `center` field - OpenSCAD's `sphere()` is always centered
-at the origin.
-
-### `translate`, `rotate`, `scale`
-
-All three share one shape. Source:
-[`src/openscad/transform.ts`](../src/openscad/transform.ts)
-(`Vector3Params`/`validateVector3Params`).
-
-```json
-{ "x": 10, "y": -5, "z": 2.5, "representation": "xyz" }
-```
-
-| Field | Type   | Required | Constraint | Meaning |
-| ----- | ------ | -------- | ---------- | ------- |
-| `x`   | number | Yes      | finite     | X component. |
-| `y`   | number | Yes      | finite     | Y component. |
-| `z`   | number | Yes      | finite     | Z component. |
-| `representation` | `"xyz"` / `"vector"` | No | defaults to `"xyz"` for older v2 files | The one active editor/input representation of the semantic vector. |
-
-Meaning of the vector depends on `type`: a translation offset, an Euler
-rotation in degrees (simple `rotate([x, y, z])` vector form only - not
-OpenSCAD's alternate `rotate(a=, v=)` axis-angle form), or a per-axis
-scale factor. `rotate`'s defaults are `{x:0,y:0,z:0}`, `scale`'s are
-`{x:1,y:1,z:1}`, `translate`'s are `{x:0,y:0,z:0}` - but a persisted file
-must always include all three regardless of whether they equal those
-defaults. In `"xyz"` representation, only Number ports `x`, `y`, and `z`
-are active; in `"vector"` representation, only the Vector3 port `vector`
-is active. The retained XYZ literals are preserved while Vector is selected.
-
-### `difference`, `union`, `intersection`
-
-These three Boolean-operation node types currently have **no persisted
-parameters at all** - all of their state is their input connections
-(see "Connections" below). `parameters` should be `{}`; if present, it
-must be a plain object (any contents are currently ignored rather than
-rejected - see "Forward compatibility" under Validation).
-
-```json
-{}
-```
-
-## Connections
-
-```json
-{
-  "id": "c1",
-  "source": "cube-1",
-  "sourceOutput": "geometry",
-  "target": "union-1",
-  "targetInput": "a"
-}
-```
-
-| Field          | Type   | Required | Meaning |
-| -------------- | ------ | -------- | ------- |
-| `id`           | string | Yes      | The connection's own id. Must be non-empty and unique within `graph.connections`. |
-| `source`       | string | Yes      | The id of the node this connection reads from. Must match an existing node's `id`. |
-| `sourceOutput` | string | Yes      | The stable output port id on the source node (see below). |
-| `target`       | string | Yes      | The id of the node this connection feeds into. Must match an existing node's `id`. |
-| `targetInput`  | string | Yes      | The stable input port id on the target node (see below). |
-
-- Connection ids **are persisted** (Rete's own generated id, carried
-  through verbatim). They carry no semantic meaning of their own - graph
-  topology is fully defined by `source`/`sourceOutput`/`target`/
-  `targetInput` - but persisting the original id keeps restoration fully
-  deterministic (repeated save → open → save cycles produce byte-
-  identical output) without inventing a separate id-regeneration policy.
-- `source`/`target` are validated against the *other nodes already
-  present in the same file's `graph.nodes`* - a connection referencing a
-  missing node fails with `Connection "..." references missing source/
-  target node "..."`. Nodes do not need to appear in the array before the
-  connections that reference them.
-- `sourceOutput`/`targetInput` are **stable semantic port ids**, never
-  translated UI labels (e.g. Difference's inputs are `base`/`subtract`
-  even though the UI shows "Base"/"Subtract"). They are validated against
-  each node type's fixed, catalog-declared port list - not against a
-  constructed node instance. Dynamic parameter ports are checked against the
-  node's validated semantic parameters, so inactive alternatives cannot carry
-  hidden persisted connections. The loader also rejects cross-type edges with
-  a user-facing incompatible-socket-types error; no implicit conversions are
-  defined.
-- Within each Main, Module, or Function graph scope, every connection is a
-  directed node-dataflow edge and the complete graph must be acyclic,
-  including disconnected/dead subgraphs. A self-wire and an indirect cycle
-  are rejected during validation before restore. This does **not** prohibit
-  direct or mutual Function/Module recursion: Call-node definition
-  dependencies are analyzed separately and remain valid in v8.
-
-Currently valid ports per node type
-(`NodeCatalogEntry.inputs`/`.outputs` in `node-catalog.ts`):
-
-```text
-cube:          dynamic inputs: size | sizeX,sizeY,sizeZ | sizeVector; optional center (Boolean); outputs: geometry
-cylinder:      dynamic inputs: h, active r|d|r1,r2, optional center (Boolean), fn; outputs: geometry
-sphere:        dynamic inputs: active r|d, optional fn; outputs: geometry
-translate:     inputs: geometry + active x,y,z | vector; outputs: geometry
-rotate:        inputs: geometry + active x,y,z | vector; outputs: geometry
-scale:         inputs: geometry + active x,y,z | vector; outputs: geometry
-difference:    inputs: base, subtract      outputs: geometry
-union:         dynamic inputs: child:<id>   outputs: geometry
-intersection:  dynamic inputs: child:<id>   outputs: geometry
-number:        input: value (Number)         output: value (Number)
-boolean:       input: value (Boolean)        output: value (Boolean)
-vector3:       inputs: value (Vector3) + x, y, z (Number); output: value (Vector3)
-pi:            no inputs; output: value (Number), expression PI
-arithmetic:    inputs: a, b (Number)        outputs: value (Number)
-trigonometry:  input: a (Number); atan2 also b (Number); outputs: value (Number)
-basic-math:    input: x (Number)             outputs: value (Number)
-vector-math:   operation-specific Vector3 inputs and optional Number factor/divisor; output type follows operation
-min-max:       inputs: a, b plus stable ordered operand:<id> Number slots; output: value (Number)
-exponential-log: input: x (Number)           outputs: value (Number)
-compare:       inputs: a, b (Number)         outputs: value (Boolean)
-conditional:   inputs: condition + true/false; output: result (resolved value type)
-if:            inputs: condition + then/else; output: geometry
-for:           inputs: start, step, end (Number); outputs: value (Number), loop (structure)
-for-result:    inputs: loop (structure) + dynamic child:<id> (Geometry); output: geometry
-scad-settings: dynamic optional inputs: fn, fa, fs (Number); outputs: none
-module-inputs: dynamic outputs: parameter:<id> (Number|Boolean|Vector3)
-module-call:   dynamic inputs: parameter:<id> (referenced signature); outputs: geometry (Geometry); parameters: definitionId, arguments
-function-inputs: dynamic outputs: parameter:<id> (Number|Boolean|Vector3)
-function-output: input: result (resolved Number|Boolean|Vector3); outputs: none
-function-call: dynamic inputs: parameter:<id>; output: value (resolved Number|Boolean|Vector3)
-variable-reference: inputs: none; output: value (same type as same-scope binding)
-```
-
-Port-level addressing (rather than plain node-to-node edges) exists
-specifically so nodes with more than one input of the same type
-(Difference/Union/Intersection today) round-trip unambiguously, and so
-future node types can expose multiple Geometry and/or value/parameter
-inputs without any change to the connection representation itself.
-
-## Editor viewport
-
-```json
-"editor": {
-  "viewport": { "x": 0, "y": 0, "zoom": 1 }
-}
-```
-
-| Field  | Type   | Required | Meaning |
-| ------ | ------ | -------- | ------- |
-| `x`    | number | Yes      | Finite. Canvas pan offset X - the same value as Rete `AreaPlugin`'s `area.area.transform.x`. |
-| `y`    | number | Yes      | Finite. Canvas pan offset Y - `transform.y`. |
-| `zoom` | number | Yes      | Finite. Canvas zoom level - `transform.k`. |
-
-`editor.viewport` is restored via `area.area.translate(x, y)` followed by
-`area.area.zoom(zoom, 0, 0)` (an *absolute* zoom-level set, not a
-relative delta - see `scadlet-app.ts`). It is pure editor presentation
-state and never affects generated OpenSCAD. Current node/marquee
-selection, in-progress drag state, and node foreground/z-order are never
-part of this or any other section - see the transient-state table below.
-
-## Viewer camera
-
-```json
-"viewer": {
-  "camera": {
-    "position": [80, 80, 60],
-    "target": [0, 0, 0]
-  }
-}
-```
-
-| Field      | Type                            | Required | Meaning |
-| ---------- | ------------------------------- | -------- | ------- |
-| `position` | 3-element number array `[x,y,z]`| Yes      | The Three.js camera's world position. |
-| `target`   | 3-element number array `[x,y,z]`| Yes      | The `OrbitControls` look-at target. |
-
-Both arrays must have exactly 3 finite numbers each (`Invalid viewer.camera.position: expected an array of 3 numbers.` otherwise).
-
-- Coordinates follow the viewer's OpenSCAD-consistent **Z-up**
-  convention (`src/components/geometry-viewer.ts` sets `camera.up.set(0,
-  0, 1)`), not Three.js's default Y-up.
-- This is view state, never model semantics; the raw `THREE.
-  PerspectiveCamera`/`OrbitControls` objects are never serialized -
-  `GeometryViewer.getCameraState()`/`.setCameraState()` convert to/from
-  this small plain DTO.
-- **Camera field of view, projection type, zoom/dolly factor, near/far
-  clipping planes, and any other camera property are currently NOT
-  persisted.** Only `position` and `target` are captured. A reopened
-  project always uses the viewer's fixed default `PerspectiveCamera`
-  configuration (50° FOV) with the restored position/target applied.
-
-## Persisted vs. intentionally transient state
-
-| State                              | Persisted? | Reason |
-| ----------------------------------- | ---------- | ------ |
-| Node ids/types                      | Yes        | Graph identity. |
-| Node parameters                     | Yes        | Model/OpenSCAD semantics. |
-| Connections                         | Yes        | Model/OpenSCAD semantics. |
-| Node positions                      | Yes        | Editor layout. |
-| Canvas viewport (pan/zoom)          | Yes        | Editor layout. |
-| Viewer camera position/target       | Yes        | User's 3D view. |
-| Explicit collapse state              | Yes        | Deliberate user presentation state; omission means expanded. |
-| Hover/selection-driven expansion     | No         | These interactions do not expand nodes. |
-| Wire-gesture target highlighting     | No         | Highlights only already-visible compatible targets without changing collapse state. |
-| Node/marquee selection               | No         | Transient interaction state. |
-| Marquee drag rectangle               | No         | Transient interaction state. |
-| Graph clipboard payload              | No         | Detached, tab/session-local editor state for one project and scope. |
-| Paste/Duplicate placement preview    | No         | Transient ghost; Rete changes only on commit. |
-| Inspect Node preview root             | No         | Temporary preview state, not part of the model. |
-| Live render preference/debounce/result freshness | No | Session runtime state; it never changes the portable or local-project schema. |
-| Node foreground/z-order (bring-to-front) | No     | Transient interaction state. |
-| Camera field of view/zoom/clipping   | No         | Not currently captured at all (see above). |
-
-Opening a `.scadlet` file always starts with no active Inspect Node root,
-selection, or placement preview, regardless of what was true when the file was
-saved. The in-memory graph clipboard is not imported from or exported to this
-format and cannot be pasted into a different local project identity.
-
-## Validation rules
-
-`parseScadletProject`/`parseScadletProjectText`
-([`src/persistence/validate.ts`](../src/persistence/validate.ts)) enforce,
-in roughly this order:
-
-1. The input is valid JSON (`parseScadletProjectText` only).
-2. The top-level value is a plain (non-array) object.
-3. `format` is present and equals `"scadlet"`.
-4. `version` is present and numeric; versions 1–8 are accepted (older ones
-   migrate to v8), while any other number fails with
-   `Unsupported SCADlet project version: N`.
-5. `metadata` is an object with a non-empty (after trim) `name`;
-   `createdAt`/`updatedAt`, if present, are strings (content not
-   otherwise validated).
-6. `graph` is an object with `nodes`/`connections` arrays.
-7. Every node has a unique, non-empty `id`; a `type` matching a known
-   catalog entry; a `position` with two finite numbers; and `parameters`
-   that pass that type's own validator (errors are prefixed with the
-   node id and type, e.g. `Invalid parameters for node "n1" (sphere):
-   Invalid Sphere parameter "r": expected a finite number`); `collapsed`, if
-   present, is a boolean.
-8. Every connection has a unique, non-empty `id`; `source`/`target`
-   referencing existing node ids; `sourceOutput`/`targetInput` that are
-   valid ports (per that node's type) for that side.
-9. Every individual graph scope has acyclic node dataflow. This structural
-   check includes disconnected nodes and is distinct from allowed recursive
-   Function/Module definition dependencies.
-10. Each scope has unique binding IDs and valid unique binding names across
-    bound Values and parameters. Every Variable reference resolves by ID in
-    that same scope, and variable-dependency cycles are rejected.
-11. Main and each Module contain at most one `scad-settings` node; Function
-    graphs contain none.
-12. Every For pair has exactly one header, result, and fixed structural
-    connection in Main or one Module; pair/binding membership, iterator names,
-    references, nested scope, zero fallback steps, and dependency escapes are
-    validated as one graph invariant. A complete pair is not invalid merely
-    because no Geometry child is connected to its result.
-13. `editor.viewport` and `viewer.camera` are validated as described
-   above.
-
-**Strictness is not uniform across the format**, and this is
-intentional:
-
-- Node **types**, **positions**, **required parameter fields**,
-  **connection endpoints/ports**, **viewport**, and **camera** fields are
-  all strictly validated - a wrong type/shape fails loading immediately
-  with a specific message.
-- **Unknown extra fields anywhere in the JSON** (an extra top-level key,
-  an extra key inside `metadata`/a node/a connection/`editor`/`viewer`,
-  or extra keys inside a parameterless Boolean node's `parameters`) do
-  **not** cause a validation error. However, because every validator
-  builds a *fresh* result object field-by-field rather than shallow-
-  copying its input, **unrecognized extra fields are silently dropped**
-  during parsing rather than round-tripped - opening a hand-edited file
-  with a speculative extra field and then re-saving it from SCADlet will
-  not preserve that field. This is consistent with AGENTS.md's stated
-  forward-compatibility policy ("unknown additional fields may generally
-  be ignored") but is worth knowing if you're hand-authoring files with
-  fields intended for a not-yet-released newer SCADlet version.
-- There is **no formal JSON Schema** for this format; validation is
-  plain, explicit TypeScript code (`src/persistence/validate.ts` plus
-  each node type's `validate*Params` function). This document, not a
-  machine-readable schema file, is the specification.
-
-## Load behavior / atomicity
-
-Parsing and validation (`parseScadletProject`/`parseScadletProjectText`)
-always run to completion - success or a thrown `ScadletProjectError` -
-**before** anything about the currently open project is touched.
-`restoreProject` (`src/persistence/restore.ts`), which actually clears
-and rebuilds the live graph, is only ever called after validation has
-already fully succeeded.
-
-Practical guarantee: **a malformed or unsupported `.scadlet` file does
-not destroy the currently open valid project merely because opening it
-was attempted.** Verified in this project's Playwright browser checks:
-attempting to open an unsupported-version file, and separately a
-non-JSON file, both leave the existing in-editor graph completely
-unchanged and surface the specific error message instead.
-
-Limitation: this guarantee covers the validation phase, not a full
-transactional rollback of `restoreProject` itself. If node/connection
-*construction* were to throw after validation already succeeded (not
-currently reproducible - construction only uses already-validated data),
-the graph could be left partially rebuilt. This is accepted as
-sufficient given the scope of the current implementation rather than
-building dedicated transactional infrastructure for a failure mode that
-validation should already prevent.
-
-## Versioning and migrations
-
-```text
-format = "scadlet"
-version = 1
-```
-
-`parseScadletProject` routes on `version` through a single
-`migrateScadletProject(version, raw)` function
-(`src/persistence/validate.ts`). v1 first migrates to v2, then v3, then v4,
-then v5, v6, v7, and v8; v2 migrates through v3/v4/v5/v6/v7 to v8. v3's legacy
-`children` connections are remapped to the deterministic first Geometry
-signature entry before validation. v4 → v5 is a pure version-number bump:
-every existing v4 record
-is already a valid `kind: "module"` definition, and the (already-empty
-unless populated) `definitions` array simply gains the ability to also
-contain `kind: "function"` entries going forward. v5 → v6 then replaces every
-legacy arithmetic type in Main and definition graphs while retaining the
-already-compatible `a`, `b`, and `value` endpoints.
-v6 → v7 is a pure version-number bump because absence of `scad-settings`
-preserves the old OpenSCAD-default behavior. No other call site needs to know
-about historical shapes. v7 → v8 is likewise a pure bump: migration does not
-invent binding IDs from legacy Value labels, so their source remains unchanged:
-
-```text
-v1 → migrate to v2 → migrate to v3 → migrate to v4 → migrate to v5 → migrate to v6 → migrate to v7 → migrate to v8 → validate against the current shape
-```
-
-Rules of thumb for whether a change needs a version bump:
-
-**Probably no version bump needed** (internal refactor, same persisted
-meaning):
-
-- Rete's internal graph/dataflow implementation changes.
-- The DOM renderer (`render.ts`) is rewritten.
-- CSS/layout implementation changes.
-- Internal node-catalog code organization changes, as long as the
-  persisted `type`/`parameters`/port ids for existing node types are
-  unchanged.
-
-**Likely needs a version bump + migration**:
-
-- A persisted field's meaning changes (e.g. `position` starts meaning
-  node *center* instead of top-left).
-- A node type's parameter representation changes incompatibly (e.g.
-  Cylinder's `r1`/`r2` are renamed or restructured).
-- Port ids change for an existing node type.
-- Connections acquire fundamentally different semantics (e.g. multiple
-  simultaneous connections into a currently-single-connection input).
-
-Do not encode hypothetical future migrations into version-1 files, and do
-not silently accept an unknown future version - both are explicitly
-rejected by the current implementation.
-
-## Restore and local-library failure isolation
-
-Parsing/normalization completes before SCADlet replaces the live editor. It
-also prepares every node and dynamic Module port before clearing the current
-graph; an unexpected error while applying the prepared graph rolls back to the
-previous valid project. A failed load never becomes the active autosave target,
-so opening a project cannot overwrite its IndexedDB record merely by failing.
-
-IndexedDB access failures and individual project failures are intentionally
-separate. An invalid, incompatible, or editor-unrestorable record remains in
-the local library unchanged and visible for explicit deletion, while other
-projects can still be selected and new projects created. Only an actual
-IndexedDB initialization/access failure disables the local library and falls
-back to file-only use.
-
-## Adding a new persistable node type
-
-Persistence is centralized in the node catalog
-([`src/editor/node-catalog.ts`](../src/editor/node-catalog.ts)); nothing
-in `validate.ts`/`serialize.ts`/`restore.ts`/`project.ts` mentions a
-specific node type by name. To make a new node type persistable:
-
-1. Implement the node's Rete class and OpenSCAD codegen as usual
-   (`src/openscad/*.ts`, `src/editor/nodes/*.ts`), including a public
-   `getPersistedParams()` method returning its full semantic parameter
-   object (reused internally by `data()` too, so there is one source of
-   truth).
-2. Add a `validate<Type>Params(value: unknown): <Type>Params` function
-   next to that node's param type, built from the shared primitives in
-   [`src/openscad/param-validation.ts`](../src/openscad/param-validation.ts)
-   (`requireFiniteNumber`, `requireBoolean`, `requireOneOf`,
-   `requireOptionalFiniteNumber`, `requireParamsObject`). Remember to
-   validate every field the node keeps internally, not just whichever
-   ones the current UI mode shows.
-3. Add the new stable id to the `NodeTypeId` union in `node-catalog.ts`.
-4. Add a `NodeCatalogEntry` with: `type`, `category`, `labelKey`,
-   `inputs`/`outputs` (the node's actual, fixed port ids), `create(context,
-   params?)`, `matches(node)` (an `instanceof` check against the node
-   class), `serializeParams(node)` (calls `getPersistedParams()`), and
-   `validateParams(value)` (calls the new validator).
-
-No changes are needed to the generic persistence pipeline itself.
-
-## Example files
-
-The built-in project templates shown in the application are maintained
-separately at top-level `examples/example_*.scadlet` and discovered eagerly at
-build time. Selecting one parses the same canonical format described here but
-creates a new local IndexedDB copy; the bundled source is immutable.
-
-Complete, test-validated examples for historical and current formats live under
-[`docs/examples/`](examples/) and are parsed through the real
-`parseScadletProject()` implementation by
-[`src/persistence/docs-examples.test.ts`](../src/persistence/docs-examples.test.ts)
-- see "Keeping this document honest" below for why the examples are only
-maintained in one place.
-
-### Example A — empty project
-
-[`docs/examples/empty-project.scadlet`](examples/empty-project.scadlet):
-
-```json
-{
-  "format": "scadlet",
-  "version": 1,
-  "metadata": {
-    "name": "Empty Project",
-    "createdAt": "2026-09-01T00:00:00.000Z",
-    "updatedAt": "2026-09-01T00:00:00.000Z"
-  },
-  "graph": { "nodes": [], "connections": [] },
-  "editor": { "viewport": { "x": 0, "y": 0, "zoom": 1 } },
-  "viewer": { "camera": { "position": [80, 80, 60], "target": [0, 0, 0] } }
-}
-```
-
-### Example B — a Sphere with `$fn = 50`
-
-[`docs/examples/sphere-fn50.scadlet`](examples/sphere-fn50.scadlet) - also
-useful as a Render-performance benchmark fixture (see below):
-
-```json
-{
-  "format": "scadlet",
-  "version": 1,
-  "metadata": {
-    "name": "Sphere Benchmark",
-    "createdAt": "2026-09-01T00:00:00.000Z",
-    "updatedAt": "2026-09-01T00:00:00.000Z"
-  },
-  "graph": {
-    "nodes": [
-      {
-        "id": "sphere-1",
-        "type": "sphere",
-        "position": { "x": 0, "y": 0 },
-        "parameters": { "mode": "radius", "r": 25, "d": 50, "fn": 50 }
-      }
-    ],
-    "connections": []
-  },
-  "editor": { "viewport": { "x": 0, "y": 0, "zoom": 1 } },
-  "viewer": { "camera": { "position": [80, 80, 60], "target": [0, 0, 0] } }
-}
-```
-
-### Example C — a composed graph
-
-```text
-Cube ─────┐
-          ├→ Union → Translate
-Sphere ───┘
-```
-
-[`docs/examples/cube-sphere-union-translate.scadlet`](examples/cube-sphere-union-translate.scadlet),
-including non-trivial positions, a collapsed node, a panned/zoomed viewport,
-and a non-default camera:
-
-```json
-{
-  "format": "scadlet",
-  "version": 1,
-  "metadata": {
-    "name": "Cube Sphere Union Translate",
-    "createdAt": "2026-09-01T00:00:00.000Z",
-    "updatedAt": "2026-09-01T00:00:00.000Z"
-  },
-  "graph": {
-    "nodes": [
-      { "id": "cube-1", "type": "cube", "position": { "x": -200, "y": 0 }, "parameters": { "sizeX": 10, "sizeY": 10, "sizeZ": 10, "center": false } },
-      { "id": "sphere-1", "type": "sphere", "position": { "x": -200, "y": 150 }, "parameters": { "mode": "radius", "r": 5, "d": 10 } },
-      { "id": "union-1", "type": "union", "position": { "x": 0, "y": 75 }, "parameters": {} },
-      { "id": "translate-1", "type": "translate", "position": { "x": 200, "y": 75 }, "parameters": { "x": 10, "y": 0, "z": 0 }, "collapsed": true }
-    ],
-    "connections": [
-      { "id": "c1", "source": "cube-1", "sourceOutput": "geometry", "target": "union-1", "targetInput": "a" },
-      { "id": "c2", "source": "sphere-1", "sourceOutput": "geometry", "target": "union-1", "targetInput": "b" },
-      { "id": "c3", "source": "union-1", "sourceOutput": "geometry", "target": "translate-1", "targetInput": "geometry" }
-    ]
-  },
-  "editor": { "viewport": { "x": -50, "y": 20, "zoom": 1.2 } },
-  "viewer": { "camera": { "position": [120, 100, 90], "target": [0, 0, 0] } }
-}
-```
-
-### Keeping this document honest
-
-The JSON shown above is a literal copy of the `.scadlet` fixture files
-under `docs/examples/`, which are what `docs-examples.test.ts` actually
-parses. They are intentionally maintained in only one authoritative
-place (the fixture files) with this document's copies kept in sync by
-hand; a test failure in `docs-examples.test.ts` is the signal that either
-the fixtures or this document need attention. A Markdown-parsing test
-that extracts fenced examples directly was considered but rejected as
-unnecessary complexity for three short files.
-
-## Benchmark/test-fixture use
-
-Because a `.scadlet` file deterministically captures topology,
-parameters (including `$fn`), and layout/view state, a saved project is
-also a convenient deterministic fixture for regression tests and render
-benchmarks - e.g. Example B above is sized specifically to be a
-reasonable Render-performance probe for a tessellated primitive. This is
-a reason to keep the format textual, explicit, and diff-friendly rather
-than a motivation to define a separate formal benchmark format.
-
-## File extension and content type
-
-- File extension: **`.scadlet`**.
-- Content: JSON, as described throughout this document.
-- MIME type used consistently everywhere the implementation cares about
-  one - the File System Access picker's `accept` map, the plain
-  `<input type="file">` fallback's `accept` attribute, and the fallback
-  Blob download - is **`application/json`** (see
-  [`src/persistence/file-service.ts`](../src/persistence/file-service.ts)
-  and `scadlet-app.ts`). No custom/registered MIME type (e.g. a
-  hypothetical `application/vnd.scadlet`) is used anywhere.
-
-## Security / trust boundary
-
-`.scadlet` files are **untrusted external input**, exactly like any other
-user-supplied file - they may come from another machine, another
-SCADlet version, or a hand-edited/malicious source.
-
-Current v1 files contain only **data**: strings, numbers, booleans, and
-arrays/objects built from those. Loading a file never dynamically
-`eval`s or constructs a class by an arbitrary name from its content - a
-node's `type` string is only ever looked up in the fixed, hardcoded
-`NODE_CATALOG` (`findCatalogEntry`), and an unrecognized type is rejected
-rather than used to synthesize anything. Node `parameters` are plain
-validated JSON values consumed by pure OpenSCAD code-generation
-functions, never executed as code.
-
-This trust boundary will need to be revisited once a Code Node (a
-planned, later milestone per `AGENTS.md`) can embed literal OpenSCAD
-source text: at that point a `.scadlet` file could carry content that is
-subsequently fed to the OpenSCAD WASM interpreter, which changes what
-"the file only contains inert data" means in practice, even though it
-still would not directly execute arbitrary JavaScript in the browser.
-
-## Implementation references
-
-| Concern                              | Module |
-| ------------------------------------- | ------ |
-| Schema types, defaults                | `src/persistence/project.ts` |
-| Parsing/validation                    | `src/persistence/validate.ts` |
-| Serialization                         | `src/persistence/serialize.ts` |
-| Restoration                           | `src/persistence/restore.ts` |
-| Filename sanitization                 | `src/persistence/filename.ts` |
-| Open/Save/Save As, File System Access | `src/persistence/file-service.ts` |
-| Node type identity/persistence hooks  | `src/editor/node-catalog.ts` |
-| Per-node param types + validators     | `src/openscad/{cube,cylinder,sphere,transform}.ts` |
-| Shared param-validation primitives    | `src/openscad/param-validation.ts` |
-| Viewer camera capture/restore         | `src/components/geometry-viewer.ts` |
-| App-level Open/Save/dirty-state wiring | `src/scadlet-app.ts` |
-| Example fixtures + drift-guard test   | `docs/examples/*.scadlet`, `src/persistence/docs-examples.test.ts` |
-| Bundled example templates             | `examples/example_*.scadlet`, `src/persistence/builtin-examples.ts` |
+| `arithmetic` | `operation`, numeric `a`, `b` | `addition`, `subtraction`, `multiplication`, `division`, `modulo`, `power` | Number `a`, `b` |
+| `trigonometry` | `operation`, numeric `a`, `b`, `inputPorts` | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2` | Number `a`, plus `b` for `atan2` |
+| `basic-math` | `operation`, numeric `x` | `abs`, `sign`, `sqrt`, `floor`, `ceil`, `round`, `negate` | Number `x` |
+| `exponential-log` | `operation`, numeric `x` | `exp`, `ln`, `log` | Number `x` |
+| `vector-math` | `operation`, numeric `a`, `b`, `factor` | `add`, `subtract`, `scale`, `divide`, `dot`, `cross`, `norm`, `negate` | See below |
+
+Trigonometry `inputPorts` must be exactly `["a"]` for unary operations or
+`["a", "b"]` for `atan2`, without duplicates/reordering. Its `b` fallback stays
+persisted while inactive. `atan2` emits `atan2(a, b)` (Y then X).
+Arithmetic power emits `pow(a, b)` and Number negate emits `-(x)`.
+
+Vector Math ports/results are:
+
+| Operations | Inputs | Result |
+| --- | --- | --- |
+| `add`, `subtract`, `cross` | Vector3 `a`, `b` | Vector3 |
+| `dot` | Vector3 `a`, `b` | Number |
+| `scale` | Vector3 `vector`, Number `factor` | Vector3 |
+| `divide` | Vector3 `vector`, Number `divisor` | Vector3 |
+| `norm` | Vector3 `vector` | Number |
+| `negate` | Vector3 `vector` | Vector3 |
+
+Vector inputs require connections; numeric `a` and `b` are retained schema
+fields, not Vector3 literal fallbacks (the writer emits zero for them).
+`factor` stores the shared scale/divisor fallback. Inactive ports cannot carry
+persisted connections.
+
+`min-max` stores `operation: "minimum" | "maximum"` and ordered
+`operands: [{ id, value? }]`. It requires at least three records. The first two
+IDs are exactly `a`, `b`, each with a numeric fallback. Later IDs are nonempty
+and unique and address Number ports `operand:<id>`. Every optional interior
+record needs a fallback or connection. The final record has no fallback or
+connection: it is the blank extension slot. Unused interior and connected
+trailing records are rejected. Output is Number `value`; blank optional values
+are not numeric sentinels and do not enter the generated argument list.
+
+### Comparison and conditionals
+
+`compare` stores `operator` (`<`, `<=`, `>`, `>=`, `==`, `!=`) and numeric
+`a`, `b` fallbacks. Omitted fallbacks normalize to zero. Inputs `a`, `b` are
+Number; output `value` is Boolean.
+
+`conditional` stores `{}` when unresolved or `valueType: "number" | "boolean"
+| "vector3"`. Inputs are Boolean `condition` and typed `true`, `false`; output
+is typed `result`. Unresolved state cannot have branch/result connections.
+Resolved state requires at least one connected branch. A result connection
+requires all three inputs connected, and both branches/result share the type.
+
+`if` stores `{}` and has Boolean `condition`, Geometry `then`, optional Geometry
+`else`, and Geometry output `geometry`. It is allowed only in Main/Module.
+Incomplete drafts may persist; a reachable If needs Condition and Then for source
+generation. It does not synthesize `undef`. Connected branches participate in
+reachable dependencies even when the runtime condition chooses only one.
+
+### For pairs
+
+`for` stores nonempty `pairId`, `bindingId`, identifier `name`, and finite
+`start`, `step`, `end`. Number inputs are `start`, `step`, `end`; outputs are
+Number `value` and structural `loop`.
+
+`for-result` stores the matching `pairId` and a nonempty ordered
+`children: [{id}]` list with unique nonempty IDs. Its inputs are structural
+`loop` and Geometry `child:<id>`; output is Geometry `geometry`.
+
+Each pair has exactly one header, result, and fixed structural connection in
+the same Main/Module graph. Pair IDs and iterator binding IDs are scope-unique.
+Iterator wires/references are confined to dependencies entering the matching
+result, including nested-loop lexical checks. Iterator names cannot collide
+with enclosing bindings/iterators; independent siblings may reuse a name.
+Orphaned, duplicate, mismatched, cross-scope, and escaping pairs are rejected.
+A zero direct step is rejected when not overridden by a connection; source
+generation also rejects a known literal zero effective step.
+
+A complete pair with no connected Geometry body remains a valid saved draft
+and emits no fragment. The editor retains the result's trailing extension slot;
+validation does not require a connected body or relax structural checks for it.
+
+## View state
+
+`editor.viewport` requires finite numeric `x`, `y`, `zoom`, corresponding to
+Rete pan and absolute zoom (`transform.k`). Validation currently checks finiteness,
+not positivity of zoom. Node positions use graph coordinates independently.
+
+`viewer.camera` requires `position` and `target`, each an array of exactly three
+finite numbers in the viewer's Z-up world coordinates. They represent camera
+position and OrbitControls target, not geometry transforms. FOV, projection,
+zoom, and clipping planes are not serialized; restore uses the viewer's default
+perspective configuration (50° FOV) with these position/target values.
+
+## Persistent and transient state
+
+| State | Persisted? |
+| --- | --- |
+| Node/type IDs, parameters, stable-port connections | Yes |
+| Definitions, signatures, bindings, pair IDs, dynamic slot ordering | Yes |
+| Node positions and explicit collapse | Yes; omitted collapse means expanded |
+| User canvas viewport and camera position/target | Yes |
+| Selection, marquee, hover, drag, wire drafts/highlighting, foreground order | No |
+| Inspect root, provenance, echoed values, rendered meshes/STL | No |
+| Graph clipboard and Paste/Duplicate/reference placement ghosts | No |
+| Popups, Live preference, debounce/revisions/freshness, preview cache | No |
+| Fit graph / Reset 3D view adjustments | No; preserve saved view state |
+| File handles and IndexedDB local-record identity | Not in `.scadlet` |
+
+Opening a project starts without selection, Inspect, or placement. Clipboard
+payloads cannot be imported/exported or pasted into another local project
+identity. Persistent layout changes do not imply semantic render changes.
+
+## Validation and normalization
+
+`parseScadletProjectText` parses JSON; `parseScadletProject` accepts an already
+parsed object. Invalid input throws `ScadletProjectError` before restoration.
+Validation includes the envelope, per-node parameters, scope restrictions,
+definition interfaces/Calls, matching typed ports, input occupancy, dataflow and
+binding cycles, SCAD settings singleton, For structure/scoping, dynamic Min/Max
+slots, conditional/result inference, and finite layout/camera values.
+
+Unknown types and unsupported versions fail explicitly. Unknown additional
+object fields are generally ignored and discarded when validators build the
+canonical result; they are not a forward-field round-trip guarantee. Semantic
+maps such as Call `arguments` are different: unknown parameter IDs are invalid.
+Retained legacy/optional fields follow their documented normalizations above.
+
+Loading treats projects as untrusted data. Types resolve only through the fixed
+catalog; file contents do not select arbitrary constructors or execute
+JavaScript. No raw OpenSCAD code node is part of this format.
+
+## Historical migrations
+
+All accepted historical versions pass through sequential migrations and then
+the current validator. Unsupported numeric versions fail with
+`Unsupported SCADlet project version: N`. Migration preserves existing IDs,
+positions, collapse, and connections except for the explicit port mappings below.
+
+| Step | Mapping and compatibility guarantee |
+| --- | --- |
+| v1 → v2 | Cube `sizeX`/`sizeY`/`sizeZ` becomes scalar `size` when equal, otherwise `{x,y,z}`; `center: true` is retained. Union/Intersection gain deterministic children `v1-a`, `v1-b`, `v1-next`; input endpoints `a`/`b` become `child:v1-a`/`child:v1-b` |
+| v2 → v3 | Adds `definitions: []`; Main graph is preserved |
+| v3 → v4 | Adds each Module's first Geometry signature entry with ID `<definitionId>:geometry-1`, name `Geometry 1`; legacy Inputs `children` output and Main Call `children` input endpoints map to `geometry:<id>` |
+| v4 → v5 | Version-only change; existing Module definitions remain unchanged and no Function entries are invented |
+| v5 → v6 | In Main and every definition, `add`, `subtract`, `multiply`, `divide` become `arithmetic` with `addition`, `subtraction`, `multiplication`, `division`; `a`/`b`/`value` endpoints and fallbacks survive |
+| v6 → v7 | Version-only change; no SCAD settings node is invented, retaining OpenSCAD defaults |
+| v7 → v8 | Version-only change; no binding IDs are invented from old Value names, which remain labels |
+
+Within supported shapes, missing parameter signatures normalize to empty arrays,
+old Cube representations infer from `size`, missing transform representation is
+XYZ, missing Compare fallbacks become zero, and missing collapse means expanded.
+Recursion adds no fields. Typed Value inputs, For pairs, extended Difference
+slots, PI, Number negate, Vector Math, and Min/Max are additive v8 capabilities;
+older graphs without them retain their meaning. Do not remove migrations or
+rewrite historical fixtures merely because the current writer emits v8.
+
+## Examples and implementation references
+
+The fixtures below are parsed by
+[`docs-examples.test.ts`](../src/persistence/docs-examples.test.ts). They are
+historical compatibility examples, intentionally maintained as files rather than
+duplicated JSON blocks here. The same test reads the current envelope example
+and catalog list from this Markdown; it does not validate the prose.
+
+| Fixture | Coverage |
+| --- | --- |
+| [Empty project](examples/empty-project.scadlet) | v1 envelope |
+| [Sphere with `$fn = 50`](examples/sphere-fn50.scadlet) | v1 primitive and deterministic render fixture |
+| [Cube/Sphere/Union/Translate](examples/cube-sphere-union-translate.scadlet) | v1 topology, collapse, non-default viewport/camera |
+| [Empty Cube signature](examples/v2-empty-cube.scadlet) | v2 omitted parameters |
+| [Recursive Functions](examples/recursive-functions-v6.scadlet) | v6 direct/mutual Function Calls |
+| [Recursive Modules](examples/recursive-modules-v6.scadlet) | v6 direct/mutual Module Calls |
+
+Bundled application templates are separate top-level
+[`examples/example_*.scadlet`](../examples/) files; their copy lifecycle belongs
+in [Persistence](agent-guides/persistence.md#bundled-examples).
+
+| Concern | Implementation |
+| --- | --- |
+| Schema/defaults | [project.ts](../src/persistence/project.ts) |
+| Migration/validation | [validate.ts](../src/persistence/validate.ts) |
+| Serialization/restoration | [serialize.ts](../src/persistence/serialize.ts), [restore.ts](../src/persistence/restore.ts) |
+| Type identity and parameter hooks | [node-catalog.ts](../src/editor/node-catalog.ts) |
+| File access and filenames | [file-service.ts](../src/persistence/file-service.ts), [filename.ts](../src/persistence/filename.ts) |
+| Viewer state | [geometry-viewer.ts](../src/components/geometry-viewer.ts) |

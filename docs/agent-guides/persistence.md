@@ -1,123 +1,88 @@
-# Persistence contract
+# Persistence and compatibility
 
-PI, `vector-math`, and `min-max` are additive v8 catalog types. Vector Math
-persists its selected operation and scalar fallback while deriving active port
-types and result type from that operation. Min/Max persists ordered operand
-records with stable dynamic port ids, optional numeric fallbacks, and one
-trailing empty extension record. Blank optional values remain absent; loading
-validates operation names, ordered fixed operands, unique ids, and the trailing
-empty slot and rejects a connected trailing port or an unused interior slot.
-PI has no semantic parameters. These representations add node
-types without reinterpreting existing v8 records, so they require no format
-bump.
+Read this for save/open, IndexedDB, autosave, restoration, and bundled examples.
+The [format specification](../scadlet-format.md) owns exact schema fields,
+validation constraints, current version, and historical migration mappings.
 
-Read this and the canonical [`.scadlet` format specification](../scadlet-format.md)
-before changing persistent state, migrations, save/open behavior, autosave, or
-the browser project library.
+## Canonical data and identity
 
-## Canonical project data
+`.scadlet` is SCADlet-owned JSON, independent of Rete, DOM, and Three.js objects.
+It stores semantic graphs plus explicit layout/view state. Connections use
+stable node and port IDs; definitions, parameters, bindings, pairs, and dynamic
+slots preserve identity across rename/reorder. `.scad` and `.stl` are exports,
+not project files.
 
-`.scadlet` is a SCADlet-owned, versioned JSON contract—not serialized Rete,
-DOM, or Three.js objects. It preserves semantic graph state (stable node/type
-IDs, parameters, definitions, and explicit stable-port connections), editor
-positions/viewport, and minimal reproducible viewer state. It excludes
-transient selection, marquee, hover, drag, and Inspect; explicit per-node
-collapse is persistent presentation state. Omitted `collapsed` state in a v6/v7/v8
-record restores expanded, preserving compatibility with older v6 files.
+The format's [state table](../scadlet-format.md#persistent-and-transient-state)
+is authoritative for persistence boundaries. In particular, explicit collapse
+is saved, while selection, Inspect, graph clipboard, placement, view recovery,
+and Live scheduling/cache state are never serialized or autosaved.
 
-The specification is the detailed authoritative schema. Current format is v8.
-Runtime render state, including the default-on Live render preference, pending
-debounces, render revisions, and preview result freshness, is session-only and
-is never written to `.scadlet` or IndexedDB project data.
-The graph clipboard and its Paste/Duplicate placement ghost are likewise
-session-only and excluded from serialization, IndexedDB, autosave, and browser
-clipboard APIs. A payload is tagged with the exact active project-instance
-identity and semantic scope; replacing the project or leaving its scope
-cancels placement, while a stale payload remains safely unusable rather than
-being retargeted.
-Connections address node and stable port IDs, never displayed labels or port
-indices. Dynamic slots, definitions, and parameters retain identity across
-rename/reorder. `.scad` and `.stl` are exports, not project files.
+For a persistent change, update canonical types, catalog serialization and
+validation, restore, affected migrations, fixtures/tests, and the specification
+together. Existing field meanings and port IDs are compatibility contracts.
+Use an explicit version bump and migration for incompatible changes; additive
+node types or ports need no bump when old records retain their meaning.
+Internal renderer or Rete refactoring alone does not change the file format.
+Reject unsupported versions and unknown semantic types with useful errors.
 
-Any persistent language/editor change must update the canonical types,
-serializer, validator, restore path, migrations, fixtures/tests, and format
-specification together. v6 projects migrate without a graph rewrite; v7 adds
-the `scad-settings` node and its optional `fn`/`fa`/`fs` Number ports.
-v8 adds opt-in `bindingId` fields to named Values and the
-`variable-reference` node. The v7→v8 migration changes only the version:
-existing Value `name` fields remain labels and do not become bindings
-retroactively.
-The same v8 node records also support additive typed `value` connections into
-Number, Boolean, and Vector3 nodes. No parameter or migration field is needed:
-the existing direct values remain persisted fallbacks and ordinary stable-port
-connection records preserve an override. Older projects contain no such edge
-and therefore restore with unchanged fallback behavior.
-Numeric `For` is also additive within v8: `for` and `for-result` records carry
-the same stable `pairId`, the header carries its stable Number `bindingId`, and
-one persisted `loop`→`loop` connection is their fixed structural boundary.
-The result's ordered Geometry slots use the existing stable child-ID pattern.
-No migration rewrite is needed because pre-For v8 and older migrated projects
-simply contain none of these records. Validation rejects incomplete, duplicate,
-cross-scope, mismatched, or escaping pairs before restore.
-A complete persisted pair remains valid when none of the result's Geometry
-slots is connected; restore preserves that editable draft, and code generation
-omits it until a valid body connection exists.
-Difference, Union, and Intersection persist their ordered Geometry-input slots
-as stable `children` IDs. For Difference, the first two slot IDs preserve the
-historical `base` and `subtract` port identities; additional IDs map to
-ordered `child:<id>` subtractor ports. Older Difference records without a
-`children` field restore with those same two required ports. These additive
-slot records use existing v8 connections and need no format migration.
-Existing parameter shapes and port IDs are compatibility
-contracts. Prefer small explicit migrations; reject unsupported newer formats,
-unknown semantic node types, and incompatible state with useful errors rather
-than silently dropping information. Restore validates/prepares before replacing
-a live project and leaves the previous valid project intact on failure.
+Node persistence hooks belong in the catalog: register the stable `NodeTypeId`,
+creation/matching, typed ports, and `serializeParams`/`validateParams` hooks.
+Reuse `getPersistedParams()` for the complete semantic parameter object and
+shared validation primitives beside the parameter types. Validate all retained
+fallbacks, including inactive forms. Scope-wide constraints also require the shared validator and
+restore paths; adding a catalog entry alone is not always sufficient.
 
-Definitions persist as project-level objects with stable IDs, kind/name,
-ordered parameter signatures, result type where applicable, graph content, and
-positions. Interface nodes restore as protected roles. Calls reference IDs.
-Old pre-definition projects open as Main plus an empty registry.
-Each supported graph scope validates at most one `scad-settings` node, and a
-Function graph rejects it. Direct and mutual Function/Module recursion add no durable fields: existing
-definition IDs, scoped Call nodes, stable ports, fallbacks, and connections
-already represent recursive SCCs in v6. Restore must preserve those ports and
-wires exactly across repeated loads.
-Within each graph scope, v8 also validates unique binding IDs and identifier
-names across bound Values and definition parameters. Every Variable reference
-must resolve by its persisted stable ID in that same graph; stale, malformed,
-duplicate, circular, and cross-scope binding data is rejected before restore.
+## Validation and restore
 
-## File access and local library
+Parse, migrate, and validate before touching the live editor. Prepare all nodes,
+dynamic ports, and endpoints before clearing it. Application restore supplies
+a snapshot of the previous valid project for rollback if applying the prepared
+replacement fails. The low-level `restoreProject` helper requires that snapshot
+via `rollbackProject` to provide rollback; failure of both restore and rollback
+is surfaced explicitly.
 
-Keep canonical serialization independent from storage APIs. File access uses a
+Only a successful load becomes the active autosave target. Invalid,
+incompatible, or unrestorable IndexedDB records remain unchanged and available
+for explicit deletion; other projects can still open and new projects can be
+created. Only an actual IndexedDB initialization/access failure disables the
+library and falls back to file-only use.
+
+## Files and local library
+
+Keep canonical serialization independent of storage APIs. File access uses a
 normal input/download fallback and may use File System Access APIs where
-available; browser file-handle associations are external metadata. The user
-must give an unnamed project a meaningful name before an explicit Save, Save
-As, or export.
+available; file-handle associations are external metadata. An unnamed project
+needs a meaningful name before explicit Save, Save As, or export.
 
-IndexedDB is the primary local multi-project store; `localStorage` is not a
-project database. Local storage IDs are unrelated to portable project and graph
-identity; importing a `.scadlet` creates a new local record. The active project
-is tab-scoped (`sessionStorage`), so tabs can work independently.
+IndexedDB is the primary multi-project store; `localStorage` is not a project
+database. A local storage ID is separate from portable graph identity. Import
+creates a new local record, and `sessionStorage` tracks each tab's active
+project independently.
 
-Built-in examples are maintained as top-level `examples/example_*.scadlet`
-sources and eagerly bundled as immutable text templates. They are not
-IndexedDB records and never become the active project directly. Selection
-first parses the canonical source, gives it a clear `Example: <name>` local
-name with a numeric suffix when needed, creates a fresh IndexedDB record, and
-then uses the ordinary atomic project-activation path. Editing or deleting
-that record cannot affect the bundled source. The current project is flushed
-before this copy/activation, exactly as for an ordinary project switch.
+Autosave uses dirty notifications, a short debounce, and one in-flight write.
+Optimistic per-project revisions prevent silent same-project last-writer-wins.
+`BroadcastChannel` may announce library changes but is neither a source of truth
+nor a merge mechanism. Conflicts block overwrite and offer explicit recovery;
+do not add a backend, synchronization framework, or CRDT behaviour.
 
-Autosave is intentionally simple: use dirty notifications with a short debounce
-and one in-flight write. Use optimistic per-project revision checks to prevent
-silent same-project last-writer-wins. `BroadcastChannel` may notify tabs of
-library changes but is never a second source of truth or a merge mechanism.
-On conflict, block overwrite and offer an explicit recovery route. Do not add a
-backend, synchronization framework, or CRDT behavior.
+Successful autosaves are silent. A real write failure produces persistent,
+accessible feedback that changes may be lost; a later successful autosave
+clears it. Rename, switching, import, and rendering must not manufacture that
+failure state.
 
-Successful autosaves are intentionally silent in the application shell. An
-actual IndexedDB write failure is persistent, accessible feedback that recent
-changes may be lost; a later successful autosave clears it. Project rename,
-switch, import, and rendering must not manufacture autosave-failure feedback.
+## Bundled examples
+
+Maintain templates only as top-level `examples/example_*.scadlet` files.
+Vite's eager raw glob discovers them automatically and bundles their text;
+selection requires no runtime fetch or manually maintained manifest. Canonical
+parsing validates templates. Their display names derive from filenames.
+
+Templates are immutable and never become active editor state directly.
+Selection flushes the current project, creates a fresh IndexedDB copy named
+`Example: <name>` (then `Example: <name> 2`, and so on when needed), and uses
+normal project activation. Editing/deleting a local example copy cannot alter
+the template. Examples never open automatically.
+
+Historical format fixtures under `docs/examples/` are distinct from bundled
+examples. Keep their old versions to exercise compatibility; do not upgrade
+fixtures merely to match the current writer.

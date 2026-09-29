@@ -1,34 +1,51 @@
 # SCADlet
 
-SCADlet is an early-stage, browser-based visual programming environment for OpenSCAD. It uses node graphs to make functional programming and constructive 3D modelling approachable for learners.
+SCADlet is a browser-based visual node editor for OpenSCAD. Build and connect
+node graphs to explore functional programming and constructive 3D modelling,
+then render real OpenSCAD geometry in your browser. It is designed for learners
+and teaching, with a focused subset of the OpenSCAD language.
 
-## What is SCADlet?
+[Open SCADlet](https://scadlet.org/) · [Source on GitHub](https://github.com/krichenbauer/scadlet)
 
-SCADlet is fully client-side: a graph evaluates to readable OpenSCAD source, which can be rendered in the browser through OpenSCAD WASM. It is designed for teaching and learning, rather than complete OpenSCAD language compatibility.
+## What you can do
 
-## Current features
+- Combine 3D primitives, transforms, ordered Boolean operations, conditional
+  geometry, and numeric `For` loops.
+- Drive geometry with typed Number, Boolean, and Vector3 values, math,
+  conditionals, scoped variables, and reusable Modules and Functions, including
+  recursive calls. Adjust scope-level detail with **SCAD settings**.
+- Select and move groups, Copy/Cut/Paste/Duplicate graph nodes, explicitly
+  collapse controls, and Inspect intermediate geometry or values.
+- See changes through default-on **Live** preview, use **Render** for a fresh
+  render, and orbit, pan, or zoom the 3D result. **Fit graph** and **Reset 3D
+  view** recover the workspace view.
 
-- Geometry nodes for Cube, Cylinder, Sphere, transforms, and Boolean operations.
-- Number, Boolean, Vector3, and basic math nodes for simple dataflow.
-- Direct literal editing, compatible typed connections, compact expandable nodes, and intermediate-value inspection.
-- In-browser OpenSCAD rendering with an interactive Three.js STL viewer.
-- Export to `.scad` and `.stl`, plus local save/open, portable `.scadlet`
-  project files, and built-in examples copied into the local project library.
+Drag nodes from the palette, edit their inline values, and connect compatible
+outputs to inputs. Use a node's chevron, where available, to collapse or expand
+its controls and its **More → Inspect** action to examine a result.
 
-## Usage
+## Projects and examples
 
-- Add nodes from the palette and connect compatible sockets.
-- Edit literal values directly in nodes, or drive them with value and math nodes.
-- Hover a node to expand its controls, or pin it open.
-- Double-click a geometry or value-producing node to inspect an intermediate result.
-- Use **Render** for the current preview; with no node inspected, it renders the complete model.
-- Save or open `.scadlet` projects, and download generated OpenSCAD or STL files.
-- Open an immutable template from the Projects menu's Examples section to
-  create an editable local copy.
+Projects autosave locally in your browser's IndexedDB. **Projects** manages
+that library and provides bundled examples; selecting an example creates a
+separate editable local copy. The original template stays unchanged.
+
+Use **File** to open or save portable `.scadlet` projects and export readable
+OpenSCAD (`.scad`) or rendered STL (`.stl`). Download `.scadlet` files to keep
+copies outside browser storage or move projects to another browser. OpenSCAD
+source import is not supported.
+
+SCADlet runs entirely client-side, with no account, backend, analytics, or
+third-party runtime services. Application resources and examples are bundled;
+normal use needs no network after loading. Desktop and laptop browsers are the
+primary target. Small touch viewports (at most 700px wide or 500px high) show a
+larger-screen notice; larger tablets remain usable. 2D geometry, extrusion,
+Lists, and Strings are planned, not current features.
 
 ## Development
 
-The Nix development shell works on Linux and Intel/Apple-Silicon macOS. It provides Node.js, pnpm, and Git; Linux also supplies Chromium for Playwright:
+The Nix devShell supports Linux x86-64 and Intel/Apple-Silicon macOS. It provides
+Node.js, pnpm, and Git; on Linux it also supplies Playwright's Chromium.
 
 ```bash
 nix develop
@@ -36,16 +53,22 @@ pnpm install
 pnpm dev
 ```
 
-Validate a change with:
+On macOS, install Playwright's Chromium once with `pnpm exec playwright install
+chromium` if it is not already available. The main commands are:
 
 ```bash
-pnpm test
-pnpm exec tsc --noEmit
-pnpm build
-pnpm test:e2e
+pnpm test                  # Unit and integration tests
+pnpm exec tsc --noEmit      # Type checking
+pnpm build                 # Production build
+pnpm preview               # Serve the production build
+pnpm test:e2e              # Chromium tests; builds and starts Vite Preview
 ```
 
-SCADlet is built with TypeScript and Vite. Lit provides the application UI, Rete.js owns graph structure and dataflow, OpenSCAD WASM produces geometry, and Three.js displays the resulting STL mesh.
+The stack is TypeScript, Vite, Lit, Rete.js, OpenSCAD WASM, and Three.js.
+Start contributing with [AGENTS.md](AGENTS.md), which routes to the architecture,
+interaction, persistence, and delivery guides. See the
+[project format](docs/scadlet-format.md) for portable-file details and the
+[roadmap](docs/agent-guides/roadmap.md) for future work.
 
 ## Open-source dependencies
 

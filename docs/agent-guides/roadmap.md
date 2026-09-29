@@ -1,83 +1,42 @@
 # Product boundary and roadmap
 
-Read this before implementing a capability that may be future work.
+Current capabilities are summarized in [README](../../README.md); the other
+guides describe their contracts. Keep this document forward-looking.
 
-## Current baseline
+## Next work, in priority order
 
-Implemented and stable:
+These are the ordered next areas of work, not implemented capabilities or
+permission to add them during unrelated tasks. Detailed designs remain to be
+settled by their feature tasks.
 
-- the Rete-to-OpenSCAD-to-WASM-to-STL-to-Three.js path, including a valid
-  empty-Geometry outcome with an informational preview state rather than a
-  render error;
-- Cube, Cylinder, Sphere; Translate, Rotate, Scale; ordered variadic
-  Difference/Union/Intersection; Geometry If; and typed values with Math,
-  Compare (including direct Number fallbacks), and Value Conditional;
-- scoped reusable Modules and Functions, nested Calls, and direct/mutual
-  definition recursion evaluated by OpenSCAD-WASM without static termination
-  analysis;
-- client-side `.scadlet` v8 persistence, restore validation, and rejection of
-  cyclic node dataflow while retaining permitted definition recursion;
-- immutable, eagerly bundled example templates that create ordinary local
-  copies only when selected from the Projects menu;
-- dark, compact node presentation with explicit fixed Conditional/If interfaces,
-  Geometry recognition, semantic Inspect provenance, and standard selection;
-- the focused UI refinement pass: compact, touch-aware node controls and
-  palette guidance; clear Inspect exit and normal-preview resumption; and
-  responsive live-preview rendering with bounded cached results;
-- transient view recovery: Fit graph for the canvas and Reset 3D view for a
-  nonempty preview mesh.
-- one scope-level SCAD settings node in Main and each Module, with optional
-  `$fn`/`$fa`/`$fs` Number rows, connected expression dependencies, and no
-  Function-scope availability.
-- scope-local variable bindings from deliberately named Values and
-  Module/Function parameters, with stable-ID compact references, safe rename
-  and deletion, typed connected-expression overrides with preserved direct
-  fallbacks, ordered Main/Module assignments, and Function `let(...)` code.
-- numeric Geometry iteration in Main and Module scopes through a fixed visual
-  `For`/`For result` pair, ordered body inputs, lexical iterator references,
-  nested loops, idiomatic OpenSCAD `for` blocks, and quiet bodyless drafts that
-  remain omitted from source until Geometry is connected.
-- graph-native Copy, Cut, Paste, and Duplicate with session-local detached
-  payloads, selection-aware More/context menus, deferred placement, atomic
-  commit, and fresh binding/For/dynamic-port identities.
-- PI, Number negate, variadic Minimum/Maximum, and consolidated typed Vector
-  Math operations, available in Main, Module, and Function value graphs.
+1. **List and String values.** Establish the type-system and value operations
+   before dependent geometry features: general polygon point data needs lists,
+   and text needs Strings. Candidate operations include indexing, `len`,
+   `concat`, `lookup`, `search`, `str`, `chr`, `ord`, and later list comprehensions.
+2. **Missing simple Geometry nodes.** Prioritize Mirror and Resize, retaining
+   the existing scope, persistence, and effective-output rules.
+3. **2D Geometry and extrusion.** Design 2D primitives, 2D Boolean composition,
+   and linear/rotational extrusion as a coherent extension. Settle dimensional
+   typing, compatible connections, and the transition to the existing 3D
+   preview/export path together. General polygons and text follow their
+   List/String prerequisites; no particular socket representation is decided
+   by this roadmap.
 
-Current catalog/value semantics are intentionally limited. Geometry If is a
-statement-level node valid in Main/Module scopes, with required Boolean
-condition and Geometry then branch plus optional Geometry else branch. Value
-Conditional is expression-level. Reachable incomplete nodes produce localized
-evaluation errors; disconnected drafts do not create fake `undef` semantics.
+## Later ideas requiring product decisions
 
-## Later work
+- A secondary geometry-oriented OpenSCAD code node with explicit parameter
+  inputs and possibly Geometry inputs.
+- OpenSCAD source import; the current source pane remains a verification view,
+  not an editor.
+- Dedicated definition canvases, broader OpenSCAD coverage (including Hull and
+  Minkowski), and teaching refinements such as detailed source-to-node errors.
+- Collaboration/synchronization, which would require revisiting the current
+  static, private, browser-only product boundary.
 
-Implement later work in this order unless a concrete defect warrants a small,
-independent repair first.
+`color()` and multi-material output remain deferred. STL carries no colour
+semantics, and arbitrary `color()` calls do not define separate STL parts.
+This needs an explicit material model and deliberate multi-part export design.
 
-1. **List and String values.** Add general lists and Strings before 2D Geometry:
-   lists/vectors are needed for polygon point data, while Strings enable text.
-   Likely operations include indexing, `len`, `concat`, `lookup`, `search`,
-   `str`, `chr`, `ord`, and eventually list comprehensions.
-2. **Missing simple Geometry nodes.** Prioritize ordinary transformations such
-   as Mirror and Resize, with the same scope, persistence, and effective-output
-   rules as the existing Geometry catalog.
-3. **2D Geometry and extrusion.** Treat 2D primitives, 2D Boolean operations,
-   and linear/rotational extrusion as one coherent extension rather than
-   isolated nodes.
-4. **Remaining larger extensions.** A secondary geometry-oriented OpenSCAD
-   code node with explicit parameter and possibly Geometry inputs, import of
-   existing `.scad`, dedicated definition canvases, collaboration/sync, and
-   broader OpenSCAD compatibility each require their own product design.
-
-`color()` and multi-material output are intentionally deferred. STL has no
-color semantics, and OpenSCAD does not automatically split an arbitrary model
-into one STL per `color()` call. Supporting this well would require an explicit
-SCADlet color/material model and a deliberate multi-part export workflow.
-
-Broader nodes (for example hull and minkowski), additional value types, and
-the larger extensions above are not implied by the current baseline. Implement
-them only when a task explicitly settles their product design.
-
-The original MVP—editable graph, core primitives/Boolean connections, source
-generation, Worker-based OpenSCAD rendering, STL preview, and SCAD/STL export—
-exists. Preserve this path while extending the product.
+Do not infer a general CAD framework, closures, macros, or complete OpenSCAD
+compatibility from these ideas. Preserve the existing graph → OpenSCAD → WASM
+→ STL path while extending the product.
