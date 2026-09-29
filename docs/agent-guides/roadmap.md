@@ -9,8 +9,8 @@ Implemented and stable:
 - the Rete-to-OpenSCAD-to-WASM-to-STL-to-Three.js path, including a valid
   empty-Geometry outcome with an informational preview state rather than a
   render error;
-- Cube, Cylinder, Sphere; Translate, Rotate, Scale; Difference and ordered
-  variadic Union/Intersection; Geometry If; and typed values with Math,
+- Cube, Cylinder, Sphere; Translate, Rotate, Scale; ordered variadic
+  Difference/Union/Intersection; Geometry If; and typed values with Math,
   Compare (including direct Number fallbacks), and Value Conditional;
 - scoped reusable Modules and Functions, nested Calls, and direct/mutual
   definition recursion evaluated by OpenSCAD-WASM without static termination

@@ -299,6 +299,40 @@ describe('per-node semantic round trip (serialize -> restore -> evaluate)', () =
     expect(await evaluateOpenSCAD(dst, engine)).toBe('difference() {\n    cube(10);\n    sphere(r=5);\n}')
   })
 
+  it('restores ordered three-input Difference and Intersection slots plus one empty extension', async () => {
+    const { editor: src } = createGraph()
+    const cube = new CubeNode()
+    const sphere = new SphereNode()
+    const cylinder = new CylinderNode()
+    const difference = new DifferenceNode()
+    const intersection = new IntersectionNode()
+    for (const node of [cube, sphere, cylinder, difference, intersection]) await src.addNode(node)
+
+    await src.addConnection(connect(cube, 'geometry', difference, 'base'))
+    await src.addConnection(connect(sphere, 'geometry', difference, 'subtract'))
+    difference.synchronizeChildren(new Set(['base', 'subtract']))
+    const differenceChild = Object.keys(difference.inputs).at(-1)!
+    await src.addConnection(connect(cylinder, 'geometry', difference, differenceChild))
+    difference.synchronizeChildren(new Set(['base', 'subtract', differenceChild]))
+
+    await src.addConnection(connect(cube, 'geometry', intersection, 'a'))
+    await src.addConnection(connect(sphere, 'geometry', intersection, 'b'))
+    intersection.synchronizeChildren(new Set(['a', 'b']))
+    const intersectionChild = Object.keys(intersection.inputs).at(-1)!
+    await src.addConnection(connect(cylinder, 'geometry', intersection, intersectionChild))
+    intersection.synchronizeChildren(new Set(['a', 'b', intersectionChild]))
+
+    const { editor: dst, engine } = createGraph()
+    const { project } = await roundTrip({ editor: src, positions: {} }, dst)
+    const restoredDifference = dst.getNodes().find((node): node is DifferenceNode => node instanceof DifferenceNode)!
+    const restoredIntersection = dst.getNodes().find((node): node is IntersectionNode => node instanceof IntersectionNode)!
+    expect(Object.keys(restoredDifference.inputs)).toEqual(['base', 'subtract', differenceChild, expect.stringMatching(/^child:/)])
+    expect(Object.keys(restoredIntersection.inputs)).toEqual(['a', 'b', intersectionChild, expect.stringMatching(/^child:/)])
+    expect(await evaluateOpenSCAD(dst, engine)).toContain('difference() {\n    cube(10);\n    sphere(r=5);\n    cylinder(h=10, r=5);\n}')
+    expect(await evaluateOpenSCAD(dst, engine)).toContain('intersection() {\n    cube(10);\n    sphere(r=5);\n    cylinder(h=10, r=5);\n}')
+    expect(project.graph.nodes.find((node) => node.type === 'difference')?.parameters).toEqual(difference.getPersistedParams())
+  })
+
   it("Union's A/B inputs survive restoration", async () => {
     const { editor: src } = createGraph()
     const a = new CubeNode()

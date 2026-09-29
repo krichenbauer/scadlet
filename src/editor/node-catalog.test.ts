@@ -211,7 +211,7 @@ describe('NODE_CATALOG', () => {
   })
 
   it('validates the asymmetric Difference and persistent variadic Boolean slots', () => {
-    expect(findCatalogEntry('difference')!.validateParams(undefined)).toEqual({})
+    expect(findCatalogEntry('difference')!.validateParams(undefined)).toEqual({ children: [{ id: 'base' }, { id: 'subtract' }] })
     expect(findCatalogEntry('union')!.validateParams({ children: [{ id: 'child-1' }] })).toEqual({ children: [{ id: 'child-1' }] })
     expect(() => findCatalogEntry('intersection')!.validateParams('nope')).toThrow('Invalid parameters')
   })

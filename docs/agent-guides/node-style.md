@@ -293,7 +293,10 @@ socket and family styling communicate the type.
 
 `For` and `For result` are ordinary node cards with the shared loop icon,
 header actions, spacing, and Geometry-family treatment where applicable. Their
-fixed boundary is the only structural-wire exception: small muted neutral-grey
+palette entry also uses the Geometry cue, although the draggable header exposes
+only Number and structural outputs. This palette classification does not
+recolor the instantiated structural anchors or boundary wire. Their fixed
+boundary is the only structural-wire exception: small muted neutral-grey
 rectangular anchors and a thick dashed neutral-grey path distinguish it from
 typed dataflow without resembling Number or Geometry. The endpoint is the last
 physical row of each card, below End on `For` and below every ordered Geometry
@@ -305,6 +308,13 @@ normal directional connector, fallback, collapse, and extension-slot
 conventions. The structural anchors never receive arrow/notch shapes,
 ordinary connector roles, tab stops, hover/focus states, or connection-start
 behavior.
+
+Difference, Union, and Intersection share the ordered Geometry-input extension
+convention. Their stable slot identities retain source order. The final
+available row shows the extension affordance; connecting it appends one empty
+row, and disconnecting that row leaves it available for reuse. Difference's
+first two rows retain their visible Base and Subtract labels; later rows are
+ordered subtractors.
 
 ## Implementation and review checklist
 

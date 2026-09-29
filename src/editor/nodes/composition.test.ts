@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { evaluateOpenSCAD } from '../evaluate'
 import { CubeNode } from './cube-node'
+import { CylinderNode } from './cylinder-node'
 import { DifferenceNode } from './difference-node'
 import { IntersectionNode } from './intersection-node'
 import { RotateNode } from './rotate-node'
@@ -82,6 +83,46 @@ describe('recursive graph evaluation with the Milestone 4 nodes', () => {
     const source = await evaluateOpenSCAD(editor, engine)
 
     expect(source).toBe('intersection() {\n    cube(10);\n    sphere(r=5);\n}')
+  })
+
+  it('Difference subtracts three or more connected children in stable port order', async () => {
+    const { editor, engine } = createGraph()
+    const cube = new CubeNode()
+    const sphere = new SphereNode()
+    const cylinder = new CylinderNode()
+    const difference = new DifferenceNode()
+    for (const node of [cube, sphere, cylinder, difference]) await editor.addNode(node)
+    await editor.addConnection(connect(cube, 'geometry', difference, 'base'))
+    await editor.addConnection(connect(sphere, 'geometry', difference, 'subtract'))
+    difference.synchronizeChildren(new Set(['base', 'subtract']))
+    const thirdInput = Object.keys(difference.inputs).at(-1)!
+    await editor.addConnection(connect(cylinder, 'geometry', difference, thirdInput))
+    difference.synchronizeChildren(new Set(['base', 'subtract', thirdInput]))
+
+    expect(await evaluateOpenSCAD(editor, engine)).toBe(
+      'difference() {\n    cube(10);\n    sphere(r=5);\n    cylinder(h=10, r=5);\n}',
+    )
+    expect(Object.keys(difference.inputs)).toHaveLength(4)
+  })
+
+  it('Intersection includes three or more connected children in stable port order', async () => {
+    const { editor, engine } = createGraph()
+    const cube = new CubeNode()
+    const sphere = new SphereNode()
+    const cylinder = new CylinderNode()
+    const intersection = new IntersectionNode()
+    for (const node of [cube, sphere, cylinder, intersection]) await editor.addNode(node)
+    await editor.addConnection(connect(cube, 'geometry', intersection, 'a'))
+    await editor.addConnection(connect(sphere, 'geometry', intersection, 'b'))
+    intersection.synchronizeChildren(new Set(['a', 'b']))
+    const thirdInput = Object.keys(intersection.inputs).at(-1)!
+    await editor.addConnection(connect(cylinder, 'geometry', intersection, thirdInput))
+    intersection.synchronizeChildren(new Set(['a', 'b', thirdInput]))
+
+    expect(await evaluateOpenSCAD(editor, engine)).toBe(
+      'intersection() {\n    cube(10);\n    sphere(r=5);\n    cylinder(h=10, r=5);\n}',
+    )
+    expect(Object.keys(intersection.inputs)).toHaveLength(4)
   })
 
   it('mixes a new node with Difference (Scale wrapping a Difference of Cube/Sphere)', async () => {

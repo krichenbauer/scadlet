@@ -67,6 +67,13 @@ silently diverge from exported code.
 Numeric For regressions must cover the fixed pair lifecycle, iterator lexical
 boundary, nested Main/Module source, persistence rejection, and the normal
 WASM preview/export path; JavaScript must never evaluate the range itself.
+Ordered Boolean Geometry-input regressions cover Difference's required base
+and first subtractor plus optional ordered subtractors, Intersection's
+ordered inputs, automatic extension after the final available slot is
+connected, disconnect/reuse of the trailing slot, and unchanged Union
+behavior. Unit and browser coverage also checks stable three-input source,
+restore, scope transfer, Inspect, preview rendering, and `.scad` export; copy
+and paste coverage applies only if that lifecycle is supported.
 Directional-connector browser regressions must cover output-origin creation,
 input-origin pointer/touch/keyboard no-ops, output-origin replacement of an
 occupied input, wire selection/removal, representative static and dynamic

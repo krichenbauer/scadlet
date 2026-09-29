@@ -59,7 +59,7 @@ describe('Geometry accent classification', () => {
   })
 
   it('gives only catalog entries with Geometry output ports the palette cue', () => {
-    for (const type of ['cube', 'translate', 'union', 'if'] as const) {
+    for (const type of ['cube', 'translate', 'union', 'if', 'for'] as const) {
       expect(catalogProducesGeometry(findCatalogEntry(type)!)).toBe(true)
     }
     for (const type of ['number', 'vector3', 'arithmetic', 'compare', 'conditional'] as const) {

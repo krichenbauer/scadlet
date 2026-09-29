@@ -196,6 +196,9 @@ export interface NodeCatalogEntry {
   readonly palette?: boolean
   /** Families whose concrete operation is selected directly in the palette. */
   readonly paletteOperation?: PaletteOperationConfig
+  /** Presentation-only palette cue for Geometry-producing pairs whose
+   * draggable header itself exposes only Number and structural outputs. */
+  readonly paletteGeometry?: boolean
   /** Explicit scope availability for nodes which are intentionally more
    * restricted than the ordinary catalog vocabulary. */
   readonly allowedScopes?: readonly NodeGraphScopeKind[]
@@ -220,18 +223,15 @@ export interface NodeCatalogEntry {
   create(context: NodeCreationContext, params?: Record<string, unknown>): Schemes['Node']
   /** True if `node` was constructed by this entry's `create` - used to identify a live node's catalog type for `.scadlet` serialization. */
   matches(node: Schemes['Node']): boolean
-  /** Extracts this node's semantic parameters for `.scadlet` persistence (an empty object for nodes with no parameters, e.g. Difference/Union/Intersection). */
+  /** Extracts this node's semantic parameters for `.scadlet` persistence (an empty object for nodes with no persisted signature, e.g. Union). */
   serializeParams(node: Schemes['Node']): Record<string, unknown>
   /** Validates raw persisted parameters for this node type, throwing a descriptive `Error` on invalid input. */
   validateParams(value: unknown): Record<string, unknown>
 }
 
-/**
- * Nodes with no parameters of their own (Difference/Union/Intersection)
- * share this trivial "parameters" validator: persisted parameters must be
- * absent or a plain object, and are otherwise ignored (forward-compatible
- * with any future additive fields, per AGENTS.md's persistence policy).
- */
+/** Definition interface nodes and Geometry If have no node-owned parameters.
+ * Their catalog entries share this trivial validator; parameters must be
+ * absent or a plain object and carry no semantic state. */
 function validateEmptyParams(value: unknown): Record<string, never> {
   if (value !== undefined && (typeof value !== 'object' || value === null || Array.isArray(value))) {
     throw new Error('Invalid parameters: expected an object (or none) for this node type')
@@ -263,6 +263,16 @@ function validateVariadicBooleanParams(value: unknown): VariadicBooleanParams {
     if (seen.has(id)) throw new Error(`Duplicate child slot id "${id}"`)
     seen.add(id); return { id }
   }) }
+}
+
+function validateDifferenceParams(value: unknown): VariadicBooleanParams {
+  if (value === undefined) return { children: [{ id: 'base' }, { id: 'subtract' }] }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Invalid parameters: expected an object')
+  const children = (value as Record<string, unknown>).children
+  if (children === undefined) return { children: [{ id: 'base' }, { id: 'subtract' }] }
+  const validated = validateVariadicBooleanParams({ children })
+  if (validated.children.length < 2) throw new Error('Invalid parameters: Difference needs at least two Geometry inputs')
+  return validated
 }
 
 /**
@@ -357,7 +367,7 @@ export const FUNCTION_GRAPH_ALLOWED_NODE_TYPES: ReadonlySet<NodeTypeId> = new Se
  */
 const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   {
-    type: 'for', category: 'control-flow', labelKey: 'node.for', paletteDescriptionKey: 'palette.description.for',
+    type: 'for', category: 'control-flow', labelKey: 'node.for', paletteDescriptionKey: 'palette.description.for', paletteGeometry: true,
     allowedScopes: ['main', 'module'], inputs: ['start', 'step', 'end'], outputs: ['value', 'loop'],
     inputSocketType: (port) => ['start', 'step', 'end'].includes(port) ? 'number' : undefined,
     outputSocketType: (port) => port === 'value' ? 'number' : port === 'loop' ? 'structure' : undefined,
@@ -769,13 +779,14 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     labelKey: 'node.difference',
     paletteDescriptionKey: 'palette.description.difference',
     inputs: ['base', 'subtract'],
+    isInputPort: (port, parameters) => port === 'base' || port === 'subtract' || (parameters as unknown as VariadicBooleanParams).children.some((child, index) => index > 1 && port === `child:${child.id}`),
     outputs: ['geometry'],
-    inputSocketType: () => 'geometry',
+    inputSocketType: (port, params) => port === 'base' || port === 'subtract' || (params as unknown as VariadicBooleanParams).children.some((child, index) => index > 1 && port === `child:${child.id}`) ? 'geometry' : undefined,
     outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
-    create: () => new DifferenceNode(),
+    create: (_context, params) => new DifferenceNode(params ? validateDifferenceParams(params) : undefined),
     matches: (node) => node instanceof DifferenceNode,
-    serializeParams: validateEmptyParams,
-    validateParams: validateEmptyParams,
+    serializeParams: (node) => (node as DifferenceNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateDifferenceParams(value) as unknown as Record<string, unknown>,
   },
   {
     type: 'union',

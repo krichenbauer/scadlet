@@ -213,6 +213,34 @@ test('creates the Geometry If from the Control flow palette with the canonical G
   await expect(ifNode.locator('.node-socket[data-socket-side="output"][data-socket-key="geometry"][data-socket-type="geometry"]')).toHaveCount(1)
 })
 
+test('marks the For palette entry with the Geometry cue while keeping its structural pair neutral', async ({ page }) => {
+  await openEmptyProject(page)
+  const paletteEntry = page.locator('node-palette .node-item[data-node-type="for"]')
+  await expect(paletteEntry).toHaveClass(/node-item--geometry-output/)
+  await expect(paletteEntry.locator('.node-item-icon svg')).toHaveCount(1)
+  const paletteStyle = await paletteEntry.evaluate((element) => ({
+    marker: getComputedStyle(element).boxShadow,
+    iconColor: getComputedStyle(element.querySelector('.node-item-icon')!).color,
+    textColor: getComputedStyle(element).color,
+  }))
+  expect(paletteStyle.marker).toContain('inset')
+  expect(paletteStyle.iconColor).toBe(paletteStyle.textColor)
+
+  const editor = page.locator('node-editor')
+  const canvas = await editor.boundingBox()
+  if (!canvas) throw new Error('Expected node-editor canvas')
+  await dropPaletteNode(page, 'for', { x: canvas.x + 260, y: canvas.y + 260 })
+  const header = page.locator('node-editor .node[data-for-pair-role="header"]')
+  const result = page.locator('node-editor .node[data-for-pair-role="result"]')
+  await expect(header).toHaveAttribute('data-geometry-output', 'false')
+  await expect(result).toHaveAttribute('data-geometry-output', 'true')
+  for (const anchor of [header.locator('.node-structural-anchor'), result.locator('.node-structural-anchor')]) {
+    await expect(anchor).toHaveCSS('background-color', 'rgb(58, 58, 58)')
+    await expect(anchor).toHaveCSS('border-top-color', 'rgb(133, 133, 133)')
+  }
+  await expect(page.locator('node-editor svg.connection--structural')).toHaveCount(1)
+})
+
 test('keeps Value Conditional and Geometry If as fixed, parallel interfaces through visible creation and rendering', async ({ page }) => {
   await openEmptyProject(page)
   const editor = page.locator('node-editor')

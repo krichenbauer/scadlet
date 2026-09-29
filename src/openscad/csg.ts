@@ -34,11 +34,14 @@ function booleanOpToOpenSCAD(name: string, inputs: readonly NamedInput[]): Diffe
 export function differenceToOpenSCAD(
   base: string | undefined,
   subtract: string | undefined,
+  additionalSubtractors: readonly string[] = [],
 ): DifferenceResult {
-  return booleanOpToOpenSCAD('difference', [
+  const result = booleanOpToOpenSCAD('difference', [
     { label: 'base', code: base },
     { label: 'subtract', code: subtract },
   ])
+  if (result.error) return result
+  return { code: formatBlock('difference', [base as string, subtract as string, ...additionalSubtractors]) }
 }
 
 /** Composes two fragments into a `union() { ... }` block. */

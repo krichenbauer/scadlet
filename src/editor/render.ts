@@ -129,6 +129,10 @@ export function geometryInputPresentation(node: Schemes['Node'], key: string): P
       : { visibleLabel: '', accessibleLabel: t('input.geometryChild') }
   }
   if (!(node instanceof BooleanOpNode) || !node.isInputPort(key)) return undefined
+  if (key === 'base' || key === 'subtract') {
+    const label = key === 'base' ? t('input.base') : t('input.subtract')
+    return { visibleLabel: label, accessibleLabel: label }
+  }
   return node.isExtensionPort(key)
     ? { visibleLabel: '+', accessibleLabel: t('input.addGeometryChild') }
     : { visibleLabel: '', accessibleLabel: t('input.geometryChild') }

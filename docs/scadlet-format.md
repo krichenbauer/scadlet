@@ -125,8 +125,14 @@ For pairs additionally use a dedicated, fixed Structure boundary socket.
 Union and Intersection use `parameters.children`, an ordered non-empty list
 of `{ "id": "..." }` stable child-slot identities. Their target input ports
 are `child:<id>`; a trailing empty slot is retained so adding a connection
-never renumbers earlier children. Difference remains asymmetric with `base`
-and `subtract`.
+never renumbers earlier children. Difference keeps its historical required
+`base` and `subtract` ports and may add an ordered `children` list: the first
+two IDs represent those same ports and later IDs map to stable
+`child:<id>` subtractor ports. Existing Difference records without `children`
+restore with the two historical inputs. All three nodes append one further
+empty slot when their final available Geometry input is connected. This is
+additive v8 state and requires no migration; connections continue to address
+stable input port IDs rather than row positions.
 
 The loader migrates v1 Cubes from `sizeX`/`sizeY`/`sizeZ` into v2 `size`, and
 migrates v1 Union/Intersection `a`/`b` connection endpoints into deterministic

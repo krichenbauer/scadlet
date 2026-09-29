@@ -45,6 +45,12 @@ cross-scope, mismatched, or escaping pairs before restore.
 A complete persisted pair remains valid when none of the result's Geometry
 slots is connected; restore preserves that editable draft, and code generation
 omits it until a valid body connection exists.
+Difference, Union, and Intersection persist their ordered Geometry-input slots
+as stable `children` IDs. For Difference, the first two slot IDs preserve the
+historical `base` and `subtract` port identities; additional IDs map to
+ordered `child:<id>` subtractor ports. Older Difference records without a
+`children` field restore with those same two required ports. These additive
+slot records use existing v8 connections and need no format migration.
 Existing parameter shapes and port IDs are compatibility
 contracts. Prefer small explicit migrations; reject unsupported newer formats,
 unknown semantic node types, and incompatible state with useful errors rather

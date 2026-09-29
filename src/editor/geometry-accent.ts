@@ -15,8 +15,8 @@ export function hasGeometryOutput(
 }
 
 /** The catalog counterpart used before a palette item has instantiated a
- * live Rete node.  It uses the catalog's semantic output-port typing, not a
- * category or display label. */
-export function catalogProducesGeometry(entry: Pick<NodeCatalogEntry, 'outputs' | 'outputSocketType'>): boolean {
-  return entry.outputs.some((port) => entry.outputSocketType(port) === 'geometry')
+ * live Rete node. It uses semantic output typing, with explicit presentation
+ * metadata for the For palette entry whose header output is structural. */
+export function catalogProducesGeometry(entry: Pick<NodeCatalogEntry, 'outputs' | 'outputSocketType' | 'paletteGeometry'>): boolean {
+  return Boolean(entry.paletteGeometry) || entry.outputs.some((port) => entry.outputSocketType(port) === 'geometry')
 }

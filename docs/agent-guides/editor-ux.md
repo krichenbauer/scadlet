@@ -25,9 +25,12 @@ Expose OpenSCAD semantics without forcing a value graph for literals:
 - Function and Module Calls may be recursive in their permitted scopes. They
   keep the same dynamic ports, fallbacks, confirmation, and restoration rules
   as acyclic Calls; recursion adds no special syntax or UI mode.
-- Union and Intersection use ordered, variadic geometry-child slots. Each slot
-  has a stable ID; retain connected slots plus one empty extension slot.
-  Difference remains asymmetric (`base`/`subtract`).
+- Difference, Union, and Intersection use ordered Geometry-input slots with
+  stable IDs. Difference keeps its required `base` and first `subtract` ports;
+  later ordered inputs are additional subtractors. Union and Intersection keep
+  their existing minimum slot counts. When the final available slot becomes
+  connected, the editor appends one empty extension slot; disconnecting it
+  leaves that same slot available. Source generation retains slot order.
 - SCAD settings is a non-Geometry, scope-level node available only in Main and
   Module definitions, with at most one instance per scope. Its header Add menu
   offers only absent `$fn`, `$fa`, and `$fs` rows. Each row uses the normal
@@ -62,6 +65,9 @@ Expose OpenSCAD semantics without forcing a value graph for literals:
   the complete pair; members otherwise move independently. A structurally
   valid pair with no connected result body is a normal draft and remains
   absent from generated source until Geometry is connected.
+  Its palette entry uses the blue Geometry-family cue because the pair
+  produces Geometry. The instantiated header/result keep their distinct
+  structural anchors and muted-grey boundary wire.
 
 Do not build a generic signature DSL prematurely. Reuse small, explicit
 mechanisms for optional parameters, typed inputs, alternative editors, and
