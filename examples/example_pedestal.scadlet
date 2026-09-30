@@ -1,0 +1,336 @@
+{
+  "format": "scadlet",
+  "version": 8,
+  "metadata": {
+    "name": "Example: pedestal",
+    "createdAt": "2026-09-30T12:00:00.000Z",
+    "updatedAt": "2026-09-30T12:00:00.000Z"
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "settings",
+        "type": "scad-settings",
+        "position": {
+          "x": 40,
+          "y": 480
+        },
+        "parameters": {
+          "fn": 64
+        }
+      },
+      {
+        "id": "ball",
+        "type": "sphere",
+        "position": {
+          "x": 40,
+          "y": 640
+        },
+        "parameters": {
+          "mode": "radius",
+          "r": 8
+        }
+      },
+      {
+        "id": "ball-up",
+        "type": "translate",
+        "position": {
+          "x": 300,
+          "y": 640
+        },
+        "parameters": {
+          "x": 0,
+          "y": 0,
+          "z": 8,
+          "representation": "xyz"
+        }
+      },
+      {
+        "id": "low-pedestal",
+        "type": "module-call",
+        "position": {
+          "x": 560,
+          "y": 640
+        },
+        "parameters": {
+          "definitionId": "module-pedestal",
+          "arguments": {
+            "pedestal-height": 5
+          }
+        }
+      },
+      {
+        "id": "left",
+        "type": "translate",
+        "position": {
+          "x": 820,
+          "y": 640
+        },
+        "parameters": {
+          "x": -25,
+          "y": 0,
+          "z": 0,
+          "representation": "xyz"
+        }
+      },
+      {
+        "id": "box",
+        "type": "cube",
+        "position": {
+          "x": 40,
+          "y": 860
+        },
+        "parameters": {
+          "size": 10,
+          "sizeRepresentation": "scalar"
+        }
+      },
+      {
+        "id": "box-centered",
+        "type": "translate",
+        "position": {
+          "x": 300,
+          "y": 860
+        },
+        "parameters": {
+          "x": -5,
+          "y": -5,
+          "z": 0,
+          "representation": "xyz"
+        }
+      },
+      {
+        "id": "tall-pedestal",
+        "type": "module-call",
+        "position": {
+          "x": 560,
+          "y": 860
+        },
+        "parameters": {
+          "definitionId": "module-pedestal",
+          "arguments": {
+            "pedestal-height": 12
+          }
+        }
+      },
+      {
+        "id": "right",
+        "type": "translate",
+        "position": {
+          "x": 820,
+          "y": 860
+        },
+        "parameters": {
+          "x": 25,
+          "y": 0,
+          "z": 0,
+          "representation": "xyz"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "id": "ball.geometry->ball-up.geometry",
+        "source": "ball",
+        "sourceOutput": "geometry",
+        "target": "ball-up",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "ball-up.geometry->low-pedestal.geometry:pedestal-object",
+        "source": "ball-up",
+        "sourceOutput": "geometry",
+        "target": "low-pedestal",
+        "targetInput": "geometry:pedestal-object"
+      },
+      {
+        "id": "low-pedestal.geometry->left.geometry",
+        "source": "low-pedestal",
+        "sourceOutput": "geometry",
+        "target": "left",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "box.geometry->box-centered.geometry",
+        "source": "box",
+        "sourceOutput": "geometry",
+        "target": "box-centered",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "box-centered.geometry->tall-pedestal.geometry:pedestal-object",
+        "source": "box-centered",
+        "sourceOutput": "geometry",
+        "target": "tall-pedestal",
+        "targetInput": "geometry:pedestal-object"
+      },
+      {
+        "id": "tall-pedestal.geometry->right.geometry",
+        "source": "tall-pedestal",
+        "sourceOutput": "geometry",
+        "target": "right",
+        "targetInput": "geometry"
+      }
+    ]
+  },
+  "definitions": [
+    {
+      "id": "module-pedestal",
+      "kind": "module",
+      "name": "pedestal",
+      "interface": {
+        "inputs": "pedestal-inputs",
+        "output": "pedestal-output"
+      },
+      "parameters": [
+        {
+          "id": "pedestal-height",
+          "name": "height",
+          "type": "number",
+          "default": 5
+        }
+      ],
+      "geometryInputs": [
+        {
+          "id": "pedestal-object",
+          "name": "Object"
+        }
+      ],
+      "graph": {
+        "nodes": [
+          {
+            "id": "pedestal-inputs",
+            "type": "module-inputs",
+            "position": {
+              "x": 40,
+              "y": 60
+            },
+            "parameters": {}
+          },
+          {
+            "id": "base",
+            "type": "cylinder",
+            "position": {
+              "x": 340,
+              "y": 40
+            },
+            "parameters": {
+              "mode": "radius",
+              "r": 15,
+              "h": 5
+            }
+          },
+          {
+            "id": "lift",
+            "type": "translate",
+            "position": {
+              "x": 340,
+              "y": 240
+            },
+            "parameters": {
+              "x": 0,
+              "y": 0,
+              "z": 0,
+              "representation": "xyz"
+            }
+          },
+          {
+            "id": "pedestal-parts",
+            "type": "union",
+            "position": {
+              "x": 620,
+              "y": 140
+            },
+            "parameters": {
+              "children": [
+                {
+                  "id": "base"
+                },
+                {
+                  "id": "object"
+                },
+                {
+                  "id": "next"
+                }
+              ]
+            }
+          },
+          {
+            "id": "pedestal-output",
+            "type": "module-output",
+            "position": {
+              "x": 880,
+              "y": 140
+            },
+            "parameters": {}
+          }
+        ],
+        "connections": [
+          {
+            "id": "pedestal-inputs.parameter:pedestal-height->base.h",
+            "source": "pedestal-inputs",
+            "sourceOutput": "parameter:pedestal-height",
+            "target": "base",
+            "targetInput": "h"
+          },
+          {
+            "id": "pedestal-inputs.parameter:pedestal-height->lift.z",
+            "source": "pedestal-inputs",
+            "sourceOutput": "parameter:pedestal-height",
+            "target": "lift",
+            "targetInput": "z"
+          },
+          {
+            "id": "pedestal-inputs.geometry:pedestal-object->lift.geometry",
+            "source": "pedestal-inputs",
+            "sourceOutput": "geometry:pedestal-object",
+            "target": "lift",
+            "targetInput": "geometry"
+          },
+          {
+            "id": "base.geometry->pedestal-parts.child:base",
+            "source": "base",
+            "sourceOutput": "geometry",
+            "target": "pedestal-parts",
+            "targetInput": "child:base"
+          },
+          {
+            "id": "lift.geometry->pedestal-parts.child:object",
+            "source": "lift",
+            "sourceOutput": "geometry",
+            "target": "pedestal-parts",
+            "targetInput": "child:object"
+          },
+          {
+            "id": "pedestal-parts.geometry->pedestal-output.geometry",
+            "source": "pedestal-parts",
+            "sourceOutput": "geometry",
+            "target": "pedestal-output",
+            "targetInput": "geometry"
+          }
+        ]
+      }
+    }
+  ],
+  "editor": {
+    "viewport": {
+      "x": 1.9,
+      "y": 42.6,
+      "zoom": 0.452
+    }
+  },
+  "viewer": {
+    "camera": {
+      "position": [
+        0,
+        -95,
+        55
+      ],
+      "target": [
+        0,
+        0,
+        10
+      ]
+    }
+  }
+}

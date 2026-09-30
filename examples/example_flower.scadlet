@@ -1,0 +1,337 @@
+{
+  "format": "scadlet",
+  "version": 8,
+  "metadata": {
+    "name": "Example: Flower",
+    "createdAt": "2026-09-30T13:53:28.588Z",
+    "updatedAt": "2026-09-30T13:55:19.160Z"
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "settings",
+        "type": "scad-settings",
+        "position": {
+          "x": 6.4068570296319365,
+          "y": -301.76869363690776
+        },
+        "parameters": {
+          "fn": 48
+        }
+      },
+      {
+        "id": "petals",
+        "type": "number",
+        "position": {
+          "x": 1.5291433320037768,
+          "y": -190.8301417941076
+        },
+        "parameters": {
+          "value": 8,
+          "name": "petals",
+          "bindingId": "petals-binding"
+        }
+      },
+      {
+        "id": "petals-for-end",
+        "type": "variable-reference",
+        "position": {
+          "x": 31.67501323373847,
+          "y": 193.0653985462724
+        },
+        "parameters": {
+          "bindingId": "petals-binding"
+        }
+      },
+      {
+        "id": "last-petal",
+        "type": "arithmetic",
+        "position": {
+          "x": 271.67501323373847,
+          "y": 193.0653985462724
+        },
+        "parameters": {
+          "operation": "subtraction",
+          "a": 0,
+          "b": 1
+        }
+      },
+      {
+        "id": "petal-loop",
+        "type": "for",
+        "position": {
+          "x": 545.8454225359109,
+          "y": 104.44102327449491
+        },
+        "parameters": {
+          "pairId": "petal-pair",
+          "bindingId": "petal-index",
+          "name": "i",
+          "start": 0,
+          "step": 1,
+          "end": 7
+        }
+      },
+      {
+        "id": "petals-for-angle",
+        "type": "variable-reference",
+        "position": {
+          "x": 734.2340093259783,
+          "y": 134.50518382295428
+        },
+        "parameters": {
+          "bindingId": "petals-binding"
+        }
+      },
+      {
+        "id": "angle-step",
+        "type": "arithmetic",
+        "position": {
+          "x": 895.3063719491174,
+          "y": 66.66219955122767
+        },
+        "parameters": {
+          "operation": "division",
+          "a": 360,
+          "b": 0
+        }
+      },
+      {
+        "id": "petal-angle",
+        "type": "arithmetic",
+        "position": {
+          "x": 1129.3050665208611,
+          "y": -54.519864867704634
+        },
+        "parameters": {
+          "operation": "multiplication",
+          "a": 0,
+          "b": 0
+        }
+      },
+      {
+        "id": "petal-shape",
+        "type": "sphere",
+        "position": {
+          "x": 544.0196300648178,
+          "y": -284.8743398099066
+        },
+        "parameters": {
+          "mode": "radius",
+          "r": 5
+        }
+      },
+      {
+        "id": "stretch",
+        "type": "scale",
+        "position": {
+          "x": 784.0196300648173,
+          "y": -284.8743398099066
+        },
+        "parameters": {
+          "x": 2,
+          "y": 0.8,
+          "z": 0.3,
+          "representation": "xyz"
+        }
+      },
+      {
+        "id": "move-out",
+        "type": "translate",
+        "position": {
+          "x": 1044.0196300648176,
+          "y": -284.8743398099066
+        },
+        "parameters": {
+          "x": 10,
+          "y": 0,
+          "z": 0,
+          "representation": "xyz"
+        }
+      },
+      {
+        "id": "turn",
+        "type": "rotate",
+        "position": {
+          "x": 1407.3104112456733,
+          "y": -99.04903938597181
+        },
+        "parameters": {
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "representation": "xyz"
+        }
+      },
+      {
+        "id": "petal-ring",
+        "type": "for-result",
+        "position": {
+          "x": 1754.1401939025623,
+          "y": 82.89234217297638
+        },
+        "parameters": {
+          "pairId": "petal-pair",
+          "children": [
+            {
+              "id": "petal"
+            },
+            {
+              "id": "next"
+            }
+          ]
+        }
+      },
+      {
+        "id": "flower-center",
+        "type": "cylinder",
+        "position": {
+          "x": 1731.1109072907482,
+          "y": 208.34843250919073
+        },
+        "parameters": {
+          "h": 4,
+          "mode": "radius",
+          "r": 6,
+          "center": true
+        }
+      },
+      {
+        "id": "flower",
+        "type": "union",
+        "position": {
+          "x": 2021.4788953025752,
+          "y": 135.95778765031486
+        },
+        "parameters": {
+          "children": [
+            {
+              "id": "petals"
+            },
+            {
+              "id": "center"
+            },
+            {
+              "id": "next"
+            }
+          ]
+        }
+      }
+    ],
+    "connections": [
+      {
+        "id": "petals-for-end.value->last-petal.a",
+        "source": "petals-for-end",
+        "sourceOutput": "value",
+        "target": "last-petal",
+        "targetInput": "a"
+      },
+      {
+        "id": "last-petal.value->petal-loop.end",
+        "source": "last-petal",
+        "sourceOutput": "value",
+        "target": "petal-loop",
+        "targetInput": "end"
+      },
+      {
+        "id": "petal-loop.loop->petal-ring.loop",
+        "source": "petal-loop",
+        "sourceOutput": "loop",
+        "target": "petal-ring",
+        "targetInput": "loop"
+      },
+      {
+        "id": "petals-for-angle.value->angle-step.b",
+        "source": "petals-for-angle",
+        "sourceOutput": "value",
+        "target": "angle-step",
+        "targetInput": "b"
+      },
+      {
+        "id": "petal-loop.value->petal-angle.a",
+        "source": "petal-loop",
+        "sourceOutput": "value",
+        "target": "petal-angle",
+        "targetInput": "a"
+      },
+      {
+        "id": "angle-step.value->petal-angle.b",
+        "source": "angle-step",
+        "sourceOutput": "value",
+        "target": "petal-angle",
+        "targetInput": "b"
+      },
+      {
+        "id": "petal-shape.geometry->stretch.geometry",
+        "source": "petal-shape",
+        "sourceOutput": "geometry",
+        "target": "stretch",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "stretch.geometry->move-out.geometry",
+        "source": "stretch",
+        "sourceOutput": "geometry",
+        "target": "move-out",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "move-out.geometry->turn.geometry",
+        "source": "move-out",
+        "sourceOutput": "geometry",
+        "target": "turn",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "petal-angle.value->turn.z",
+        "source": "petal-angle",
+        "sourceOutput": "value",
+        "target": "turn",
+        "targetInput": "z"
+      },
+      {
+        "id": "turn.geometry->petal-ring.child:petal",
+        "source": "turn",
+        "sourceOutput": "geometry",
+        "target": "petal-ring",
+        "targetInput": "child:petal"
+      },
+      {
+        "id": "petal-ring.geometry->flower.child:petals",
+        "source": "petal-ring",
+        "sourceOutput": "geometry",
+        "target": "flower",
+        "targetInput": "child:petals"
+      },
+      {
+        "id": "flower-center.geometry->flower.child:center",
+        "source": "flower-center",
+        "sourceOutput": "geometry",
+        "target": "flower",
+        "targetInput": "child:center"
+      }
+    ]
+  },
+  "definitions": [],
+  "editor": {
+    "viewport": {
+      "x": 88.817380554229,
+      "y": 511.6006992548239,
+      "zoom": 0.46164340440582674
+    }
+  },
+  "viewer": {
+    "camera": {
+      "position": [
+        0,
+        -55,
+        60
+      ],
+      "target": [
+        0,
+        0,
+        0
+      ]
+    }
+  }
+}

@@ -1,0 +1,317 @@
+{
+  "format": "scadlet",
+  "version": 8,
+  "metadata": {
+    "name": "Example: Sine Wave",
+    "createdAt": "2026-09-30T13:58:17.673Z",
+    "updatedAt": "2026-09-30T13:58:44.110Z"
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "bars",
+        "type": "for",
+        "position": {
+          "x": -16.92720090293463,
+          "y": 541.755079006772
+        },
+        "parameters": {
+          "pairId": "bar-pair",
+          "bindingId": "bar-index",
+          "name": "i",
+          "start": 0,
+          "step": 1,
+          "end": 23
+        }
+      },
+      {
+        "id": "bar-height",
+        "type": "function-call",
+        "position": {
+          "x": 455.10651805869065,
+          "y": 256.6792466139955
+        },
+        "parameters": {
+          "definitionId": "function-height",
+          "arguments": {
+            "height-index": 0
+          }
+        }
+      },
+      {
+        "id": "bar-x",
+        "type": "arithmetic",
+        "position": {
+          "x": 455.10651805869065,
+          "y": 436.6792466139955
+        },
+        "parameters": {
+          "operation": "multiplication",
+          "a": 0,
+          "b": 5
+        }
+      },
+      {
+        "id": "bar",
+        "type": "cube",
+        "position": {
+          "x": 715.1065180586907,
+          "y": 256.6792466139955
+        },
+        "parameters": {
+          "sizeRepresentation": "xyz",
+          "sizeScalar": 10,
+          "sizeVector": {
+            "x": 4,
+            "y": 4,
+            "z": 10
+          },
+          "size": {
+            "x": 4,
+            "y": 4,
+            "z": 10
+          }
+        }
+      },
+      {
+        "id": "place-bar",
+        "type": "translate",
+        "position": {
+          "x": 984.2240406320541,
+          "y": 401.40871896162525
+        },
+        "parameters": {
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "representation": "xyz"
+        }
+      },
+      {
+        "id": "wave-bars",
+        "type": "for-result",
+        "position": {
+          "x": 1379.1527934537246,
+          "y": 614.6864418735892
+        },
+        "parameters": {
+          "pairId": "bar-pair",
+          "children": [
+            {
+              "id": "bar"
+            },
+            {
+              "id": "next"
+            }
+          ]
+        }
+      }
+    ],
+    "connections": [
+      {
+        "id": "bars.loop->wave-bars.loop",
+        "source": "bars",
+        "sourceOutput": "loop",
+        "target": "wave-bars",
+        "targetInput": "loop"
+      },
+      {
+        "id": "bars.value->bar-height.parameter:height-index",
+        "source": "bars",
+        "sourceOutput": "value",
+        "target": "bar-height",
+        "targetInput": "parameter:height-index"
+      },
+      {
+        "id": "bar-height.value->bar.sizeZ",
+        "source": "bar-height",
+        "sourceOutput": "value",
+        "target": "bar",
+        "targetInput": "sizeZ"
+      },
+      {
+        "id": "bars.value->bar-x.a",
+        "source": "bars",
+        "sourceOutput": "value",
+        "target": "bar-x",
+        "targetInput": "a"
+      },
+      {
+        "id": "bar-x.value->place-bar.x",
+        "source": "bar-x",
+        "sourceOutput": "value",
+        "target": "place-bar",
+        "targetInput": "x"
+      },
+      {
+        "id": "bar.geometry->place-bar.geometry",
+        "source": "bar",
+        "sourceOutput": "geometry",
+        "target": "place-bar",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "place-bar.geometry->wave-bars.child:bar",
+        "source": "place-bar",
+        "sourceOutput": "geometry",
+        "target": "wave-bars",
+        "targetInput": "child:bar"
+      }
+    ]
+  },
+  "definitions": [
+    {
+      "id": "function-height",
+      "kind": "function",
+      "name": "height",
+      "interface": {
+        "inputs": "height-inputs",
+        "output": "height-output"
+      },
+      "parameters": [
+        {
+          "id": "height-index",
+          "name": "i",
+          "type": "number",
+          "default": 0
+        }
+      ],
+      "resultType": "number",
+      "graph": {
+        "nodes": [
+          {
+            "id": "height-inputs",
+            "type": "function-inputs",
+            "position": {
+              "x": 40,
+              "y": 60
+            },
+            "parameters": {}
+          },
+          {
+            "id": "wave-angle",
+            "type": "arithmetic",
+            "position": {
+              "x": 320,
+              "y": 60
+            },
+            "parameters": {
+              "operation": "multiplication",
+              "a": 0,
+              "b": 30
+            }
+          },
+          {
+            "id": "wave",
+            "type": "trigonometry",
+            "position": {
+              "x": 580,
+              "y": 60
+            },
+            "parameters": {
+              "operation": "sin",
+              "a": 0,
+              "b": 0,
+              "inputPorts": [
+                "a"
+              ]
+            }
+          },
+          {
+            "id": "amplitude",
+            "type": "arithmetic",
+            "position": {
+              "x": 840,
+              "y": 60
+            },
+            "parameters": {
+              "operation": "multiplication",
+              "a": 0,
+              "b": 10
+            }
+          },
+          {
+            "id": "base-height",
+            "type": "arithmetic",
+            "position": {
+              "x": 1100,
+              "y": 60
+            },
+            "parameters": {
+              "operation": "addition",
+              "a": 0,
+              "b": 12
+            }
+          },
+          {
+            "id": "height-output",
+            "type": "function-output",
+            "position": {
+              "x": 1360,
+              "y": 60
+            },
+            "parameters": {}
+          }
+        ],
+        "connections": [
+          {
+            "id": "height-inputs.parameter:height-index->wave-angle.a",
+            "source": "height-inputs",
+            "sourceOutput": "parameter:height-index",
+            "target": "wave-angle",
+            "targetInput": "a"
+          },
+          {
+            "id": "wave-angle.value->wave.a",
+            "source": "wave-angle",
+            "sourceOutput": "value",
+            "target": "wave",
+            "targetInput": "a"
+          },
+          {
+            "id": "wave.value->amplitude.a",
+            "source": "wave",
+            "sourceOutput": "value",
+            "target": "amplitude",
+            "targetInput": "a"
+          },
+          {
+            "id": "amplitude.value->base-height.a",
+            "source": "amplitude",
+            "sourceOutput": "value",
+            "target": "base-height",
+            "targetInput": "a"
+          },
+          {
+            "id": "base-height.value->height-output.result",
+            "source": "base-height",
+            "sourceOutput": "value",
+            "target": "height-output",
+            "targetInput": "result"
+          }
+        ]
+      }
+    }
+  ],
+  "editor": {
+    "viewport": {
+      "x": 162.54609375,
+      "y": 210.5265625,
+      "zoom": 0.443
+    }
+  },
+  "viewer": {
+    "camera": {
+      "position": [
+        58,
+        -95,
+        60
+      ],
+      "target": [
+        58,
+        2,
+        10
+      ]
+    }
+  }
+}

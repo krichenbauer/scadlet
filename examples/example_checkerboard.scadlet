@@ -1,0 +1,458 @@
+{
+  "format": "scadlet",
+  "version": 8,
+  "metadata": {
+    "name": "Example: Checkerboard",
+    "createdAt": "2026-09-30T13:56:39.039Z",
+    "updatedAt": "2026-09-30T13:57:37.460Z"
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "tile",
+        "type": "number",
+        "position": {
+          "x": -311.4470194611175,
+          "y": 347.550460964036
+        },
+        "parameters": {
+          "value": 10,
+          "name": "tile",
+          "bindingId": "tile-binding"
+        }
+      },
+      {
+        "id": "rows",
+        "type": "for",
+        "position": {
+          "x": -353.1868379070176,
+          "y": 1023.9216999159141
+        },
+        "parameters": {
+          "pairId": "row-pair",
+          "bindingId": "row-index",
+          "name": "i",
+          "start": 0,
+          "step": 1,
+          "end": 7
+        }
+      },
+      {
+        "id": "columns",
+        "type": "for",
+        "position": {
+          "x": 1.3251383701715298,
+          "y": 947.8913111048694
+        },
+        "parameters": {
+          "pairId": "column-pair",
+          "bindingId": "column-index",
+          "name": "j",
+          "start": 0,
+          "step": 1,
+          "end": 7
+        }
+      },
+      {
+        "id": "sum",
+        "type": "arithmetic",
+        "position": {
+          "x": 340,
+          "y": 300
+        },
+        "parameters": {
+          "operation": "addition",
+          "a": 0,
+          "b": 0
+        }
+      },
+      {
+        "id": "parity",
+        "type": "arithmetic",
+        "position": {
+          "x": 580,
+          "y": 300
+        },
+        "parameters": {
+          "operation": "modulo",
+          "a": 0,
+          "b": 2
+        }
+      },
+      {
+        "id": "is-even",
+        "type": "compare",
+        "position": {
+          "x": 820,
+          "y": 300
+        },
+        "parameters": {
+          "operator": "==",
+          "a": 0,
+          "b": 0
+        }
+      },
+      {
+        "id": "high",
+        "type": "number",
+        "position": {
+          "x": 820,
+          "y": 480
+        },
+        "parameters": {
+          "value": 3,
+          "name": "Number"
+        }
+      },
+      {
+        "id": "low",
+        "type": "number",
+        "position": {
+          "x": 820,
+          "y": 620
+        },
+        "parameters": {
+          "value": 1,
+          "name": "Number"
+        }
+      },
+      {
+        "id": "tile-height",
+        "type": "conditional",
+        "position": {
+          "x": 1080,
+          "y": 420
+        },
+        "parameters": {
+          "valueType": "number"
+        }
+      },
+      {
+        "id": "tile-for-x",
+        "type": "variable-reference",
+        "position": {
+          "x": 341.96070925764514,
+          "y": 820.3199467389749
+        },
+        "parameters": {
+          "bindingId": "tile-binding"
+        }
+      },
+      {
+        "id": "x",
+        "type": "arithmetic",
+        "position": {
+          "x": 580,
+          "y": 760
+        },
+        "parameters": {
+          "operation": "multiplication",
+          "a": 0,
+          "b": 0
+        }
+      },
+      {
+        "id": "tile-for-y",
+        "type": "variable-reference",
+        "position": {
+          "x": 341.97848003641536,
+          "y": 979.7967202711117
+        },
+        "parameters": {
+          "bindingId": "tile-binding"
+        }
+      },
+      {
+        "id": "y",
+        "type": "arithmetic",
+        "position": {
+          "x": 580,
+          "y": 900
+        },
+        "parameters": {
+          "operation": "multiplication",
+          "a": 0,
+          "b": 0
+        }
+      },
+      {
+        "id": "tile-width",
+        "type": "variable-reference",
+        "position": {
+          "x": 1080,
+          "y": 640
+        },
+        "parameters": {
+          "bindingId": "tile-binding"
+        }
+      },
+      {
+        "id": "tile-depth",
+        "type": "variable-reference",
+        "position": {
+          "x": 1080,
+          "y": 760
+        },
+        "parameters": {
+          "bindingId": "tile-binding"
+        }
+      },
+      {
+        "id": "tile-block",
+        "type": "cube",
+        "position": {
+          "x": 1340,
+          "y": 560
+        },
+        "parameters": {
+          "sizeRepresentation": "xyz",
+          "sizeScalar": 10,
+          "sizeVector": {
+            "x": 10,
+            "y": 10,
+            "z": 1
+          },
+          "size": {
+            "x": 10,
+            "y": 10,
+            "z": 1
+          }
+        }
+      },
+      {
+        "id": "place",
+        "type": "translate",
+        "position": {
+          "x": 1600,
+          "y": 700
+        },
+        "parameters": {
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "representation": "xyz"
+        }
+      },
+      {
+        "id": "row-of-tiles",
+        "type": "for-result",
+        "position": {
+          "x": 1866.7569454507493,
+          "y": 974.7824969755742
+        },
+        "parameters": {
+          "pairId": "column-pair",
+          "children": [
+            {
+              "id": "tile"
+            },
+            {
+              "id": "next"
+            }
+          ]
+        }
+      },
+      {
+        "id": "board",
+        "type": "for-result",
+        "position": {
+          "x": 2142.465477664419,
+          "y": 1056.7593620390978
+        },
+        "parameters": {
+          "pairId": "row-pair",
+          "children": [
+            {
+              "id": "row"
+            },
+            {
+              "id": "next"
+            }
+          ]
+        }
+      },
+      {
+        "id": "054f8eae554b5dc0",
+        "type": "variable-reference",
+        "position": {
+          "x": 342.1472847923101,
+          "y": 758.6593244960633
+        },
+        "parameters": {
+          "bindingId": "row-index"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "id": "rows.loop->board.loop",
+        "source": "rows",
+        "sourceOutput": "loop",
+        "target": "board",
+        "targetInput": "loop"
+      },
+      {
+        "id": "columns.loop->row-of-tiles.loop",
+        "source": "columns",
+        "sourceOutput": "loop",
+        "target": "row-of-tiles",
+        "targetInput": "loop"
+      },
+      {
+        "id": "rows.value->sum.a",
+        "source": "rows",
+        "sourceOutput": "value",
+        "target": "sum",
+        "targetInput": "a"
+      },
+      {
+        "id": "columns.value->sum.b",
+        "source": "columns",
+        "sourceOutput": "value",
+        "target": "sum",
+        "targetInput": "b"
+      },
+      {
+        "id": "sum.value->parity.a",
+        "source": "sum",
+        "sourceOutput": "value",
+        "target": "parity",
+        "targetInput": "a"
+      },
+      {
+        "id": "parity.value->is-even.a",
+        "source": "parity",
+        "sourceOutput": "value",
+        "target": "is-even",
+        "targetInput": "a"
+      },
+      {
+        "id": "is-even.value->tile-height.condition",
+        "source": "is-even",
+        "sourceOutput": "value",
+        "target": "tile-height",
+        "targetInput": "condition"
+      },
+      {
+        "id": "high.value->tile-height.true",
+        "source": "high",
+        "sourceOutput": "value",
+        "target": "tile-height",
+        "targetInput": "true"
+      },
+      {
+        "id": "low.value->tile-height.false",
+        "source": "low",
+        "sourceOutput": "value",
+        "target": "tile-height",
+        "targetInput": "false"
+      },
+      {
+        "id": "tile-for-x.value->x.b",
+        "source": "tile-for-x",
+        "sourceOutput": "value",
+        "target": "x",
+        "targetInput": "b"
+      },
+      {
+        "id": "columns.value->y.a",
+        "source": "columns",
+        "sourceOutput": "value",
+        "target": "y",
+        "targetInput": "a"
+      },
+      {
+        "id": "tile-for-y.value->y.b",
+        "source": "tile-for-y",
+        "sourceOutput": "value",
+        "target": "y",
+        "targetInput": "b"
+      },
+      {
+        "id": "tile-width.value->tile-block.sizeX",
+        "source": "tile-width",
+        "sourceOutput": "value",
+        "target": "tile-block",
+        "targetInput": "sizeX"
+      },
+      {
+        "id": "tile-depth.value->tile-block.sizeY",
+        "source": "tile-depth",
+        "sourceOutput": "value",
+        "target": "tile-block",
+        "targetInput": "sizeY"
+      },
+      {
+        "id": "tile-height.result->tile-block.sizeZ",
+        "source": "tile-height",
+        "sourceOutput": "result",
+        "target": "tile-block",
+        "targetInput": "sizeZ"
+      },
+      {
+        "id": "tile-block.geometry->place.geometry",
+        "source": "tile-block",
+        "sourceOutput": "geometry",
+        "target": "place",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "x.value->place.x",
+        "source": "x",
+        "sourceOutput": "value",
+        "target": "place",
+        "targetInput": "x"
+      },
+      {
+        "id": "y.value->place.y",
+        "source": "y",
+        "sourceOutput": "value",
+        "target": "place",
+        "targetInput": "y"
+      },
+      {
+        "id": "place.geometry->row-of-tiles.child:tile",
+        "source": "place",
+        "sourceOutput": "geometry",
+        "target": "row-of-tiles",
+        "targetInput": "child:tile"
+      },
+      {
+        "id": "row-of-tiles.geometry->board.child:row",
+        "source": "row-of-tiles",
+        "sourceOutput": "geometry",
+        "target": "board",
+        "targetInput": "child:row"
+      },
+      {
+        "id": "0d71476c2f7ef65a",
+        "source": "054f8eae554b5dc0",
+        "sourceOutput": "value",
+        "target": "x",
+        "targetInput": "a"
+      }
+    ]
+  },
+  "definitions": [],
+  "editor": {
+    "viewport": {
+      "x": 308.62529755113655,
+      "y": 266.1490445044357,
+      "zoom": 0.3699215110697033
+    }
+  },
+  "viewer": {
+    "camera": {
+      "position": [
+        40,
+        -45,
+        95
+      ],
+      "target": [
+        40,
+        40,
+        0
+      ]
+    }
+  }
+}

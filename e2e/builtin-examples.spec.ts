@@ -47,9 +47,14 @@ test('production bundle exposes immutable examples separately and copies one int
   await expect(localSection.locator('.project-row')).toHaveCount(1)
   await expect(examplesSection.locator('.example-row')).toHaveText([
     'Boolean Operations',
+    'Checkerboard',
+    'Flower',
+    'Heart And Egg',
     'House',
     'Parametric Bowl',
+    'Pedestal',
     'Recursive Tree',
+    'Sine Wave',
   ])
   await expect(examplesSection).not.toContainText('example_')
 

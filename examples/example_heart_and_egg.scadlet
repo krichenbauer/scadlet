@@ -1,0 +1,239 @@
+{
+  "format": "scadlet",
+  "version": 8,
+  "metadata": {
+    "name": "Example: heart and egg",
+    "createdAt": "2026-09-30T12:00:00.000Z",
+    "updatedAt": "2026-09-30T12:00:00.000Z"
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "settings",
+        "type": "scad-settings",
+        "position": {
+          "x": 40,
+          "y": 40
+        },
+        "parameters": {
+          "fn": 64
+        }
+      },
+      {
+        "id": "square",
+        "type": "cube",
+        "position": {
+          "x": 40,
+          "y": 200
+        },
+        "parameters": {
+          "size": {
+            "x": 20,
+            "y": 20,
+            "z": 5
+          },
+          "sizeRepresentation": "xyz"
+        }
+      },
+      {
+        "id": "diamond",
+        "type": "rotate",
+        "position": {
+          "x": 300,
+          "y": 200
+        },
+        "parameters": {
+          "x": 0,
+          "y": 0,
+          "z": 45,
+          "representation": "xyz"
+        }
+      },
+      {
+        "id": "round",
+        "type": "cylinder",
+        "position": {
+          "x": 40,
+          "y": 440
+        },
+        "parameters": {
+          "mode": "radius",
+          "r": 10,
+          "h": 5
+        }
+      },
+      {
+        "id": "right-lobe",
+        "type": "translate",
+        "position": {
+          "x": 300,
+          "y": 440
+        },
+        "parameters": {
+          "x": 7.071,
+          "y": 21.213,
+          "z": 0,
+          "representation": "xyz"
+        }
+      },
+      {
+        "id": "left-lobe",
+        "type": "mirror",
+        "position": {
+          "x": 560,
+          "y": 560
+        },
+        "parameters": {
+          "x": 1,
+          "y": 0,
+          "z": 0,
+          "representation": "xyz"
+        }
+      },
+      {
+        "id": "heart",
+        "type": "union",
+        "position": {
+          "x": 820,
+          "y": 320
+        },
+        "parameters": {
+          "children": [
+            {
+              "id": "diamond"
+            },
+            {
+              "id": "right"
+            },
+            {
+              "id": "left"
+            },
+            {
+              "id": "next"
+            }
+          ]
+        }
+      },
+      {
+        "id": "ball",
+        "type": "sphere",
+        "position": {
+          "x": 40,
+          "y": 760
+        },
+        "parameters": {
+          "mode": "radius",
+          "r": 10
+        }
+      },
+      {
+        "id": "egg-shape",
+        "type": "resize",
+        "position": {
+          "x": 300,
+          "y": 760
+        },
+        "parameters": {
+          "x": 16,
+          "y": 16,
+          "z": 22,
+          "representation": "xyz"
+        }
+      },
+      {
+        "id": "beside-heart",
+        "type": "translate",
+        "position": {
+          "x": 560,
+          "y": 760
+        },
+        "parameters": {
+          "x": 45,
+          "y": 14,
+          "z": 11,
+          "representation": "xyz"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "id": "square.geometry->diamond.geometry",
+        "source": "square",
+        "sourceOutput": "geometry",
+        "target": "diamond",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "round.geometry->right-lobe.geometry",
+        "source": "round",
+        "sourceOutput": "geometry",
+        "target": "right-lobe",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "right-lobe.geometry->left-lobe.geometry",
+        "source": "right-lobe",
+        "sourceOutput": "geometry",
+        "target": "left-lobe",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "diamond.geometry->heart.child:diamond",
+        "source": "diamond",
+        "sourceOutput": "geometry",
+        "target": "heart",
+        "targetInput": "child:diamond"
+      },
+      {
+        "id": "right-lobe.geometry->heart.child:right",
+        "source": "right-lobe",
+        "sourceOutput": "geometry",
+        "target": "heart",
+        "targetInput": "child:right"
+      },
+      {
+        "id": "left-lobe.geometry->heart.child:left",
+        "source": "left-lobe",
+        "sourceOutput": "geometry",
+        "target": "heart",
+        "targetInput": "child:left"
+      },
+      {
+        "id": "ball.geometry->egg-shape.geometry",
+        "source": "ball",
+        "sourceOutput": "geometry",
+        "target": "egg-shape",
+        "targetInput": "geometry"
+      },
+      {
+        "id": "egg-shape.geometry->beside-heart.geometry",
+        "source": "egg-shape",
+        "sourceOutput": "geometry",
+        "target": "beside-heart",
+        "targetInput": "geometry"
+      }
+    ]
+  },
+  "definitions": [],
+  "editor": {
+    "viewport": {
+      "x": -1.7,
+      "y": -1.7,
+      "zoom": 0.542
+    }
+  },
+  "viewer": {
+    "camera": {
+      "position": [
+        22,
+        -70,
+        75
+      ],
+      "target": [
+        22,
+        14,
+        5
+      ]
+    }
+  }
+}

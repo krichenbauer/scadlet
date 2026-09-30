@@ -32,9 +32,14 @@ describe('built-in example discovery', () => {
     expect(exampleDisplayName('example_parametric_bowl.scadlet')).toBe('Parametric Bowl')
     expect(BUILTIN_EXAMPLES.map((example) => example.name)).toEqual([
       'Boolean Operations',
+      'Checkerboard',
+      'Flower',
+      'Heart And Egg',
       'House',
       'Parametric Bowl',
+      'Pedestal',
       'Recursive Tree',
+      'Sine Wave',
     ])
     expect(BUILTIN_EXAMPLES.every((example) => !example.name.includes('example_'))).toBe(true)
   })
