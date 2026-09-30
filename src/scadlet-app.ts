@@ -23,7 +23,7 @@ import {
 } from './persistence/local-project-store'
 import { createEmptyProject, UNTITLED_PROJECT_NAME, type ScadletProjectMetadata, type ScadletProjectV1 } from './persistence/project'
 import { LocalProjectEvents, type LocalProjectEvent } from './persistence/project-events'
-import { restoreProject } from './persistence/restore'
+import { restoreProject, type RestoreReport } from './persistence/restore'
 import { serializeProject } from './persistence/serialize'
 import { ScadletProjectError } from './persistence/validate'
 import { AUTOMATIC_RENDER_TIMEOUT_MS, RenderController, RenderTimeoutError } from './render/render-controller'
@@ -263,6 +263,19 @@ export class ScadletApp extends LitElement {
       border-top: 1px solid #75652f;
     }
 
+    .restore-warning {
+      margin: 0;
+      padding: 6px 10px;
+      background: #4a2a24;
+      color: #ffd2c7;
+      font-size: 12px;
+      border-top: 1px solid #8a4a3c;
+    }
+
+    .restore-warning button {
+      margin-left: 8px;
+    }
+
     .persistence-actions {
       display: inline-flex;
       gap: 6px;
@@ -494,6 +507,12 @@ export class ScadletApp extends LitElement {
   @state()
   private persistenceMessage: string | null = null
 
+  /** Persistent notice that the active project opened with missing parts,
+   * naming them and where the untouched original was kept. Independent of
+   * autosave status, which must not silently clear it. */
+  @state()
+  private restoreWarning: string | null = null
+
   @state()
   private scadSource = ''
 
@@ -624,6 +643,12 @@ export class ScadletApp extends LitElement {
                           <button type="button" @click=${this._saveConflictAsCopy}>${t('toolbar.saveAsNew')}</button>
                         </span>`
                       : nothing}
+                  </p>`
+                : nothing}
+              ${this.restoreWarning
+                ? html`<p class="restore-warning" role="alert">
+                    ${this.restoreWarning}
+                    <button type="button" @click=${this._dismissRestoreWarning}>${t('restore.dismiss')}</button>
                   </p>`
                 : nothing}
               ${this.renderError ? html`<pre class="render-error">${this.renderError}</pre>` : nothing}
@@ -897,10 +922,33 @@ export class ScadletApp extends LitElement {
     }
   }
 
-  private async _applyStoredProject(stored: StoredProject, clearFileHandle = true, renderAfterActivation = false): Promise<void> {
+  private async _applyStoredProject(
+    stored: StoredProject,
+    clearFileHandle = true,
+    renderAfterActivation = false,
+    origin: 'local' | 'file' = 'local',
+  ): Promise<void> {
     if (!this.editorInstance) throw new Error('The node editor is not ready.')
     if (stored.id !== this.activeProjectId) this._invalidateProjectRender()
-    await this._restoreProject(stored.project)
+    const report = await this._restoreProject(stored.project)
+    // A partly restored project stays usable, but before autosave may
+    // replace its stored version, that untouched original is kept as a
+    // separate local project (an opened file already is its own original).
+    let backupName: string | null = null
+    let backupFailed = false
+    if (report.issues.length > 0 && origin === 'local') {
+      // The previous project was already flushed before switching; stop its
+      // controller so nothing can be written while the backup is created.
+      // It is recreated for this project below.
+      this.autosave?.destroy()
+      this.autosave = undefined
+      try {
+        backupName = await this._backupOriginalProject(stored.project)
+      } catch {
+        backupFailed = true
+      }
+    }
+    this.restoreWarning = this._restoreWarningText(report, origin === 'file' ? 'file' : backupFailed ? 'backup-failed' : backupName)
     this.editorInstance.setClipboardProjectIdentity(stored.id)
     this.activeProjectId = stored.id
     this.failedProject = null
@@ -915,7 +963,47 @@ export class ScadletApp extends LitElement {
     this.persistenceMessage = null
     if (clearFileHandle) this.fileService.clearHandle()
     this._clearRenderedOutput()
+    if (backupFailed) {
+      // Without a backup the stored original must not be overwritten, so this
+      // partly restored graph stays open without an autosave target.
+      this.autosave?.destroy()
+      this.autosave = undefined
+      this.activeProjectId = null
+      this.activeRevision = 0
+      this.activeProjectSession?.clear()
+    }
     if (renderAfterActivation) this._renderCurrentProjectImmediatelyIfLive()
+  }
+
+  /** Stores the untouched, already validated original as a new local
+   * project named `<name> (backup)` (numbered when taken) and returns it. */
+  private async _backupOriginalProject(project: ScadletProjectV1): Promise<string> {
+    if (!this.localStore) throw new Error('No local project store.')
+    const existing = new Set((await this.localStore.listProjects()).map((item) => item.name))
+    const base = `${project.metadata.name} (${t('restore.backupSuffix')})`
+    let name = base
+    for (let ordinal = 2; existing.has(name); ordinal += 1) name = `${base.slice(0, -1)} ${ordinal})`
+    const stored = await this.localStore.createProject({ ...project, metadata: { ...project.metadata, name } })
+    this.localEvents?.publish({ type: 'project-created', projectId: stored.id, revision: stored.revision })
+    void this._refreshProjectList()
+    return name
+  }
+
+  /** Names up to five missing items and says where the original is kept. */
+  private _restoreWarningText(report: RestoreReport, original: string | 'file' | 'backup-failed' | null): string | null {
+    if (report.issues.length === 0) return null
+    const listed = report.issues.slice(0, 5).map((issue) => issue.description)
+    if (report.issues.length > listed.length) listed.push(t('restore.more').replace('{count}', String(report.issues.length - listed.length)))
+    const missing = t('restore.partial').replace('{items}', listed.join('; '))
+    const kept = original === 'file' ? t('restore.fileKept')
+      : original === 'backup-failed' ? t('restore.backupFailed')
+        : original ? t('restore.backupKept').replace('{name}', original)
+          : ''
+    return kept ? `${missing} ${kept}` : missing
+  }
+
+  private readonly _dismissRestoreWarning = (): void => {
+    this.restoreWarning = null
   }
 
   /** Startup restore and visible Projects activation share this one immediate
@@ -938,11 +1026,11 @@ export class ScadletApp extends LitElement {
     this.renderController.stop()
   }
 
-  private async _restoreProject(project: ScadletProjectV1): Promise<void> {
+  private async _restoreProject(project: ScadletProjectV1): Promise<RestoreReport> {
     const instance = this.editorInstance ?? (await this.nodeEditor.whenReady())
     instance.cancelClipboardPlacement()
     const rollbackProject = this._buildProject(instance)
-    await instance.withDirtyTrackingSuspended(() =>
+    const report = await instance.withDirtyTrackingSuspended(() =>
       restoreProject(project, {
         editor: instance.editor,
         creationContext: instance.creationContext,
@@ -964,6 +1052,7 @@ export class ScadletApp extends LitElement {
     // replacement. Wait until restore succeeds so a rejected restore leaves
     // the previous project and its displayed result untouched.
     instance.clearInspect()
+    return report
   }
 
   private _clearRenderedOutput(): void {
@@ -1430,7 +1519,7 @@ export class ScadletApp extends LitElement {
         // Every external file import gets a new local identity. A
         // same-named project in the library is never overwritten.
         const stored = await this.localStore.createProject(project)
-        await this._applyStoredProject(stored, false, true)
+        await this._applyStoredProject(stored, false, true, 'file')
         this.hasExplicitName = true
         this.localEvents?.publish({ type: 'project-created', projectId: stored.id, revision: stored.revision })
         await this._refreshProjectList()
@@ -1442,7 +1531,8 @@ export class ScadletApp extends LitElement {
 
     // Degraded file-only mode: opening remains usable even if IndexedDB
     // is unavailable or the import write failed.
-    await this._restoreProject(project)
+    const report = await this._restoreProject(project)
+    this.restoreWarning = this._restoreWarningText(report, 'file')
     this.editorInstance?.setClipboardProjectIdentity(`file:${crypto.randomUUID()}`)
     this.autosave?.destroy()
     this.autosave = undefined

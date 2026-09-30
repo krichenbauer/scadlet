@@ -42,6 +42,20 @@ export interface RestoreProjectDeps {
   rollbackProject?: ScadletProjectV1
 }
 
+/** A planned node or connection that the live editor did not accept during
+ * restore. Loading continues so the learner keeps everything else; the
+ * application reports these items and preserves the untouched original. */
+export interface RestoreIssue {
+  kind: 'node' | 'connection'
+  id: string
+  /** Readable node/port labels, e.g. `Translate (Geometry) → For result`. */
+  description: string
+}
+
+export interface RestoreReport {
+  issues: readonly RestoreIssue[]
+}
+
 interface PlannedNode {
   dto: ScadletProjectV1['graph']['nodes'][number]
   node: Schemes['Node']
@@ -70,14 +84,14 @@ interface RestorePlan {
  * is applied immediately after construction, before it's added to the
  * graph, since connections must address those exact ids.
  */
-export async function restoreProject(project: ScadletProjectV1, deps: RestoreProjectDeps): Promise<void> {
+export async function restoreProject(project: ScadletProjectV1, deps: RestoreProjectDeps): Promise<RestoreReport> {
   const plan = prepareRestorePlan(project, deps)
   // Prepare the rollback graph before clearing the live editor as well. A
   // failed node constructor must leave the already-open project untouched.
   const rollback = deps.rollbackProject ? prepareRestorePlan(deps.rollbackProject, deps) : undefined
 
   try {
-    await applyRestorePlan(plan, deps)
+    return await applyRestorePlan(plan, deps)
   } catch (error) {
     if (rollback) {
       try {
@@ -168,7 +182,12 @@ function prepareRestorePlan(project: ScadletProjectV1, deps: RestoreProjectDeps)
   return { definitions, nodes, connections, project }
 }
 
-async function applyRestorePlan(plan: RestorePlan, deps: RestoreProjectDeps): Promise<void> {
+/** Applies a prepared plan as far as the live editor accepts it. An editor
+ * pipe may refuse (`false`) or later remove a node or connection; instead of
+ * dropping it silently or making the whole project unopenable, every
+ * planned item missing at the end is reported. Thrown errors still reach
+ * `restoreProject`'s rollback. */
+async function applyRestorePlan(plan: RestorePlan, deps: RestoreProjectDeps): Promise<RestoreReport> {
   await clearGraph(deps.editor)
   deps.clearDefinitions?.()
 
@@ -184,12 +203,14 @@ async function applyRestorePlan(plan: RestorePlan, deps: RestoreProjectDeps): Pr
   for (const connectionDto of plan.connections) {
     const source = deps.editor.getNode(connectionDto.source)
     const target = deps.editor.getNode(connectionDto.target)
-    if (!source || !target) throw new Error(`Cannot restore connection "${connectionDto.id}": endpoint node missing after node restore.`)
+    // A refused endpoint node is already reported; its wires cannot exist.
+    if (!source || !target) continue
     const connection = new ClassicPreset.Connection<ClassicPreset.Node, ClassicPreset.Node>(source, connectionDto.sourceOutput, target, connectionDto.targetInput)
     connection.id = connectionDto.id
     await deps.editor.addConnection(connection)
   }
   for (const item of plan.nodes) {
+    if (!deps.editor.getNode(item.node.id)) continue
     await deps.setNodePosition(item.node.id, item.dto.position)
     if (item.dto.collapsed && item.dto.type !== 'conditional' && item.dto.type !== 'if') deps.setCollapsed?.(item.node.id, true)
   }
@@ -198,4 +219,30 @@ async function applyRestorePlan(plan: RestorePlan, deps: RestoreProjectDeps): Pr
     await deps.setViewport({ x: plan.project.editor.viewport.x, y: plan.project.editor.viewport.y, k: plan.project.editor.viewport.zoom })
   }
   deps.setViewerCamera?.(plan.project.viewer.camera)
+  return { issues: missingRestoreItems(plan, deps.editor) }
+}
+
+/** Compares the finished editor with the plan, so refusals and any later
+ * removal by an editor pipe are both reported. */
+function missingRestoreItems(plan: RestorePlan, editor: NodeEditor<Schemes>): RestoreIssue[] {
+  const planned = new Map(plan.nodes.map((item) => [item.node.id, item.node]))
+  const presentConnections = new Set(editor.getConnections().map((connection) => connection.id))
+  const issues: RestoreIssue[] = plan.nodes
+    .filter((item) => !editor.getNode(item.node.id))
+    .map((item) => ({ kind: 'node', id: item.node.id, description: item.node.label }))
+  for (const connection of plan.connections) {
+    if (presentConnections.has(connection.id)) continue
+    const source = planned.get(connection.source)
+    const target = planned.get(connection.target)
+    const port = (node: Schemes['Node'] | undefined, side: 'inputs' | 'outputs', key: string): string => {
+      const label = (node?.[side] as Record<string, { label?: string } | undefined> | undefined)?.[key]?.label
+      return label ? `${node?.label ?? ''} (${label})` : node?.label ?? key
+    }
+    issues.push({
+      kind: 'connection',
+      id: connection.id,
+      description: `${port(source, 'outputs', connection.sourceOutput)} → ${port(target, 'inputs', connection.targetInput)}`,
+    })
+  }
+  return issues
 }

@@ -744,11 +744,12 @@ Geometry-input operations, which are reached only through the internal
 - **Characterization needed first:** a unit test with a pipe that rejects one
   connection, expecting restore to fail and roll back.
 - **Depends on:** RF-02 (restore mode).
-- **Status:** the For guard now skips restore (section 9.4, D-5). That was a
-  concrete instance of this finding: the guard refused partly restored
-  scopes and restore dropped the wires silently. Checking the `addNode` and
-  `addConnection` results so that any other refusal rolls back instead of
-  losing wires is still open.
+- **Status:** fixed (sections 9.4 and 9.5). The For guard skips restore
+  (D-5). Restore now reports every refused or removed item instead of
+  dropping it silently, keeps a backup of the untouched original, and never
+  runs the interactive transition pipes. The recommendation above to throw
+  and roll back was revised: an unopenable project would cost learners more
+  than a reported, repairable gap (section 9.5).
 
 ### RF-14 — `ScadletApp` mixes execution orchestration with project lifecycle and untranslated text
 
@@ -1331,4 +1332,81 @@ generation, and file validation changed together.
   specific message appears.
 - Iterator/Value name collisions keep the stricter rule. OpenSCAD would also
   allow them under the same condition.
-- Restore still ignores `addNode`/`addConnection` results (RF-13).
+- Restore still ignored `addNode`/`addConnection` results (RF-13); fixed in
+  9.5.
+
+### 9.5 No silent loss when restore is refused (RF-13)
+
+Made on 2026-09-30. The audit's original recommendation was to throw when the
+editor refuses a restored node or wire, so that the existing rollback runs.
+It was revised before implementation. A pupil cannot open or export a local
+record that fails to load, so a refusal caused by a bug (as D-5 was) would
+make the whole project unreachable, which is worse than a few missing wires.
+The actual problems were that the loss was silent and that the next autosave
+overwrote the intact stored original.
+
+**Behaviour now:**
+
+- **Best-effort load.** Everything the editor accepts is restored. Every
+  planned node or connection missing afterwards is reported, whether it was
+  refused or removed again by a later editor step. A refused node's wires are
+  reported with it. Thrown errors still roll back as before.
+- **Backup of the original.** For a local record, the untouched stored
+  version is saved as a new local project `<name> (backup)` (numbered when
+  taken) before this project can be autosaved; the previous project's
+  autosave controller is stopped during that write. If the backup cannot be
+  written, the graph stays open without an autosave target, and the warning
+  says to use Save As. An opened file is its own original.
+- **Persistent warning.** A dismissible `role="alert"` notice, independent of
+  autosave status, names up to five missing items with node and port labels
+  (for example "Cube (Geometry) → Translate (Geometry)") and where the
+  original was kept.
+- **No interactive pipes during restore.** The Function-result and
+  Conditional-branch pipes, which can confirm, remove wires, or retype
+  sockets, now skip restore like the For guard. Restored nodes are built with
+  their validated saved types.
+
+**Changes:**
+
+| Area | Change |
+| --- | --- |
+| [restore.ts](../src/persistence/restore.ts) | `restoreProject` returns a `RestoreReport` (`RestoreIssue` per missing node/connection, with a readable description); missing endpoints no longer throw, and positions are applied only to restored nodes |
+| [editor.ts](../src/editor/editor.ts) | The Function-result and Conditional-branch `connectioncreate` pipes return early while `restoringProject` is set |
+| [scadlet-app.ts](../src/scadlet-app.ts) | `_restoreProject` returns the report. `_applyStoredProject` creates the backup (`_backupOriginalProject`) or falls back to no autosave, then sets `restoreWarning` (`_restoreWarningText`). File opens report "The opened file itself is unchanged." |
+| `translate.ts` | `restore.*` messages and the Dismiss label |
+| [Persistence](agent-guides/persistence.md) | Documents the partial-restore contract |
+
+**Tests:**
+
+- `restore.test.ts`, 4 new cases:
+  - a refused connection: everything else is restored and positioned, and the
+    exact readable description is reported;
+  - a refused node reported together with its wire;
+  - a wire removed by a later editor step;
+  - an empty report for a clean restore.
+- `live-project-switch.spec.ts` "a project whose wire the editor refuses
+  still opens, names what is missing, and keeps a backup of the original":
+  - the project opens with both nodes and no wire;
+  - the `role="alert"` warning text names the missing wire and the backup;
+  - the warning survives an edit and a successful autosave until dismissed;
+  - "Wired (backup)" opens with the original wire intact.
+
+**Verification** (same environment as section 8):
+
+| Check | Result |
+| --- | --- |
+| `pnpm test` | Pass. 80 files, 709 tests passed |
+| `pnpm exec tsc --noEmit` | Pass. Exit 0 |
+| `pnpm build` | Pass. Exit 0, same chunk-size warning as the baseline |
+| `pnpm test:e2e` | Pass. 114 passed in 35.7 s |
+| `git diff --check` | Pass. Exit 0 |
+
+**Remaining related gaps:**
+
+- The warning lists node and port labels, not positions. A pupil with several
+  nodes of the same type must still find the right one.
+- The backup-failure path (no autosave, Save As advice) is covered by code
+  review only, not by a test.
+- A refused structural wire, such as a For loop boundary, leaves a graph that
+  cannot be saved until repaired. The warning and the backup cover it, but no
+  specific repair hint is shown.

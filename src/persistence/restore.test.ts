@@ -247,4 +247,53 @@ describe('restoreProject', () => {
     expect(editor.getNodes().map((node) => node.id)).toEqual(['original-cube'])
     expect(editor.getConnections()).toEqual([])
   })
+
+  describe('when the live editor refuses part of a valid project', () => {
+    const project = () => parseScadletProject({
+      ...createEmptyProject('Partial'),
+      graph: {
+        nodes: [
+          { id: 'cube', type: 'cube', position: { x: 0, y: 0 }, parameters: { size: 4 } },
+          { id: 'move', type: 'translate', position: { x: 200, y: 0 }, parameters: { x: 1, y: 0, z: 0, representation: 'xyz' } },
+          { id: 'ball', type: 'sphere', position: { x: 0, y: 200 }, parameters: { mode: 'radius', r: 2 } },
+        ],
+        connections: [{ id: 'wire', source: 'cube', sourceOutput: 'geometry', target: 'move', targetInput: 'geometry' }],
+      },
+    })
+
+    it('keeps everything else and reports the refused connection with readable labels', async () => {
+      const { editor } = createGraph()
+      editor.addPipe((context) => context.type === 'connectioncreate' && context.data.id === 'wire' ? undefined : context)
+      const positioned: string[] = []
+      const report = await restoreProject(project(), { editor, creationContext: noopContext, setNodePosition: (id) => { positioned.push(id) } })
+      expect(editor.getNodes().map((node) => node.id)).toEqual(['cube', 'move', 'ball'])
+      expect(editor.getConnections()).toEqual([])
+      expect(positioned).toEqual(['cube', 'move', 'ball'])
+      expect(report.issues).toEqual([{ kind: 'connection', id: 'wire', description: 'Cube (Geometry) → Translate (Geometry)' }])
+    })
+
+    it('reports a refused node together with its connections and restores the rest', async () => {
+      const { editor } = createGraph()
+      editor.addPipe((context) => context.type === 'nodecreate' && context.data.id === 'move' ? undefined : context)
+      const report = await restoreProject(project(), { editor, creationContext: noopContext, setNodePosition: () => {} })
+      expect(editor.getNodes().map((node) => node.id)).toEqual(['cube', 'ball'])
+      expect(report.issues.map((issue) => [issue.kind, issue.id])).toEqual([['node', 'move'], ['connection', 'wire']])
+    })
+
+    it('reports a connection that a later editor step removed again', async () => {
+      const { editor } = createGraph()
+      editor.addPipe((context) => {
+        if (context.type === 'connectioncreated' && context.data.id === 'wire') void editor.removeConnection('wire')
+        return context
+      })
+      const report = await restoreProject(project(), { editor, creationContext: noopContext, setNodePosition: () => {} })
+      expect(report.issues.map((issue) => issue.id)).toEqual(['wire'])
+    })
+
+    it('returns an empty report for a fully restored project', async () => {
+      const { editor } = createGraph()
+      await expect(restoreProject(project(), { editor, creationContext: noopContext, setNodePosition: () => {} })).resolves.toEqual({ issues: [] })
+      expect(editor.getConnections().map((connection) => connection.id)).toEqual(['wire'])
+    })
+  })
 })

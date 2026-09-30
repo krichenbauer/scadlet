@@ -41,6 +41,16 @@ replacement fails. The low-level `restoreProject` helper requires that snapshot
 via `rollbackProject` to provide rollback; failure of both restore and rollback
 is surfaced explicitly.
 
+A validated project whose node or connection the live editor still refuses or
+removes is a bug, but must not cost learner work. `restoreProject` then
+completes with everything else and reports each missing item. For a local
+record, the application first stores the untouched original as a new local
+project `<name> (backup)`, then shows a persistent, dismissible warning naming
+the missing items and the backup. If the backup cannot be written, the graph
+stays open without autosave so the original is never overwritten. An opened
+file is its own original. Restore never runs the interactive loop or type
+transition pipes.
+
 Only a successful load becomes the active autosave target. Invalid,
 incompatible, or unrestorable IndexedDB records remain unchanged and available
 for explicit deletion; other projects can still open and new projects can be

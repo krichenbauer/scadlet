@@ -540,8 +540,11 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   // silently rejecting the new connection before that flow ever runs. This
   // pipe is registered after the generic guard, so an incompatible type has
   // already been rejected by the time this one ever sees the signal.
+  // Restore builds Function Outputs and Conditionals with their validated
+  // saved types, so these interactive transition pipes (which may confirm,
+  // remove wires, or retype sockets) never run while a project is loading.
   editor.addPipe(async (context) => {
-    if (context.type !== 'connectioncreate') return context
+    if (context.type !== 'connectioncreate' || restoringProject) return context
     const target = editor.getNode(context.data.target)
     if (target instanceof FunctionOutputNode && context.data.targetInput === 'result') {
       return (await handleFunctionResultConnectionAttempt(context.data)) ? context : undefined
@@ -549,7 +552,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     return context
   })
   editor.addPipe(async (context) => {
-    if (context.type !== 'connectioncreate') return context
+    if (context.type !== 'connectioncreate' || restoringProject) return context
     const target = editor.getNode(context.data.target)
     if (target instanceof ConditionalNode && (context.data.targetInput === 'true' || context.data.targetInput === 'false')) {
       return (await handleConditionalBranchConnectionAttempt(context.data)) ? context : undefined

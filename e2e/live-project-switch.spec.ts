@@ -114,3 +114,76 @@ test('a project switch that fails and rolls back keeps the previous Inspect resu
     (element) => (element as unknown as { getInspectedNodeId(): string | null }).getInspectedNodeId(),
   )).toBe('cube')
 })
+
+test('a project whose wire the editor refuses still opens, names what is missing, and keeps a backup of the original', async ({ page }) => {
+  const wired = {
+    format: 'scadlet', version: 8, metadata: { name: 'Wired' },
+    graph: {
+      nodes: [
+        { id: 'cube', type: 'cube', position: { x: 120, y: 180 }, parameters: { size: 5, sizeRepresentation: 'scalar' } },
+        { id: 'move', type: 'translate', position: { x: 360, y: 180 }, parameters: { x: 3, y: 0, z: 0, representation: 'xyz' } },
+      ],
+      connections: [{ id: 'wire', source: 'cube', sourceOutput: 'geometry', target: 'move', targetInput: 'geometry' }],
+    },
+    definitions: [], editor: { viewport: { x: 0, y: 0, zoom: 1 } }, viewer: { camera: CAMERA },
+  }
+  await page.goto('/')
+  await expect(page.locator('scadlet-app .project-name')).toBeEnabled()
+  await page.evaluate(async (projects) => {
+    const request = indexedDB.open('scadlet-projects')
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = database.transaction('projects', 'readwrite')
+    const store = transaction.objectStore('projects')
+    store.clear()
+    store.put({ id: 'small', revision: 1, createdAt: '', updatedAt: '2026-01-01T00:00:00.000Z', project: projects.small })
+    store.put({ id: 'wired', revision: 1, createdAt: '', updatedAt: '2026-01-02T00:00:00.000Z', project: projects.wired })
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+    })
+    database.close()
+    sessionStorage.setItem('scadlet.activeProjectId', 'small')
+  }, { small: cubeProject('Small cube', 11), wired })
+  await page.reload()
+  await expect(page.locator('scadlet-app .project-name')).toHaveValue('Small cube')
+
+  // Simulate an editor rule that refuses one valid stored wire, once.
+  await page.locator('node-editor').evaluate((element) => {
+    const editor = (element as unknown as { getEditorInstance(): { editor: { addPipe(pipe: (context: { type: string; data: { id?: string } }) => unknown): void } } }).getEditorInstance().editor
+    let refused = false
+    editor.addPipe((context) => {
+      if (!refused && context.type === 'connectioncreate' && context.data.id === 'wire') {
+        refused = true
+        return undefined
+      }
+      return context
+    })
+  })
+  await selectProject(page, 'Wired')
+  await expect(page.locator('scadlet-app .project-name')).toHaveValue('Wired')
+  await expect(page.locator('node-editor .node')).toHaveCount(2)
+  await expect(page.locator('node-editor .connection[data-real-connection="true"]')).toHaveCount(0)
+  const warning = page.locator('scadlet-app .restore-warning')
+  await expect(warning).toHaveAttribute('role', 'alert')
+  await expect(warning).toContainText('Some parts of this project could not be restored and are missing: Cube (Geometry) → Translate (Geometry).')
+  await expect(warning).toContainText('The untouched original was kept as the local project "Wired (backup)".')
+
+  // The warning survives ordinary editing and autosave until dismissed.
+  await page.locator('node-editor .node[data-node-type="translate"] .node-param-row[data-param-key="x"] input').fill('4')
+  await expect.poll(() => page.locator('scadlet-app').evaluate((element) => {
+    const app = element as unknown as { dirty: boolean; autosaveStatus: string }
+    return { dirty: app.dirty, status: app.autosaveStatus }
+  }), { timeout: 10_000 }).toEqual({ dirty: false, status: 'idle' })
+  await expect(warning).toBeVisible()
+  await warning.getByRole('button', { name: 'Dismiss' }).click()
+  await expect(warning).toHaveCount(0)
+
+  // The backup is an ordinary local project holding the intact original.
+  await selectProject(page, 'Wired (backup)')
+  await expect(page.locator('scadlet-app .project-name')).toHaveValue('Wired (backup)')
+  await expect(page.locator('node-editor .connection[data-real-connection="true"]')).toHaveCount(1)
+  await expect(page.locator('scadlet-app .restore-warning')).toHaveCount(0)
+})
