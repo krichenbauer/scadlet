@@ -113,7 +113,7 @@ describe('numeric For persistence and source generation', () => {
     expect(source.indexOf('translate(')).toBeLessThan(source.indexOf('sphere();'))
   })
 
-  it('generates nested loops and rejects iterator shadowing or use in another sibling body', async () => {
+  it('generates nested loops, allows safe iterator shadowing, and rejects ambiguous shadowing or use in another sibling body', async () => {
     const raw = structuredClone(project())
     raw.graph.nodes = [
       { id: 'outer-header', type: 'for', position: { x: 0, y: 0 }, parameters: { pairId: 'outer', bindingId: 'outer-i', name: 'i', start: 0, step: 1, end: 2 } },
@@ -141,9 +141,20 @@ describe('numeric For persistence and source generation', () => {
       kind: 'geometry', source: expect.stringContaining('for (j = [0 : 1 : i])'),
     })
 
+    // Reusing `i` is safe: the outer `i` only feeds the inner End, which
+    // OpenSCAD evaluates before the inner `i` exists.
     const shadow = structuredClone(raw)
     shadow.graph.nodes.find((node: { id: string }) => node.id === 'inner-header').parameters.name = 'i'
-    expect(() => parseScadletProject(shadow)).toThrow('shadows an enclosing iterator')
+    const shadowed = await restore(shadow)
+    expect(await evaluateOpenSCAD(shadowed.editor, shadowed.engine, undefined, shadowed.definitions)).toContain(
+      'for (i = [0 : 1 : 2]) {\n  for (i = [0 : 1 : i]) {\n    translate([i, 0, 0])',
+    )
+
+    // It becomes ambiguous once the outer `i` is also used inside the inner
+    // body: the emitted name would silently read the inner `i` instead.
+    const ambiguous = structuredClone(shadow)
+    ambiguous.graph.connections.push({ id: 'outer-in-body', source: 'outer-header', sourceOutput: 'value', target: 'translate', targetInput: 'y' })
+    expect(() => parseScadletProject(ambiguous)).toThrow('shadows an enclosing iterator that is also used inside its body')
 
     const siblingEscape = structuredClone(raw)
     siblingEscape.graph.connections = siblingEscape.graph.connections.filter((edge: { id: string }) => edge.id !== 'outer-body' && edge.id !== 'outer-range')

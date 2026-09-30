@@ -15,7 +15,7 @@ import { isValueBindingNode, resolveBindingInScope } from './bindings'
 import { VariableReferenceNode } from './nodes/variable-reference-node'
 import { ForHeaderNode, ForResultNode } from './nodes/for-nodes'
 import { identifyNodeType, findCatalogEntry } from './node-catalog'
-import { loopStructureProblem } from './for-validation'
+import { loopProblemFeedback, loopStructureProblem } from './for-validation'
 
 /**
  * Evaluates the graph into a single OpenSCAD source string: one statement
@@ -216,7 +216,7 @@ function assertValidForLoops(editor: NodeEditor<Schemes>, definitions?: Definiti
         .map((node) => String(node.parameters.name)),
     ])
     const problem = loopStructureProblem(nodes, connections, enclosingNames)
-    if (problem) throw new Error(problem.code === 'escape' ? t('for.iteratorEscape') : t('for.invalidPair'))
+    if (problem) throw new Error(loopProblemFeedback(problem))
   }
 }
 

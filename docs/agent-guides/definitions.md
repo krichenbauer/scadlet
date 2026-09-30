@@ -112,9 +112,14 @@ inputs in one OpenSCAD `for` block; JavaScript never evaluates the range.
 The iterator's lexical body is the dependency subgraph entering that result,
 not a visual rectangle or a new registry scope. Direct iterator wires and
 Variable references may cross only the matching result boundary. Enclosing
-bindings remain readable. Nested pairs compose normally; iterators cannot
-shadow enclosing bindings/iterators, while independent sibling pairs may reuse
-a name. Known literal zero steps and escaping dependencies are errors. The
+bindings remain readable. Nested pairs compose normally. An iterator cannot
+take the name of a Value or parameter of its scope. Like OpenSCAD's lexical
+scoping, a nested iterator may reuse an enclosing iterator's name and hides it
+inside its body, unless that body also uses the enclosing iterator: generated
+source names bindings, so such a use would silently read the nested iterator.
+The nested header's Start, Step, and End belong to the enclosing scope and may
+use the enclosing iterator. Independent sibling pairs may reuse a name.
+Refusals explain the specific rule. Known literal zero steps and escaping dependencies are errors. The
 Step field never stores a literal zero: it marks the entry invalid and keeps
 the previous value.
 

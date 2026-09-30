@@ -152,6 +152,8 @@ const dictionaries: Record<LocaleId, Record<string, string>> = {
     'for.zeroStep': 'For step must not be zero.',
     'for.invalidPair': 'For nodes must remain a complete pair in one scope.',
     'for.iteratorEscape': 'A For iterator can only contribute to its matching For result body.',
+    'for.shadowedIteratorUsed': 'The inner For reuses the name "{name}", but its body also uses the outer "{name}". Rename one of them.',
+    'for.iteratorNameCollision': 'The For iterator "{name}" has the same name as a Value or parameter in this scope. Rename one of them.',
     'for.confirmDeletePair': 'Deleting this For pair will also remove {connections} connected item(s) and {references} iterator reference(s). Continue?',
     'control.size': 'Size',
     'control.center': 'Center',

@@ -3,8 +3,9 @@
 Temporary engineering audit, not a contract. The permanent guides linked from
 [AGENTS.md](../AGENTS.md) remain authoritative. Audited at commit `c52d83f`
 on 2026-09-29 against a clean working tree. The audit itself was read-only.
-Defects D-1, D-2, and D-3 were fixed afterwards in separate changes, recorded
-in section 9. All other sections describe the audited commit.
+Defects D-1, D-2, and D-3 were fixed afterwards in separate changes, and a
+later-found restore defect (D-5) was fixed with the nested-loop rule change,
+all recorded in section 9. All other sections describe the audited commit.
 
 **Rating scale.** *Risk* is the regression risk of carrying out the
 recommendation. *Benefit* is the expected reduction in defect risk and change
@@ -46,6 +47,7 @@ scratch tests outside the repository.
 | D-2 | Renaming a Value to an existing For iterator name in the same scope is accepted, then autosave fails ("Local saving failed; recent changes may be lost."). Pasting a Value named like an iterator and naming a parameter like an iterator hit the same gap | Chromium: For plus Number, rename the Number to `i` | RF-03 | Fixed (section 9) |
 | D-3 | Typing `0` into a For Step field is accepted, then autosave fails. Explicit Save As would write the same project unvalidated | Chromium plus unit reproduction (`serializeProject` → `parseScadletProject` throws "zero step") | RF-11 | Fixed (section 9) |
 | D-4 | Two numeric literal formats coexist: Cube size `1.23456789` emits `cube(1.234568);` unwired but `cube(1.23456789, center=true);` once Center is wired. Output differs only beyond six decimals | Direct `data()` calls on `CubeNode`, `SphereNode`, `NumberNode`, `TranslateNode` | RF-10 | Reclassified: not a defect (section 9.3) |
+| D-5 | Found after the audit: a project with two For pairs in one scope loses every wire, including both fixed loop boundaries, when it is reopened, and rendering reports "For nodes must remain a complete pair in one scope." The stored copy stays intact until the next edit, whose autosave then fails | Chromium on the committed code before the fix: two sibling For pairs in Main, reload → 0 wires | RF-13 | Fixed (section 9.4) |
 
 **Recommended degree of refactoring:** incremental and medium-sized. Fix the
 three defects in their own behaviour changes (D-1, D-2, and D-3 are done).
@@ -742,6 +744,11 @@ Geometry-input operations, which are reached only through the internal
 - **Characterization needed first:** a unit test with a pipe that rejects one
   connection, expecting restore to fail and roll back.
 - **Depends on:** RF-02 (restore mode).
+- **Status:** the For guard now skips restore (section 9.4, D-5). That was a
+  concrete instance of this finding: the guard refused partly restored
+  scopes and restore dropped the wires silently. Checking the `addNode` and
+  `addConnection` results so that any other refusal rolls back instead of
+  losing wires is still open.
 
 ### RF-14 — `ScadletApp` mixes execution orchestration with project lifecycle and untranslated text
 
@@ -1247,4 +1254,81 @@ On review, the audit had overstated D-4:
 
 D-4 is therefore no longer a defect. RF-10 is rated Low / Low / Small and
 kept as an optional consistency cleanup (WP 8). No code changed; the
-counts in this report now stand at three confirmed defects, all fixed.
+audit's own count stands at three confirmed defects, all fixed. D-5 was
+found later (section 9.4).
+
+### 9.4 Nested iterator name reuse, and restore of multi-loop scopes (D-5)
+
+A product-rule change requested after checking real OpenSCAD behaviour, made on
+2026-09-29. Running the bundled OpenSCAD-WASM confirmed:
+
+- nested `for (i …) { for (i …) … }` runs without warnings, and the inner `i`
+  hides the outer one;
+- an inner range such as `[0 : 1 : i]` reads the outer `i`;
+- the outer `i` is intact after the inner loop;
+- the result renders to STL.
+
+**New rule:** a nested iterator may reuse an enclosing iterator's name unless
+the nested body also uses the enclosing iterator (by wire or Variable
+reference). The nested body is everything entering the nested result's
+Geometry slots, including deeper loop ranges but not the nested header's own
+Start/Step/End. That single exception exists because generated source
+refers to bindings by name, so such a use would silently read the inner
+iterator. Siblings may still share names; iterators still may not share a
+Value's or parameter's name. The documented contract changed in
+[Definitions](agent-guides/definitions.md) and
+[scadlet-format.md](scadlet-format.md). This is an additive v8 relaxation:
+every previously valid file keeps its meaning, and no version bump is needed.
+
+**Changes:**
+
+| Area | Change |
+| --- | --- |
+| [for-validation.ts](../src/editor/for-validation.ts) | `loopStructureProblem` reports the new `shadow` code only when the enclosing iterator is used in the nested body; `name` now means only a collision with a Value or parameter. New `loopProblemFeedback` returns a specific localized message per problem |
+| [editor.ts](../src/editor/editor.ts), [evaluate.ts](../src/editor/evaluate.ts) | Wire refusals, iterator rename, paste preflight, and source generation use `loopProblemFeedback` instead of the misleading "For nodes must remain a complete pair in one scope." for every non-escape problem |
+| [editor.ts](../src/editor/editor.ts) | **D-5 fix:** the live For guard skips `connectioncreate` while `restoringProject` is set. Restore adds wires one at a time, so the guard saw partly restored scopes as broken pairs; the whole project was already validated by the same rules |
+| `translate.ts` | New keys `for.shadowedIteratorUsed`, `for.iteratorNameCollision` |
+
+The single shared checker means the live editor, rename, paste, source
+generation, and file validation changed together.
+
+**Tests:**
+
+- New `src/editor/for-validation.test.ts`:
+  - sibling reuse;
+  - nested reuse with the outer iterator only in the inner range;
+  - refusal when the outer iterator reaches the inner body by wire or by
+    Variable reference;
+  - a three-level case where the outer iterator in a deeper loop's range is
+    refused, while in the nested loop's own range it is allowed;
+  - the Value-collision code and all feedback messages.
+- `src/persistence/for-loops.test.ts`: the former "no shadowing" assertion now
+  asserts that the same file is valid and generates `for (i = …) { for (i =
+  [0 : 1 : i]) … }`, plus rejection of the ambiguous variant.
+- `e2e/for-loops.spec.ts` "nested loops may reuse an iterator name unless the
+  inner body also uses the outer iterator" covers:
+  - building nested `i`/`i` loops in the browser;
+  - the exact generated source, a real OpenSCAD-WASM mesh, and a clean
+    autosave;
+  - the refused ambiguous wire with its message;
+  - a reload that keeps all 7 wires (the D-5 regression; on the previous code
+    every wire disappeared).
+
+**Verification** (same environment as section 8):
+
+| Check | Result |
+| --- | --- |
+| `pnpm test` | Pass. 80 files, 705 tests passed |
+| `pnpm exec tsc --noEmit` | Pass. Exit 0 |
+| `pnpm build` | Pass. Exit 0, same chunk-size warning as the baseline |
+| `pnpm test:e2e` | Pass. 113 passed in 35.5 s |
+| `git diff --check` | Pass. Exit 0 |
+
+**Remaining related gaps:**
+
+- The default name of every new For is still `i`. With this rule a nested `i`
+  now works unless the outer `i` is also used inside, which is when the
+  specific message appears.
+- Iterator/Value name collisions keep the stricter rule. OpenSCAD would also
+  allow them under the same condition.
+- Restore still ignores `addNode`/`addConnection` results (RF-13).

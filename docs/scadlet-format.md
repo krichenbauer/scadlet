@@ -354,7 +354,11 @@ Each pair has exactly one header, result, and fixed structural connection in
 the same Main/Module graph. Pair IDs and iterator binding IDs are scope-unique.
 Iterator wires/references are confined to dependencies entering the matching
 result, including nested-loop lexical checks. Iterator names cannot collide
-with enclosing bindings/iterators; independent siblings may reuse a name.
+with Values or parameters of their scope. A nested iterator may reuse an
+enclosing iterator's name unless the enclosing iterator is used inside the
+nested body (the dependencies entering the nested result's Geometry slots,
+including deeper loop ranges, but not the nested header's own range);
+independent siblings may reuse a name.
 Orphaned, duplicate, mismatched, cross-scope, and escaping pairs are rejected.
 A zero direct step is rejected when not overridden by a connection; source
 generation also rejects a known literal zero effective step.
@@ -434,7 +438,8 @@ Within supported shapes, missing parameter signatures normalize to empty arrays,
 old Cube representations infer from `size`, missing transform representation is
 XYZ, missing Compare fallbacks become zero, and missing collapse means expanded.
 Recursion adds no fields. Typed Value inputs, For pairs, extended Difference
-slots, PI, Number negate, Vector Math, and Min/Max are additive v8 capabilities;
+slots, PI, Number negate, Vector Math, Min/Max, and nested iterator name reuse
+are additive v8 capabilities;
 older graphs without them retain their meaning. Do not remove migrations or
 rewrite historical fixtures merely because the current writer emits v8.
 

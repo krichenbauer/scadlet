@@ -315,3 +315,57 @@ test('names and Step literals the saved format refuses are rejected before autos
   await expect(editor.locator('.node[data-node-type="number"] .node-title')).toHaveText('i_copy')
   await expect(editor.locator('.node[data-node-type="for"] .node-param-row[data-param-key="step"] input')).toHaveValue('2')
 })
+
+test('nested loops may reuse an iterator name unless the inner body also uses the outer iterator', async ({ page }) => {
+  await ready(page)
+  const editor = page.locator('node-editor')
+  const canvas = await waitForBoundingBox(editor)
+  await dropPaletteNode(page, 'for', { x: canvas.x + 30, y: canvas.y + 30 })
+  await dropPaletteNode(page, 'for', { x: canvas.x + 30, y: canvas.y + 230 })
+  await dropPaletteNode(page, 'cube', { x: canvas.x + 30, y: canvas.y + 430 })
+  await dropPaletteNode(page, 'translate', { x: canvas.x + 250, y: canvas.y + 430 })
+  const headers = editor.locator('.node[data-node-type="for"]')
+  const results = editor.locator('.node[data-node-type="for-result"]')
+  await expect(headers).toHaveCount(2)
+  await expect(headers.locator('.node-title')).toHaveText(['i', 'i'])
+  const [outer, inner] = [headers.nth(0), headers.nth(1)]
+  const [outerResult, innerResult] = [results.nth(0), results.nth(1)]
+  const cube = editor.locator('.node[data-node-type="cube"]')
+  const translate = editor.locator('.node[data-node-type="translate"]')
+  const wires = editor.locator('.connection[data-real-connection="true"]')
+
+  await connect(page, cube.locator('.node-port--output .node-socket'), translate.locator('.node-socket[data-socket-side="input"][data-socket-key="geometry"]'))
+  // Body first: an iterator may only be wired into Geometry that already
+  // reaches its matching result.
+  await connect(page, translate.locator('.node-port--output .node-socket'), innerResult.locator('.node-socket[data-socket-key^="child:"]').first())
+  await connect(page, innerResult.locator('.node-port--output .node-socket'), outerResult.locator('.node-socket[data-socket-key^="child:"]').first())
+  await connect(page, inner.locator('.node-socket[data-socket-key="value"]'), translate.locator('.node-socket[data-socket-key="x"]'))
+  await connect(page, outer.locator('.node-socket[data-socket-key="value"]'), inner.locator('.node-socket[data-socket-side="input"][data-socket-key="end"]'))
+  await expect(wires).toHaveCount(7)
+
+  // OpenSCAD evaluates the inner range before the inner `i` exists, so the
+  // same name is unambiguous here and renders through the bundled WASM.
+  const source = page.locator('scadlet-app .scad-output')
+  await expect(source).toContainText('for (i = [0 : 1 : 10]) {\n  for (i = [0 : 1 : i]) {\n    translate([i, 0, 0])', { timeout: 15_000 })
+  await expect.poll(() => page.locator('geometry-viewer').evaluate(
+    (viewer) => Boolean((viewer as unknown as { mesh?: unknown }).mesh),
+  ), { timeout: 15_000 }).toBe(true)
+  await expect(page.locator('scadlet-app .render-error')).toHaveCount(0)
+  await waitForAutosave(page)
+
+  // Using the outer `i` inside the inner body would silently read the inner
+  // one in generated source, so that wire is refused with an explanation.
+  await connect(page, outer.locator('.node-socket[data-socket-key="value"]'), translate.locator('.node-socket[data-socket-key="y"]'))
+  await expect(editor.locator('.editor-feedback')).toHaveText(
+    'The inner For reuses the name "i", but its body also uses the outer "i". Rename one of them.',
+  )
+  await expect(wires).toHaveCount(7)
+  await waitForAutosave(page)
+
+  // Regression: restoring two For pairs in one scope used to drop every
+  // wire, because the live loop guard checked each partly restored scope.
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: 'Project name' })).toBeEnabled()
+  await expect(editor.locator('.connection[data-real-connection="true"]')).toHaveCount(7)
+  await expect(page.locator('scadlet-app .scad-output')).toContainText('for (i = [0 : 1 : i])', { timeout: 15_000 })
+})

@@ -36,7 +36,7 @@ import { bindingNamesInScope, isValueBindingNode, referencesToBinding, reservedB
 import { VariableReferenceNode, type VariableBindingResolution } from './nodes/variable-reference-node'
 import { VARIABLE_REFERENCE_DRAG_MIME_TYPE } from './node-catalog'
 import { ForHeaderNode, ForResultNode, createDefaultForParams } from './nodes/for-nodes'
-import { loopStructureProblem } from './for-validation'
+import { loopProblemFeedback, loopStructureProblem, type LoopStructureProblem } from './for-validation'
 import {
   cloneGraphClipboardPayload,
   graphClipboardCommandForKey,
@@ -356,7 +356,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     container.classList.add('variable-reference-placement-active')
   }
   let showDataflowCycleFeedback: () => void = () => {}
-  let showLoopFeedback: (escape: boolean) => void = () => {}
+  let showLoopFeedback: (problem: LoopStructureProblem) => void = () => {}
   const canCreateConnection = (
     from: Pick<SocketData, 'nodeId' | 'key' | 'side'>,
     to: Pick<SocketData, 'nodeId' | 'key' | 'side'>,
@@ -486,7 +486,10 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   attachSocketCompatibilityGuard(editor, () => showDataflowCycleFeedback())
   editor.addPipe((context) => {
     if (context.type !== 'connectioncreate') return context
-    if (graphTransactionSuspended) return context
+    // Paste validates its complete plan up front. Restore adds connections
+    // one at a time, so a partly rebuilt scope would look like broken pairs;
+    // its whole project was already validated by the same loop rules.
+    if (graphTransactionSuspended || restoringProject) return context
     const scope = definitions.scopeOf(context.data.source)
     if (scope !== definitions.scopeOf(context.data.target)) return context
     const scopedNodes = editor.getNodes().filter((node) => definitions.scopeOf(node.id) === scope)
@@ -511,7 +514,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     ])
     const problem = loopStructureProblem(nodes, connections, enclosingNames)
     if (!problem) return context
-    showLoopFeedback(problem.code === 'escape')
+    showLoopFeedback(problem)
     return undefined
   })
   let showScopeTransferFeedback: (problem: ScopeTransferProblem) => void = () => {}
@@ -801,6 +804,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       const enclosingNames = new Set(bindingNamesInScope(editor, definitions, scope, node.bindingId))
       const loopProblem = loopStructureProblem(scopedNodes, edges, enclosingNames)
       if (loopProblem?.code === 'name') { showFeedback('variable.duplicateName'); return false }
+      if (loopProblem?.code === 'shadow') { showLoopFeedback(loopProblem); return false }
     }
     if (node.getBindingId() && node.getBindingName() === name) return true
     node.renameBinding(name)
@@ -1182,7 +1186,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       id: crypto.randomUUID(), source: pair.headerId, sourceOutput: 'loop', target: pair.resultId, targetInput: 'loop',
     }))
     const loopProblem = loopStructureProblem([...currentNodes, ...plannedNodes], [...currentConnections, ...plan.connections, ...structural], new Set(bindingNamesInScope(editor, definitions, payload.scope)))
-    if (loopProblem) throw new Error(loopProblem.message)
+    if (loopProblem) throw new Error(loopProblemFeedback(loopProblem))
     return plan
   }
 
@@ -2228,8 +2232,9 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   feedback.hidden = true
   container.appendChild(feedback)
   let feedbackTimer: number | undefined
-  const showFeedback = (key: string): void => {
-    feedback.textContent = t(key)
+  const showFeedback = (key: string): void => showFeedbackText(t(key))
+  const showFeedbackText = (text: string): void => {
+    feedback.textContent = text
     feedback.hidden = false
     if (feedbackTimer !== undefined) window.clearTimeout(feedbackTimer)
     feedbackTimer = window.setTimeout(() => { feedback.hidden = true }, 3500)
@@ -2245,7 +2250,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     )
   }
   showDataflowCycleFeedback = () => showFeedback('connection.dataflowCycle')
-  showLoopFeedback = (escape) => showFeedback(escape ? 'for.iteratorEscape' : 'for.invalidPair')
+  showLoopFeedback = (problem) => showFeedbackText(loopProblemFeedback(problem))
 
   const contextMenuButton = (
     label: string,

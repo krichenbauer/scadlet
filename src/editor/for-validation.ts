@@ -1,4 +1,5 @@
 import { findCatalogEntry } from './node-catalog'
+import { t } from '../i18n/translate'
 
 export interface LoopGraphNode {
   id: string
@@ -15,8 +16,24 @@ export interface LoopGraphConnection {
 }
 
 export interface LoopStructureProblem {
-  code: 'pair' | 'binding' | 'name' | 'escape' | 'step'
+  /** `name`: an iterator collides with a Value or parameter of its scope.
+   * `shadow`: a nested iterator reuses an enclosing iterator's name while
+   * its body still uses that enclosing iterator. */
+  code: 'pair' | 'binding' | 'name' | 'shadow' | 'escape' | 'step'
+  /** English diagnostic, used verbatim by `.scadlet` validation errors. */
   message: string
+  /** The iterator name involved, for localized editor feedback. */
+  iteratorName?: string
+}
+
+/** Localized learner feedback for a live editor or source-generation
+ * refusal. File validation keeps each problem's English `message`. */
+export function loopProblemFeedback(problem: LoopStructureProblem): string {
+  const name = problem.iteratorName ?? ''
+  if (problem.code === 'escape') return t('for.iteratorEscape')
+  if (problem.code === 'shadow') return t('for.shadowedIteratorUsed').replaceAll('{name}', name)
+  if (problem.code === 'name') return t('for.iteratorNameCollision').replace('{name}', name)
+  return t('for.invalidPair')
 }
 
 function pairId(node: LoopGraphNode): string | undefined {
@@ -57,7 +74,7 @@ export function loopStructureProblem(
     bindingIds.add(bindingId)
     const name = header.parameters.name
     if (typeof name !== 'string' || enclosingBindingNames.has(name)) {
-      return { code: 'name', message: `For iterator "${String(name)}" collides with a binding visible from its enclosing scope.` }
+      return { code: 'name', message: `For iterator "${String(name)}" collides with a binding visible from its enclosing scope.`, iteratorName: String(name) }
     }
     const structural = connections.filter((connection) =>
       connection.source === header.id && connection.sourceOutput === 'loop'
@@ -100,15 +117,49 @@ export function loopStructureProblem(
     return false
   }
 
-  // Nested iterator names share a lexical body and therefore may not
-  // shadow. Sibling loops are intentionally independent and may reuse names.
+  // Every edge by target, including structural ones: a deeper loop's range
+  // is reached through its result's structural `loop` input.
+  const incoming = new Map<string, LoopGraphConnection[]>()
+  for (const edge of connections) incoming.set(edge.target, [...(incoming.get(edge.target) ?? []), edge])
+  /** Whether the enclosing iterator is used inside the nested loop's body:
+   * anything upstream of the nested result's Geometry slots, including the
+   * ranges of deeper loops there. The nested header's own Start/Step/End are
+   * evaluated in the enclosing scope and are not part of that body. */
+  const usedInNestedBody = (innerHeader: LoopGraphNode, innerResult: LoopGraphNode, outerHeader: LoopGraphNode): boolean => {
+    const outerBindingId = outerHeader.parameters.bindingId
+    const seen = new Set<string>()
+    const pending = (incoming.get(innerResult.id) ?? [])
+      .filter((edge) => edge.targetInput.startsWith('child:'))
+      .map((edge) => edge.source)
+    while (pending.length > 0) {
+      const id = pending.pop()!
+      if (seen.has(id)) continue
+      seen.add(id)
+      if (id === outerHeader.id) return true
+      const node = nodeById.get(id)
+      if (node?.type === 'variable-reference' && node.parameters.bindingId === outerBindingId) return true
+      if (id === innerHeader.id) continue
+      for (const edge of incoming.get(id) ?? []) pending.push(edge.source)
+    }
+    return false
+  }
+
+  // Like OpenSCAD's lexical scoping, a nested iterator may reuse an enclosing
+  // iterator's name and then hides it inside its body. Generated source
+  // refers to bindings by name, so that is only safe while the nested body
+  // does not also use the enclosing iterator. Sibling loops are independent.
   for (const inner of headers) {
     const innerResult = resultByPair.get(pairId(inner)!)!
     for (const outer of headers) {
       if (inner === outer || inner.parameters.name !== outer.parameters.name) continue
       const outerResult = resultByPair.get(pairId(outer)!)!
-      if (reaches(innerResult.id, outerResult.id)) {
-        return { code: 'name', message: `Nested For iterator "${String(inner.parameters.name)}" shadows an enclosing iterator.` }
+      if (reaches(innerResult.id, outerResult.id) && usedInNestedBody(inner, innerResult, outer)) {
+        const name = String(inner.parameters.name)
+        return {
+          code: 'shadow',
+          message: `Nested For iterator "${name}" shadows an enclosing iterator that is also used inside its body.`,
+          iteratorName: name,
+        }
       }
     }
   }
