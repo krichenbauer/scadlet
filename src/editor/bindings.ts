@@ -5,6 +5,7 @@ import { BooleanNode, NumberNode, Vector3Node } from './nodes/value-nodes'
 import { VariableReferenceNode, type VariableBindingResolution } from './nodes/variable-reference-node'
 import type { Schemes } from './schemes'
 import { ForHeaderNode } from './nodes/for-nodes'
+import { enclosingBindingNames, reservedBindingNames, resolveScopeBinding, scopeBindings, type BindingRecord, type ScopeBinding } from './scope-bindings'
 
 export type ValueBindingNode = NumberNode | BooleanNode | Vector3Node
 
@@ -16,6 +17,35 @@ export function valueBindingType(node: ValueBindingNode): ModuleParameterType {
   return node instanceof NumberNode ? 'number' : node instanceof BooleanNode ? 'boolean' : 'vector3'
 }
 
+/** The live nodes of one scope as binding records. `scopeOf` may describe a
+ * hypothetical assignment (scope transfer preflight). Only binding-relevant
+ * nodes are read, so this stays cheap for frequent lookups. */
+export function liveBindingRecords(
+  editor: NodeEditor<Schemes>,
+  scopeOf: (nodeId: string) => string | null,
+  scope: string | null,
+): BindingRecord[] {
+  return editor.getNodes().filter((node) => scopeOf(node.id) === scope).flatMap((node): BindingRecord[] => {
+    if (isValueBindingNode(node)) {
+      const bindingId = node.getBindingId()
+      return [{ id: node.id, type: valueBindingType(node), parameters: bindingId === undefined ? {} : { bindingId, name: node.getBindingName() } }]
+    }
+    if (node instanceof ForHeaderNode) return [{ id: node.id, type: 'for', parameters: { bindingId: node.bindingId, name: node.getBindingName() } }]
+    if (node instanceof VariableReferenceNode) return [{ id: node.id, type: 'variable-reference', parameters: { bindingId: node.bindingId } }]
+    return []
+  })
+}
+
+/** The binding table of one live scope (`null` is Main). */
+export function liveScopeBindings(
+  editor: NodeEditor<Schemes>,
+  definitions: DefinitionRegistry | undefined,
+  scope: string | null,
+): ScopeBinding[] {
+  const parameters = scope === null ? [] : definitions?.get(scope)?.parameters ?? []
+  return scopeBindings(liveBindingRecords(editor, (nodeId) => definitions?.scopeOf(nodeId) ?? null, scope), parameters)
+}
+
 /** Resolves identity only within the requested semantic scope. The same
  * spelling and even the same imported parameter id may exist independently in
  * other scopes without capture. */
@@ -25,55 +55,28 @@ export function resolveBindingInScope(
   bindingId: string,
   scope: string | null,
 ): VariableBindingResolution | undefined {
-  for (const node of editor.getNodes()) {
-    if (!(node instanceof ForHeaderNode) || node.bindingId !== bindingId) continue
-    if ((definitions?.scopeOf(node.id) ?? null) !== scope) continue
-    return { id: bindingId, name: node.getBindingName(), type: 'number' }
-  }
-  for (const node of editor.getNodes()) {
-    if (!isValueBindingNode(node) || node.getBindingId() !== bindingId) continue
-    if ((definitions?.scopeOf(node.id) ?? null) !== scope) continue
-    return { id: bindingId, name: node.getBindingName(), type: valueBindingType(node) }
-  }
-  if (scope === null) return undefined
-  const parameter = definitions?.get(scope)?.parameters?.find((item) => item.id === bindingId)
-  return parameter ? { id: parameter.id, name: parameter.name, type: parameter.type } : undefined
+  return resolveScopeBinding(liveScopeBindings(editor, definitions, scope), bindingId)
 }
 
+/** Value and parameter names of a scope (see `enclosingBindingNames`). */
 export function bindingNamesInScope(
   editor: NodeEditor<Schemes>,
   definitions: DefinitionRegistry,
   scope: string | null,
   excludeBindingId?: string,
 ): string[] {
-  const names = editor.getNodes()
-    .filter(isValueBindingNode)
-    .filter((node) => definitions.scopeOf(node.id) === scope && node.getBindingId() !== undefined && node.getBindingId() !== excludeBindingId)
-    .map((node) => node.getBindingName())
-  if (scope !== null) {
-    names.push(...(definitions.get(scope)?.parameters ?? [])
-      .filter((parameter) => parameter.id !== excludeBindingId)
-      .map((parameter) => parameter.name))
-  }
-  return names
+  return enclosingBindingNames(liveScopeBindings(editor, definitions, scope), excludeBindingId)
 }
 
 /** Names a Value or definition parameter cannot take in `scope`: every other
- * bound Value and parameter plus every For iterator of that scope. This is
- * the naming rule `.scadlet` validation enforces, so an accepted name can
- * always be saved. Iterators deliberately keep the narrower
- * `bindingNamesInScope` check because sibling loops may reuse a name. */
+ * binding including For iterators (see `reservedBindingNames`). */
 export function reservedBindingNamesInScope(
   editor: NodeEditor<Schemes>,
   definitions: DefinitionRegistry,
   scope: string | null,
   excludeBindingId?: string,
 ): string[] {
-  const iterators = editor.getNodes()
-    .filter((node): node is ForHeaderNode => node instanceof ForHeaderNode)
-    .filter((node) => definitions.scopeOf(node.id) === scope && node.bindingId !== excludeBindingId)
-    .map((node) => node.getBindingName())
-  return [...bindingNamesInScope(editor, definitions, scope, excludeBindingId), ...iterators]
+  return reservedBindingNames(liveScopeBindings(editor, definitions, scope), excludeBindingId)
 }
 
 export function referencesToBinding(

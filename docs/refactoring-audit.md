@@ -320,10 +320,8 @@ Geometry-input operations, which are reached only through the internal
   `unavailableBindingNames` from the same helper, so a pasted Value named like
   an existing iterator is also accepted (reproduced by the section 9 E2E test
   against the audited code).
-- **Status:** the naming gap (D-2) is fixed by
-  `reservedBindingNamesInScope` (section 9). The structural recommendation
-  below, one binding table shared with `validate.ts` and `restore.ts`, remains
-  open.
+- **Status:** done. The naming gap (D-2) was fixed first (section 9.1); the
+  single shared binding authority followed (section 9.8).
 - **Affected:** `bindings.ts`, `scope-transfer.ts`, `for-validation.ts`
   callers, `validate.ts` `validateScopeBindings`, `restore.ts`
   `prepareRestorePlan`, `editor.ts` `renameValueBinding` /
@@ -986,7 +984,7 @@ contract. Characterization tests pin current behaviour everywhere else.
 | WP | Boundary | Findings | Files | Prerequisite tests | Extra verification |
 | --- | --- | --- | --- | --- | --- |
 | 5 | **Done** (section 9): clear Inspect on committed deletion | RF-02 | `editor.ts` `noderemoved` pipe | New D-1 E2E; failed-switch Inspect E2E | `inspect-dismissal.spec.ts` |
-| 6 | Single scope binding authority (D-2 already fixed, section 9) | RF-03 | `scope-bindings.ts`, `bindings.ts`, `scope-transfer.ts`, `validate.ts`, `restore.ts`, `editor.ts` | Binding verdict matrix (RF-03) | Fixture corpus parses identically |
+| 6 | **Done** (sections 9.1 and 9.8): single scope binding authority | RF-03 | `scope-bindings.ts`, `bindings.ts`, `scope-transfer.ts`, `validate.ts`, `restore.ts`, `editor.ts` | Binding verdict matrix (RF-03) | Fixture corpus parses identically |
 | 7 | **Done** (section 9): validate before file save; refuse zero Step live | RF-11 | `file-service.ts`, `for-nodes.ts`, `for-validation.ts`, `validate.ts` | D-3 unit and E2E | `file-service.test.ts` |
 | 8 | **(optional, low priority)** Route all emitters through `formatNumber` | RF-10 | `openscad/format.ts`, emitters | Literal snapshot (RF-10) | Real OpenSCAD-WASM render E2E |
 | 9 | **Done** (section 9.7): value-type constants and a socket-typed main-Geometry helper | RF-17 | `sockets.ts`, `definitions.ts`, `evaluate.ts`, `editor.ts`, `render.ts` | RF-17 classification test | — |
@@ -1518,4 +1516,67 @@ unchanged.
 | `pnpm exec tsc --noEmit` | Pass. Exit 0 |
 | `pnpm build` | Pass. Exit 0, same chunk-size warning as the baseline |
 | `pnpm test:e2e` | Pass. 118 passed in 37.2 s |
+| `git diff --check` | Pass. Exit 0 |
+
+### 9.8 One authority for scope bindings (RF-03, WP 6)
+
+A behaviour-preserving refactoring made on 2026-09-30, building on RF-04 and
+RF-17.
+
+**Changes:**
+
+- **New [scope-bindings.ts](../src/editor/scope-bindings.ts):** a pure
+  module over plain node records (`{ id, type, parameters }`) that holds
+  every scope naming rule:
+  - `scopeBindings`, the binding table (Values, parameters, iterators, with
+    kind and type);
+  - `resolveScopeBinding`;
+  - `enclosingBindingNames` (Values and parameters: the names visible around
+    a loop, and the names an iterator may not take);
+  - `reservedBindingNames` (every binding: the names a Value or parameter may
+    not take);
+  - `scopeBindingProblem`, the first rule violation, in the validator's
+    established order.
+- **Consumers:**
+  - [bindings.ts](../src/editor/bindings.ts): `liveBindingRecords` reads only
+    binding-relevant live nodes, optionally under a hypothetical scope
+    assignment. `resolveBindingInScope`, `bindingNamesInScope`, and
+    `reservedBindingNamesInScope` keep their signatures and delegate.
+  - [scope-transfer.ts](../src/editor/scope-transfer.ts): checks every final
+    scope with `scopeBindingProblem`, keeping the precedence of name
+    conflicts over unresolved references.
+  - [validate.ts](../src/persistence/validate.ts): maps each problem code to
+    its unchanged error message.
+  - [restore.ts](../src/persistence/restore.ts): uses the shared table.
+  - The clipboard's planned-binding lookup and the loop checks in the For
+    guard, `assertValidForLoops`, and `validateGraph` use it too.
+
+Six hand-written copies became one module (the six files lost 69 lines net).
+
+**Finding:** the characterization test showed that the copies agreed on every
+state the editor or a valid file can produce. The remaining differences
+(duplicate ids, invalid identifiers in the live editor) cannot occur there,
+so no product decision was needed.
+
+**Tests:**
+
+- `src/editor/binding-rules.test.ts` was written first against the old code.
+  It covers:
+  - names and reserved names per scope, with and without exclusions;
+  - resolution per scope and across scopes;
+  - scope-transfer verdicts, including the precedence case;
+  - the validator's exact first error for every rule;
+  - that a non-string binding id is already rejected by the Value's own
+    parameter validator.
+- `src/editor/scope-bindings.test.ts` covers the module API directly.
+- No existing test changed.
+
+**Verification** (same environment as section 8):
+
+| Check | Result |
+| --- | --- |
+| `pnpm test` | Pass. 87 files, 737 tests passed |
+| `pnpm exec tsc --noEmit` | Pass. Exit 0 |
+| `pnpm build` | Pass. Exit 0, same chunk-size warning as the baseline |
+| `pnpm test:e2e` | Pass. 118 passed in 37.1 s |
 | `git diff --check` | Pass. Exit 0 |

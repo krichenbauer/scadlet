@@ -38,7 +38,8 @@ import { VARIABLE_REFERENCE_DRAG_MIME_TYPE } from './node-catalog'
 import { ForHeaderNode, ForResultNode, createDefaultForParams } from './nodes/for-nodes'
 import { loopProblemFeedback, loopStructureProblem, type LoopStructureProblem } from './for-validation'
 import { liveScopeSnapshot, upstreamNodeIds } from './scope-snapshot'
-import { isBoundValueRecord, isValueType, valueNodeType } from './value-types'
+import { isValueType } from './value-types'
+import { enclosingBindingNames, resolveScopeBinding, scopeBindings } from './scope-bindings'
 import {
   cloneGraphClipboardPayload,
   graphClipboardCommandForKey,
@@ -486,11 +487,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       id: context.data.id, source: context.data.source, sourceOutput: String(context.data.sourceOutput),
       target: context.data.target, targetInput: String(context.data.targetInput),
     })
-    const enclosingNames = new Set<string>([
-      ...(scope ? definitions.get(scope)?.parameters?.map((parameter) => parameter.name) ?? [] : []),
-      ...nodes.filter(isBoundValueRecord)
-        .map((node) => String(node.parameters.name)),
-    ])
+    const enclosingNames = new Set(enclosingBindingNames(scopeBindings(nodes, scope ? definitions.get(scope)?.parameters ?? [] : [])))
     const problem = loopStructureProblem(nodes, connections, enclosingNames)
     if (!problem) return context
     showLoopFeedback(problem)
@@ -1113,16 +1110,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
   }
 
   function plannedBindingResolution(plan: GraphClipboardPastePlan, bindingId: string): VariableBindingResolution | undefined {
-    const definition = plan.nodes.find((node) =>
-      (node.type === 'for' || isValueType(node.type))
-        && node.parameters.bindingId === bindingId,
-    )
-    if (!definition || typeof definition.parameters.name !== 'string') return undefined
-    return {
-      id: bindingId,
-      name: definition.parameters.name,
-      type: definition.type === 'for' ? 'number' : valueNodeType(definition.type)!,
-    }
+    return resolveScopeBinding(scopeBindings(plan.nodes.map((node) => ({ ...node, parameters: node.parameters as Record<string, unknown> })), []), bindingId)
   }
 
   function preflightClipboardPaste(payload: GraphClipboardPayload, destinationScope: string | null): GraphClipboardPastePlan {

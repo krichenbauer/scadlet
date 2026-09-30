@@ -16,7 +16,7 @@ import { VariableReferenceNode } from './nodes/variable-reference-node'
 import { ForHeaderNode, ForResultNode } from './nodes/for-nodes'
 import { loopProblemFeedback, loopStructureProblem } from './for-validation'
 import { liveScopeSnapshot } from './scope-snapshot'
-import { isBoundValueRecord } from './value-types'
+import { enclosingBindingNames, scopeBindings } from './scope-bindings'
 
 /**
  * Evaluates the graph into a single OpenSCAD source string: one statement
@@ -198,11 +198,7 @@ function assertValidForLoops(editor: NodeEditor<Schemes>, definitions?: Definiti
   const scopes = new Set<string | null>([null, ...(definitions?.list().map((definition) => definition.id) ?? [])])
   for (const scope of scopes) {
     const { nodes, connections } = liveScopeSnapshot(editor, definitions, scope)
-    const enclosingNames = new Set<string>([
-      ...(scope ? definitions?.get(scope)?.parameters?.map((parameter) => parameter.name) ?? [] : []),
-      ...nodes.filter(isBoundValueRecord)
-        .map((node) => String(node.parameters.name)),
-    ])
+    const enclosingNames = new Set(enclosingBindingNames(scopeBindings(nodes, scope ? definitions?.get(scope)?.parameters ?? [] : [])))
     const problem = loopStructureProblem(nodes, connections, enclosingNames)
     if (problem) throw new Error(loopProblemFeedback(problem))
   }

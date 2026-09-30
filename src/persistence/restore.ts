@@ -8,7 +8,7 @@ import type { ModuleDefinition } from '../editor/definitions'
 import { ModuleInputsNode } from '../editor/nodes/module-interface-nodes'
 import { FunctionInputsNode, FunctionOutputNode } from '../editor/nodes/function-interface-nodes'
 import type { VariableBindingResolution } from '../editor/nodes/variable-reference-node'
-import { valueNodeType } from '../editor/value-types'
+import { scopeBindings as bindingTable } from '../editor/scope-bindings'
 import type { ScadletProjectV1, ScadletViewerCamera } from './project'
 
 /** Removes every node (and, transitively, every connection) currently in `editor`, one at a time, so per-node cleanup (presentation/inspect state - see `editor/editor.ts`'s `noderemoved` pipe) runs for each. */
@@ -130,20 +130,8 @@ function prepareRestorePlan(project: ScadletProjectV1, deps: RestoreProjectDeps)
 
   const scopeBindings = new Map<string | null, Map<string, VariableBindingResolution>>()
   const collectBindings = (scope: string | null, graphNodes: ScadletProjectV1['graph']['nodes'], definition?: ModuleDefinition): void => {
-    const bindings = new Map<string, VariableBindingResolution>()
-    for (const parameter of definition?.parameters ?? []) bindings.set(parameter.id, { id: parameter.id, name: parameter.name, type: parameter.type })
-    for (const node of graphNodes) {
-      const valueType = valueNodeType(node.type)
-      if (!valueType || typeof node.parameters.bindingId !== 'string') continue
-      const id = node.parameters.bindingId
-      bindings.set(id, { id, name: String(node.parameters.name), type: valueType })
-    }
-    for (const node of graphNodes) {
-      if (node.type !== 'for' || typeof node.parameters.bindingId !== 'string') continue
-      const id = node.parameters.bindingId
-      bindings.set(id, { id, name: String(node.parameters.name), type: 'number' })
-    }
-    scopeBindings.set(scope, bindings)
+    const table = bindingTable(graphNodes, definition?.parameters ?? [])
+    scopeBindings.set(scope, new Map(table.map(({ id, name, type }) => [id, { id, name, type }])))
   }
   collectBindings(null, project.graph.nodes)
   for (const definition of project.definitions) collectBindings(definition.id, definition.graph.nodes, definitionsById.get(definition.id))

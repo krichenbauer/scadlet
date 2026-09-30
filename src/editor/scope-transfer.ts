@@ -4,8 +4,8 @@ import type { DefinitionRegistry } from './definitions'
 import type { Schemes } from './schemes'
 import { ModuleCallNode } from './nodes/module-call-node'
 import { FUNCTION_GRAPH_ALLOWED_NODE_TYPES, identifyNodeType } from './node-catalog'
-import { isValueBindingNode } from './bindings'
-import { VariableReferenceNode } from './nodes/variable-reference-node'
+import { liveBindingRecords } from './bindings'
+import { scopeBindingProblem } from './scope-bindings'
 import { ForHeaderNode, ForResultNode } from './nodes/for-nodes'
 
 export type ScopeTransferProblem = 'protected' | 'module-call' | 'connection' | 'function-incompatible'
@@ -52,35 +52,15 @@ export function scopeTransferProblem(
   })
   if (settingsInTarget.length > 1) return 'settings-duplicate'
   const finalScope = (nodeId: string): string | null => moved.has(nodeId) ? targetScope : registry.scopeOf(nodeId)
-  const namesByScope = new Map<string | null, Set<string>>()
-  for (const definition of registry.list()) namesByScope.set(definition.id, new Set((definition.parameters ?? []).map((parameter) => parameter.name)))
-  namesByScope.set(null, new Set())
-  for (const node of editor.getNodes()) {
-    if (!isValueBindingNode(node) || !node.getBindingId()) continue
-    const scope = finalScope(node.id)
-    const names = namesByScope.get(scope) ?? new Set<string>()
-    if (names.has(node.getBindingName())) return 'binding-conflict'
-    names.add(node.getBindingName())
-    namesByScope.set(scope, names)
-  }
-  // Iterator names are local to their own bodies, so sibling pairs may reuse
-  // a name. They still cannot shadow a parameter or named Value in the scope
-  // they are entering.
-  for (const node of editor.getNodes()) {
-    if (!(node instanceof ForHeaderNode)) continue
-    if (namesByScope.get(finalScope(node.id))?.has(node.getBindingName())) return 'binding-conflict'
-  }
-  for (const node of editor.getNodes()) {
-    if (!(node instanceof VariableReferenceNode)) continue
-    const scope = finalScope(node.id)
-    const valueDefinition = editor.getNodes().find((candidate) =>
-      ((isValueBindingNode(candidate) && candidate.getBindingId() === node.bindingId)
-        || (candidate instanceof ForHeaderNode && candidate.bindingId === node.bindingId))
-        && finalScope(candidate.id) === scope,
-    )
-    const parameterDefinition = scope === null ? undefined : registry.get(scope)?.parameters?.find((parameter) => parameter.id === node.bindingId)
-    if (!valueDefinition && !parameterDefinition) return 'variable-reference'
-  }
+  // Every scope's naming rules on the hypothetical final assignment. Name
+  // conflicts anywhere take precedence over unresolved references.
+  const problems = [null, ...registry.list().map((definition) => definition.id)].flatMap((scope) => {
+    const parameters = scope === null ? [] : registry.get(scope)?.parameters ?? []
+    const problem = scopeBindingProblem(liveBindingRecords(editor, finalScope, scope), parameters)
+    return problem ? [problem] : []
+  })
+  if (problems.some((problem) => problem.code !== 'missing-reference')) return 'binding-conflict'
+  if (problems.length > 0) return 'variable-reference'
   return editor.getConnections().some((connection) =>
     (moved.has(connection.source) || moved.has(connection.target)) && finalScope(connection.source) !== finalScope(connection.target),
   ) ? 'connection' : null

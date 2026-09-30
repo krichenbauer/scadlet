@@ -1,8 +1,9 @@
 import { findCatalogEntry, FUNCTION_GRAPH_ALLOWED_NODE_TYPES } from '../editor/node-catalog'
 import { firstDataflowCycle } from '../editor/dataflow-cycle'
 import { loopStructureProblem } from '../editor/for-validation'
-import { isBoundValueRecord, isValueType, valueNodeType, type ValueType } from '../editor/value-types'
-import { defaultModuleGeometryInput, isOpenSCADIdentifier, moduleGeometryInputPortId, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterPortId, moduleParameterNameProblem, type FunctionResultType, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterType } from '../editor/definitions'
+import { enclosingBindingNames, scopeBindingProblem, scopeBindings, type ScopeBindingProblem } from '../editor/scope-bindings'
+import { isBoundValueRecord, isValueType, type ValueType } from '../editor/value-types'
+import { defaultModuleGeometryInput, moduleGeometryInputPortId, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterPortId, moduleParameterNameProblem, type FunctionResultType, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterType } from '../editor/definitions'
 import {
   SCADLET_FORMAT,
   SCADLET_VERSION,
@@ -434,12 +435,7 @@ function validateGraph(raw: unknown, graphKind: GraphKind, definition?: Definiti
   if (hasVariableBindingCycle(nodes, connections)) {
     throw new ScadletProjectError('Variable bindings contain a circular dependency.')
   }
-  const enclosingBindingNames = new Set<string>([
-    ...(definition?.parameters ?? []).map((parameter) => parameter.name),
-    ...nodes.filter(isBoundValueRecord)
-      .map((node) => String(node.parameters.name)),
-  ])
-  const loopProblem = loopStructureProblem(nodes, connections, enclosingBindingNames)
+  const loopProblem = loopStructureProblem(nodes, connections, new Set(enclosingBindingNames(scopeBindings(nodes, definition?.parameters ?? []))))
   if (loopProblem) throw new ScadletProjectError(loopProblem.message)
   for (const header of nodes.filter((node) => node.type === 'for')) {
     const connectedStep = connections.some((connection) => connection.target === header.id && connection.targetInput === 'step')
@@ -470,43 +466,23 @@ function validateGraph(raw: unknown, graphKind: GraphKind, definition?: Definiti
   return { nodes, connections }
 }
 
+/** Applies the shared scope naming rules (`scopeBindingProblem`) with the
+ * file format's error messages and returns the binding id → type table. */
 function validateScopeBindings(nodes: readonly ScadletNodeDTO[], parameters: readonly ModuleParameter[]): Map<string, ModuleParameterType> {
-  const bindings = new Map<string, ModuleParameterType>()
-  const names = new Set(parameters.map((parameter) => parameter.name))
-  for (const parameter of parameters) bindings.set(parameter.id, parameter.type)
-  for (const node of nodes) {
-    const valueType = valueNodeType(node.type)
-    if (!valueType) continue
-    const bindingId = node.parameters.bindingId
-    if (bindingId === undefined) continue
-    const name = node.parameters.name
-    if (typeof bindingId !== 'string' || !bindingId || typeof name !== 'string' || !isOpenSCADIdentifier(name)) {
-      throw new ScadletProjectError(`Value node "${node.id}" has an invalid variable binding.`)
-    }
-    if (bindings.has(bindingId)) throw new ScadletProjectError(`Duplicate variable binding id "${bindingId}" in one scope.`)
-    if (names.has(name)) throw new ScadletProjectError(`Duplicate binding name "${name}" in one scope.`)
-    bindings.set(bindingId, valueType)
-    names.add(name)
+  const problem = scopeBindingProblem(nodes, parameters)
+  if (problem) throw new ScadletProjectError(scopeBindingProblemMessage(problem))
+  return new Map(scopeBindings(nodes, parameters).map((binding) => [binding.id, binding.type]))
+}
+
+function scopeBindingProblemMessage(problem: ScopeBindingProblem): string {
+  switch (problem.code) {
+    case 'invalid-value': return `Value node "${problem.nodeId}" has an invalid variable binding.`
+    case 'duplicate-id': return `Duplicate variable binding id "${problem.bindingId}" in one scope.`
+    case 'duplicate-name': return `Duplicate binding name "${problem.name}" in one scope.`
+    case 'invalid-iterator': return `For header "${problem.nodeId}" has an invalid iterator binding.`
+    case 'iterator-name': return `For iterator "${problem.name}" collides with a binding visible from its enclosing scope.`
+    case 'missing-reference': return `Variable reference node "${problem.nodeId}" has a missing, stale, or cross-scope binding "${problem.bindingId}".`
   }
-  for (const node of nodes) {
-    if (node.type !== 'for') continue
-    const bindingId = node.parameters.bindingId
-    const name = node.parameters.name
-    if (typeof bindingId !== 'string' || !bindingId || typeof name !== 'string' || !isOpenSCADIdentifier(name)) {
-      throw new ScadletProjectError(`For header "${node.id}" has an invalid iterator binding.`)
-    }
-    if (bindings.has(bindingId)) throw new ScadletProjectError(`Duplicate variable binding id "${bindingId}" in one scope.`)
-    if (names.has(name)) throw new ScadletProjectError(`For iterator "${name}" collides with a binding visible from its enclosing scope.`)
-    bindings.set(bindingId, 'number')
-  }
-  for (const node of nodes) {
-    if (node.type !== 'variable-reference') continue
-    const bindingId = String(node.parameters.bindingId)
-    if (!bindings.has(bindingId)) {
-      throw new ScadletProjectError(`Variable reference node "${node.id}" has a missing, stale, or cross-scope binding "${bindingId}".`)
-    }
-  }
-  return bindings
 }
 
 function hasVariableBindingCycle(nodes: readonly ScadletNodeDTO[], connections: readonly ScadletConnectionDTO[]): boolean {
