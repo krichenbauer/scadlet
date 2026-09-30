@@ -1,5 +1,6 @@
 import type { Position } from './coordinates'
 import type { NodeTypeId } from './node-catalog'
+import { isValueType } from './value-types'
 
 export type GraphClipboardCommand = 'copy' | 'cut' | 'paste' | 'duplicate'
 
@@ -148,7 +149,7 @@ export function planGraphClipboardPaste(
     if (snapshot.type === 'for') {
       if (typeof parameters.bindingId === 'string') bindingIds.set(parameters.bindingId, id())
       if (typeof parameters.pairId === 'string') pairIds.set(parameters.pairId, id())
-    } else if (['number', 'boolean', 'vector3'].includes(snapshot.type) && typeof parameters.bindingId === 'string') {
+    } else if (isValueType(snapshot.type) && typeof parameters.bindingId === 'string') {
       bindingIds.set(parameters.bindingId, id())
     }
   }
@@ -162,7 +163,7 @@ export function planGraphClipboardPaste(
       if (typeof parameters.pairId === 'string') parameters.pairId = pairIds.get(parameters.pairId)!
     } else if (snapshot.type === 'variable-reference' && typeof parameters.bindingId === 'string') {
       parameters.bindingId = bindingIds.get(parameters.bindingId) ?? parameters.bindingId
-    } else if (['number', 'boolean', 'vector3'].includes(snapshot.type) && typeof parameters.bindingId === 'string') {
+    } else if (isValueType(snapshot.type) && typeof parameters.bindingId === 'string') {
       parameters.bindingId = bindingIds.get(parameters.bindingId)!
       if (typeof parameters.name === 'string') {
         const copiedName = nextCopiedBindingName(parameters.name, usedNames)

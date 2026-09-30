@@ -17,7 +17,7 @@ import type { AreaExtra, Schemes } from './schemes'
 import { attachNodeSelection } from './selection'
 import { BooleanOpNode } from './nodes/boolean-op-node'
 import { canStartConnectionGesture, ConnectionGestureManager, type ConnectionGestureOrigin } from './connection-gesture'
-import { socketType } from './sockets'
+import { hasMainGeometryOutput, socketType } from './sockets'
 import { guardPortRemoval, hasConnectedInputs, removeInputSafely, removeOutputSafely } from './port-lifecycle'
 import { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData, wouldCreateNodeDataflowCycle } from './connection-compatibility'
@@ -38,6 +38,7 @@ import { VARIABLE_REFERENCE_DRAG_MIME_TYPE } from './node-catalog'
 import { ForHeaderNode, ForResultNode, createDefaultForParams } from './nodes/for-nodes'
 import { loopProblemFeedback, loopStructureProblem, type LoopStructureProblem } from './for-validation'
 import { liveScopeSnapshot, upstreamNodeIds } from './scope-snapshot'
+import { isBoundValueRecord, isValueType, valueNodeType } from './value-types'
 import {
   cloneGraphClipboardPayload,
   graphClipboardCommandForKey,
@@ -487,7 +488,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     })
     const enclosingNames = new Set<string>([
       ...(scope ? definitions.get(scope)?.parameters?.map((parameter) => parameter.name) ?? [] : []),
-      ...nodes.filter((node) => (node.type === 'number' || node.type === 'boolean' || node.type === 'vector3') && typeof node.parameters.bindingId === 'string')
+      ...nodes.filter(isBoundValueRecord)
         .map((node) => String(node.parameters.name)),
     ])
     const problem = loopStructureProblem(nodes, connections, enclosingNames)
@@ -1113,15 +1114,14 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
 
   function plannedBindingResolution(plan: GraphClipboardPastePlan, bindingId: string): VariableBindingResolution | undefined {
     const definition = plan.nodes.find((node) =>
-      (node.type === 'for' || ['number', 'boolean', 'vector3'].includes(node.type))
+      (node.type === 'for' || isValueType(node.type))
         && node.parameters.bindingId === bindingId,
     )
     if (!definition || typeof definition.parameters.name !== 'string') return undefined
     return {
       id: bindingId,
       name: definition.parameters.name,
-      type: definition.type === 'for' || definition.type === 'number' ? 'number'
-        : definition.type === 'boolean' ? 'boolean' : 'vector3',
+      type: definition.type === 'for' ? 'number' : valueNodeType(definition.type)!,
     }
   }
 
@@ -1608,7 +1608,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     }
     const nameProblem = moduleParameterNameProblem(next.name, reservedBindingNamesInScope(editor, definitions, definitionId, parameterId))
     if (nameProblem) throw new Error(nameProblem === 'duplicate' ? t('definition.duplicateParameter') : t('definition.invalidParameter'))
-    if (!['number', 'boolean', 'vector3'].includes(next.type) || !moduleParameterDefaultIsValid(next.type, next.default)) throw new Error(t('definition.invalidParameterDefault'))
+    if (!isValueType(next.type) || !moduleParameterDefaultIsValid(next.type, next.default)) throw new Error(t('definition.invalidParameterDefault'))
     const doomed = typeChanged ? signatureConnections(definition, parameterId) : []
     if (doomed.length > 0 && !window.confirm(t('definition.confirmTypeChange').replace('{name}', previous.name).replace('{count}', String(doomed.length)))) return false
     if (doomed.length > 0) {
@@ -1841,7 +1841,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     }
     const nameProblem = moduleParameterNameProblem(next.name, reservedBindingNamesInScope(editor, definitions, definitionId, parameterId))
     if (nameProblem) throw new Error(nameProblem === 'duplicate' ? t('definition.duplicateFunctionParameter') : t('definition.invalidParameter'))
-    if (!['number', 'boolean', 'vector3'].includes(next.type) || !moduleParameterDefaultIsValid(next.type, next.default)) throw new Error(t('definition.invalidParameterDefault'))
+    if (!isValueType(next.type) || !moduleParameterDefaultIsValid(next.type, next.default)) throw new Error(t('definition.invalidParameterDefault'))
     const doomed = typeChanged ? functionSignatureConnections(definition, parameterId) : []
     if (doomed.length > 0 && !window.confirm(t('definition.confirmTypeChange').replace('{name}', previous.name).replace('{count}', String(doomed.length)))) return false
     if (doomed.length > 0) {
@@ -1978,7 +1978,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     if (!definition || definition.kind !== 'function') return false
     const sourceSocket = editor.getNode(data.source)?.outputs[data.sourceOutput]?.socket
     const newType = socketType(sourceSocket)
-    if (newType !== 'number' && newType !== 'boolean' && newType !== 'vector3') return false
+    if (!isValueType(newType)) return false
     const previousType = definition.resultType
     const oldResultConnections = editor.getConnections().filter((item) => item.target === data.target && item.targetInput === 'result')
     const plan = previousType !== newType
@@ -2023,7 +2023,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     const conditional = editor.getNode(data.target)
     if (!(conditional instanceof ConditionalNode) || (data.targetInput !== 'true' && data.targetInput !== 'false')) return false
     const nextType = socketType(editor.getNode(data.source)?.outputs[data.sourceOutput]?.socket)
-    if (nextType !== 'number' && nextType !== 'boolean' && nextType !== 'vector3') return false
+    if (!isValueType(nextType)) return false
     const previousType = conditional.getValueType()
     const replacing = editor.getConnections().filter((item) => item.target === data.target && item.targetInput === data.targetInput)
     const doomed = new Map<string, Schemes['Connection']>()
@@ -2926,7 +2926,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
         .filter((edge) => mainIds.has(edge.source) && mainIds.has(edge.target))
         .map((edge) => edge.source))
       const roots = editor.getNodes()
-        .filter((node) => mainIds.has(node.id) && !consumed.has(node.id) && Boolean(node.outputs.geometry))
+        .filter((node) => mainIds.has(node.id) && !consumed.has(node.id) && hasMainGeometryOutput(node.outputs))
         .map((node) => node.id)
       return dependsOnBodylessResult(roots)
     },
@@ -2935,7 +2935,7 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     commitValueInspect: (nodeId, value) => inspect.commitValue(nodeId, value),
     clearInspect: () => inspect.clear(),
     getInspectedNodeId: () => inspect.id,
-    isGeometryNode: (nodeId) => Boolean(editor.getNode(nodeId)?.outputs.geometry),
+    isGeometryNode: (nodeId) => { const node = editor.getNode(nodeId); return Boolean(node && hasMainGeometryOutput(node.outputs)) },
     getInspectParticipatingNodeIds: () => inspectParticipatingNodeIds(editor, inspect.id),
     removeInputSafely: (nodeId, inputKey) => removeInputSafely(editor, nodeId, inputKey),
     removeOutputSafely: (nodeId, outputKey) => removeOutputSafely(editor, nodeId, outputKey),

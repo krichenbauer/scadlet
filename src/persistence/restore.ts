@@ -8,6 +8,7 @@ import type { ModuleDefinition } from '../editor/definitions'
 import { ModuleInputsNode } from '../editor/nodes/module-interface-nodes'
 import { FunctionInputsNode, FunctionOutputNode } from '../editor/nodes/function-interface-nodes'
 import type { VariableBindingResolution } from '../editor/nodes/variable-reference-node'
+import { valueNodeType } from '../editor/value-types'
 import type { ScadletProjectV1, ScadletViewerCamera } from './project'
 
 /** Removes every node (and, transitively, every connection) currently in `editor`, one at a time, so per-node cleanup (presentation/inspect state - see `editor/editor.ts`'s `noderemoved` pipe) runs for each. */
@@ -132,9 +133,10 @@ function prepareRestorePlan(project: ScadletProjectV1, deps: RestoreProjectDeps)
     const bindings = new Map<string, VariableBindingResolution>()
     for (const parameter of definition?.parameters ?? []) bindings.set(parameter.id, { id: parameter.id, name: parameter.name, type: parameter.type })
     for (const node of graphNodes) {
-      if ((node.type !== 'number' && node.type !== 'boolean' && node.type !== 'vector3') || typeof node.parameters.bindingId !== 'string') continue
+      const valueType = valueNodeType(node.type)
+      if (!valueType || typeof node.parameters.bindingId !== 'string') continue
       const id = node.parameters.bindingId
-      bindings.set(id, { id, name: String(node.parameters.name), type: node.type })
+      bindings.set(id, { id, name: String(node.parameters.name), type: valueType })
     }
     for (const node of graphNodes) {
       if (node.type !== 'for' || typeof node.parameters.bindingId !== 'string') continue

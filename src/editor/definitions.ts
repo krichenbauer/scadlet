@@ -1,9 +1,10 @@
 import type { NodeEditor } from 'rete'
 
 import type { Schemes } from './schemes'
+import { isValueType, type ValueType } from './value-types'
 
 export type DefinitionKind = 'module' | 'function'
-export type ModuleParameterType = 'number' | 'boolean' | 'vector3'
+export type ModuleParameterType = ValueType
 export type ModuleParameterDefault = number | boolean | [number, number, number]
 /** A Function's result type is drawn from the same closed value vocabulary
  * as a parameter's type. Kept as a distinct alias for readability at
@@ -238,7 +239,7 @@ export function validateModuleParameters(parameters: readonly ModuleParameter[])
     ids.add(parameter.id)
     if (moduleParameterNameProblem(parameter.name, names) !== null) throw new Error(`Invalid or duplicate Module parameter name "${parameter.name}".`)
     names.add(parameter.name)
-    if (!['number', 'boolean', 'vector3'].includes(parameter.type)) throw new Error(`Unsupported Module parameter type "${String(parameter.type)}".`)
+    if (!isValueType(parameter.type)) throw new Error(`Unsupported Module parameter type "${String(parameter.type)}".`)
     if (!moduleParameterDefaultIsValid(parameter.type, parameter.default)) throw new Error(`Invalid default for Module parameter "${parameter.name}".`)
   }
 }

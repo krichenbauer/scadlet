@@ -2,6 +2,7 @@ import type { NodeEditor } from 'rete'
 
 import type { Schemes } from './schemes'
 import { areSocketTypesCompatible, socketType } from './sockets'
+import { isValueType } from './value-types'
 import { definitionScopeOf, shareDefinitionScope } from './definitions'
 import { FunctionOutputNode } from './nodes/function-interface-nodes'
 import { ConditionalNode } from './nodes/value-nodes'
@@ -34,7 +35,7 @@ export function canConnectSocketData(
   }
   if (targetNode instanceof FunctionOutputNode && targetData.key === 'result') {
     const type = socketType(sourceSocket)
-    return type === 'number' || type === 'boolean' || type === 'vector3'
+    return isValueType(type)
   }
   // Conditional branch ports are another deliberately narrow transition
   // boundary. They accept a supported value source while the editor
@@ -42,7 +43,7 @@ export function canConnectSocketData(
   // Boolean-only compatibility.
   if (targetNode instanceof ConditionalNode && (targetData.key === 'true' || targetData.key === 'false')) {
     const type = socketType(sourceSocket)
-    return type === 'number' || type === 'boolean' || type === 'vector3'
+    return isValueType(type)
   }
   const targetSocket = targetNode?.inputs[targetData.key]?.socket
   return areSocketTypesCompatible(sourceSocket, targetSocket)

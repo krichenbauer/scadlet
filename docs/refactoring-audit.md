@@ -878,6 +878,11 @@ Geometry-input operations, which are reached only through the internal
   output under a `geometry:<id>` key) is classified identically by all
   helpers, recording the current difference first.
 - **Depends on:** none.
+- **Status:** done (section 9.7). The two Geometry questions are kept apart
+  on purpose: styling asks whether a node has *any* Geometry output
+  (`hasGeometryOutput`); Main roots and Inspect ask for the *main* Geometry
+  output they evaluate (`hasMainGeometryOutput`). Both now check the socket
+  type, and each lives in one place.
 
 ### RF-18 — Dead, obsolete, and stale items
 
@@ -984,7 +989,7 @@ contract. Characterization tests pin current behaviour everywhere else.
 | 6 | Single scope binding authority (D-2 already fixed, section 9) | RF-03 | `scope-bindings.ts`, `bindings.ts`, `scope-transfer.ts`, `validate.ts`, `restore.ts`, `editor.ts` | Binding verdict matrix (RF-03) | Fixture corpus parses identically |
 | 7 | **Done** (section 9): validate before file save; refuse zero Step live | RF-11 | `file-service.ts`, `for-nodes.ts`, `for-validation.ts`, `validate.ts` | D-3 unit and E2E | `file-service.test.ts` |
 | 8 | **(optional, low priority)** Route all emitters through `formatNumber` | RF-10 | `openscad/format.ts`, emitters | Literal snapshot (RF-10) | Real OpenSCAD-WASM render E2E |
-| 9 | Value-type constants and `producesGeometry` helper | RF-17 | `sockets.ts`, `definitions.ts`, `evaluate.ts`, `editor.ts`, `render.ts` | RF-17 classification test | — |
+| 9 | **Done** (section 9.7): value-type constants and a socket-typed main-Geometry helper | RF-17 | `sockets.ts`, `definitions.ts`, `evaluate.ts`, `editor.ts`, `render.ts` | RF-17 classification test | — |
 | 10 | Catalog entry factories, derived predicates, context spread | RF-09 | `node-catalog.ts`, `graph-clipboard.ts` | WP 4 parity test | `round-trip.test.ts` |
 | 11 | `validate.ts` internal consolidation | RF-12 | `validate.ts` | Fixture corpus test | `docs-examples.test.ts` |
 
@@ -1457,4 +1462,60 @@ and all messages and pipe order are unchanged.
 | `pnpm exec tsc --noEmit` | Pass. Exit 0 |
 | `pnpm build` | Pass. Exit 0, same chunk-size warning as the baseline |
 | `pnpm test:e2e` | Pass. 118 passed in 37.9 s |
+| `git diff --check` | Pass. Exit 0 |
+
+### 9.7 One definition of the value types (RF-17, WP 9)
+
+A behaviour-preserving refactoring made on 2026-09-30, as preparation for
+List and String values (roadmap item 1).
+
+**Changes:**
+
+- **New [value-types.ts](../src/editor/value-types.ts):**
+  - `VALUE_TYPES`, the `ValueType` type, and the `isValueType` guard;
+  - `valueTypeSocket` (value type → socket);
+  - `valueNodeType` (Value node type → value type);
+  - `isBoundValueRecord` (a node record that is a Value with a binding).
+- **`ModuleParameterType` and `ConditionalValueType`** are now aliases of
+  `ValueType`, so every existing type name keeps working.
+- **Every inline list, mapping, and type annotation** (about 40 occurrences in
+  16 files) now uses these, including:
+  - the connection rules and editor transitions;
+  - the Call, interface, reference, and Conditional nodes;
+  - the parameter form (a `Record<ValueType, …>`, so a new type cannot be
+    forgotten there);
+  - validation, restore, the clipboard, and the loop checks.
+- **[sockets.ts](../src/editor/sockets.ts):**
+  - `isConnectableSocketType` replaces the snap allow-list in `render.ts`;
+  - `hasMainGeometryOutput` replaces the four `outputs.geometry` key checks
+    (Main roots in `evaluate.ts` and `isBodylessForResultRoot`,
+    `evaluateInspectNode`, and `isGeometryNode`). The check is now typed by
+    socket.
+
+**Decision on the Geometry edge case:** a Module Inputs node exposes Geometry
+only as dynamic `geometry:<id>` outputs. Styling marks it as Geometry, but it
+has no main Geometry output for Inspect to evaluate. Switching Inspect to the
+broader styling rule would have turned "nothing to inspect" into an empty
+render that clears the viewer. So the main-output rule is kept deliberately,
+and is now named and typed instead of relying on a port name. Behaviour is
+unchanged.
+
+**Tests:**
+
+- `src/editor/main-geometry-output.test.ts` was added before the change and
+  passed on the old code. It pins Inspect of a Cube (Geometry), a Number
+  (value), and Module Inputs ("missing").
+- `src/editor/value-types.test.ts` covers the vocabulary, sockets, the
+  Value-node mapping, bound-record detection, connectable socket types, and
+  that a lookalike `geometry` port with another socket type does not count.
+- No existing test changed.
+
+**Verification** (same environment as section 8):
+
+| Check | Result |
+| --- | --- |
+| `pnpm test` | Pass. 85 files, 730 tests passed |
+| `pnpm exec tsc --noEmit` | Pass. Exit 0 |
+| `pnpm build` | Pass. Exit 0, same chunk-size warning as the baseline |
+| `pnpm test:e2e` | Pass. 118 passed in 37.2 s |
 | `git diff --check` | Pass. Exit 0 |

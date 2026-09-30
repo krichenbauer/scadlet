@@ -43,6 +43,22 @@ export function socketType(socket: ClassicPreset.Socket | undefined): SocketType
   }
 }
 
+/** Socket types an ordinary connection can use; `structure` is the fixed
+ * For boundary and never a connection target or source. */
+export function isConnectableSocketType(type: string | undefined): type is Exclude<SocketType, 'structure'> {
+  return type === 'geometry' || type === 'number' || type === 'vector3' || type === 'boolean'
+}
+
+/**
+ * Whether a node has the conventional main Geometry output - the one Main
+ * source roots and Inspect evaluate. It is typed by socket, so a lookalike
+ * port cannot qualify. Dynamic `geometry:<id>` outputs (Module Inputs) are
+ * not a main output; styling uses the broader `hasGeometryOutput`.
+ */
+export function hasMainGeometryOutput(outputs: Readonly<Record<string, { socket?: ClassicPreset.Socket } | undefined>>): boolean {
+  return outputs.geometry?.socket === geometrySocket
+}
+
 export function areSocketTypesCompatible(
   source: ClassicPreset.Socket | undefined,
   target: ClassicPreset.Socket | undefined,

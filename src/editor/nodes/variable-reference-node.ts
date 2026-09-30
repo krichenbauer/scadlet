@@ -2,7 +2,8 @@ import { ClassicPreset } from 'rete'
 import type { DataflowNode } from 'rete-engine'
 
 import { t } from '../../i18n/translate'
-import { booleanSocket, numberSocket, vector3Socket, type BooleanValue, type NumberValue, type Vector3Value } from '../sockets'
+import { type BooleanValue, type NumberValue, type Vector3Value } from '../sockets'
+import { valueTypeSocket } from '../value-types'
 import type { ModuleParameterType } from '../definitions'
 
 export interface VariableReferenceParams {
@@ -27,7 +28,7 @@ export function validateVariableReferenceParams(value: unknown): VariableReferen
 }
 
 function socketForType(type: ModuleParameterType): ClassicPreset.Socket {
-  return type === 'number' ? numberSocket : type === 'boolean' ? booleanSocket : vector3Socket
+  return valueTypeSocket(type)
 }
 
 /** A compact, read-only use of one same-scope binding. The stable binding id

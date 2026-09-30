@@ -3,7 +3,8 @@ import type { DataflowNode } from 'rete-engine'
 
 import { t } from '../../i18n/translate'
 import { ModuleGeometryInputAddControl, ModuleGeometryInputEditControl, ModuleParameterAddControl, ModuleParameterEditControl, ParameterActionsControl, type ParameterAction, type RemovableRow } from '../controls'
-import { booleanSocket, geometrySocket, numberSocket, vector3Socket, type BooleanValue, type GeometryValue, type NumberValue, type Vector3Value } from '../sockets'
+import { geometrySocket, type BooleanValue, type GeometryValue, type NumberValue, type Vector3Value } from '../sockets'
+import { valueTypeSocket, type ValueType } from '../value-types'
 import { moduleGeometryInputPortId, moduleParameterPortId, type ModuleGeometryInput, type ModuleParameter } from '../definitions'
 
 /** The fixed parameter interface of a Module definition. Phase 1 has no
@@ -85,7 +86,7 @@ export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, 
     if (index >= 0) this.controls.editGeometryInput.openInput(this.geometryInputs[index]!, index)
   }
 
-  configureParameterEditing(onChange: () => void, onSubmit: (id: string, value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => boolean | void | Promise<boolean | void>, onDelete: (id: string) => boolean | Promise<boolean>, onMove: (id: string, direction: -1 | 1) => void | Promise<void>): void {
+  configureParameterEditing(onChange: () => void, onSubmit: (id: string, value: { name: string; type: ValueType; default: number | boolean | [number, number, number] }) => boolean | void | Promise<boolean | void>, onDelete: (id: string) => boolean | Promise<boolean>, onMove: (id: string, direction: -1 | 1) => void | Promise<void>): void {
     const control = this.controls.editParameter
     control.onChange = onChange
     control.onSubmit = (value) => control.parameterId ? onSubmit(control.parameterId, value) : undefined
@@ -97,7 +98,7 @@ export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, 
     if (index >= 0) this.controls.editParameter.openParameter(this.parameters[index], index)
   }
 
-  configureParameterCreation(onChange: () => void, onSubmit: (value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => void | Promise<void>): void {
+  configureParameterCreation(onChange: () => void, onSubmit: (value: { name: string; type: ValueType; default: number | boolean | [number, number, number] }) => void | Promise<void>): void {
     const control = this.controls.addParameter
     control.onChange = onChange
     control.onSubmit = onSubmit
@@ -135,7 +136,7 @@ export class ModuleInputsNode extends ClassicPreset.Node<Record<string, never>, 
       if (!this.outputs[key]) this.addOutput(key, new ClassicPreset.Output(geometrySocket, input.name))
     }
     for (const parameter of this.parameters) {
-      const socket = parameter.type === 'number' ? numberSocket : parameter.type === 'boolean' ? booleanSocket : vector3Socket
+      const socket = valueTypeSocket(parameter.type)
       const key = moduleParameterPortId(parameter.id)
       if (!this.outputs[key]) this.addOutput(key, new ClassicPreset.Output(socket, parameter.name))
     }

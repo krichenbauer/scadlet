@@ -3,8 +3,9 @@ import type { DataflowNode } from 'rete-engine'
 
 import { t } from '../../i18n/translate'
 import { ModuleParameterAddControl, ModuleParameterEditControl, ParameterActionsControl, type ParameterAction, type RemovableRow } from '../controls'
-import { booleanSocket, numberSocket, unresolvedSocket, vector3Socket, type BooleanValue, type NumberValue, type Vector3Value } from '../sockets'
+import { unresolvedSocket, type BooleanValue, type NumberValue, type Vector3Value } from '../sockets'
 import { moduleParameterPortId, type FunctionResultType, type ModuleParameter } from '../definitions'
+import { valueTypeSocket, type ValueType } from '../value-types'
 
 /** The parameter interface of a Function definition. It intentionally has
  * no Geometry inputs and reuses the exact same stable-id/add/edit
@@ -48,7 +49,7 @@ export class FunctionInputsNode extends ClassicPreset.Node<Record<string, never>
     }))
   }
 
-  configureParameterEditing(onChange: () => void, onSubmit: (id: string, value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => boolean | void | Promise<boolean | void>, onDelete: (id: string) => boolean | Promise<boolean>, onMove: (id: string, direction: -1 | 1) => void | Promise<void>): void {
+  configureParameterEditing(onChange: () => void, onSubmit: (id: string, value: { name: string; type: ValueType; default: number | boolean | [number, number, number] }) => boolean | void | Promise<boolean | void>, onDelete: (id: string) => boolean | Promise<boolean>, onMove: (id: string, direction: -1 | 1) => void | Promise<void>): void {
     const control = this.controls.editParameter
     control.onChange = onChange
     control.onSubmit = (value) => control.parameterId ? onSubmit(control.parameterId, value) : undefined
@@ -60,7 +61,7 @@ export class FunctionInputsNode extends ClassicPreset.Node<Record<string, never>
     if (index >= 0) this.controls.editParameter.openParameter(this.parameters[index], index)
   }
 
-  configureParameterCreation(onChange: () => void, onSubmit: (value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => void | Promise<void>): void {
+  configureParameterCreation(onChange: () => void, onSubmit: (value: { name: string; type: ValueType; default: number | boolean | [number, number, number] }) => void | Promise<void>): void {
     const control = this.controls.addParameter
     control.onChange = onChange
     control.onSubmit = onSubmit
@@ -69,7 +70,7 @@ export class FunctionInputsNode extends ClassicPreset.Node<Record<string, never>
   syncSignature(parameters: readonly ModuleParameter[]): void {
     const next = new Map(parameters.map((parameter) => [moduleParameterPortId(parameter.id), parameter]))
     for (const key of Object.keys(this.outputs)) {
-      if (!next.has(key) || this.outputs[key]?.socket.name !== socketName(next.get(key)!)) this.removeOutput(key)
+      if (!next.has(key) || this.outputs[key]?.socket !== valueTypeSocket(next.get(key)!.type)) this.removeOutput(key)
     }
     this.parameters = parameters
     this.materializeOutputs()
@@ -82,7 +83,7 @@ export class FunctionInputsNode extends ClassicPreset.Node<Record<string, never>
   private materializeOutputs(): void {
     for (const parameter of this.parameters) {
       const key = moduleParameterPortId(parameter.id)
-      if (!this.outputs[key]) this.addOutput(key, new ClassicPreset.Output(socketName(parameter) === 'number' ? numberSocket : socketName(parameter) === 'boolean' ? booleanSocket : vector3Socket, parameter.name))
+      if (!this.outputs[key]) this.addOutput(key, new ClassicPreset.Output(valueTypeSocket(parameter.type), parameter.name))
     }
   }
 
@@ -90,8 +91,6 @@ export class FunctionInputsNode extends ClassicPreset.Node<Record<string, never>
     return Object.fromEntries(this.parameters.map((parameter) => [moduleParameterPortId(parameter.id), { code: parameter.name }]))
   }
 }
-
-function socketName(parameter: ModuleParameter): string { return parameter.type }
 
 /** SCADlet's explicit single-expression sink for a Function definition. Its
  * one input starts as a neutral/grey `unresolvedSocket`; connecting a
@@ -119,5 +118,5 @@ export class FunctionOutputNode extends ClassicPreset.Node<{ result: ClassicPres
 }
 
 export function socketForType(type: FunctionResultType | undefined): ClassicPreset.Socket {
-  return type === 'number' ? numberSocket : type === 'boolean' ? booleanSocket : type === 'vector3' ? vector3Socket : unresolvedSocket
+  return type ? valueTypeSocket(type) : unresolvedSocket
 }

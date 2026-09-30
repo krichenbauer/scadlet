@@ -1,5 +1,6 @@
 import { findCatalogEntry } from './node-catalog'
 import { t } from '../i18n/translate'
+import { isBoundValueRecord } from './value-types'
 
 export interface LoopGraphNode {
   id: string
@@ -186,7 +187,7 @@ export function loopStructureProblem(
         const target = nodeById.get(edge.target)
         if (!target) { escaped = true; return }
         const scopeRoot = target.type === 'scad-settings'
-          || (['number', 'boolean', 'vector3'].includes(target.type) && typeof target.parameters.bindingId === 'string')
+          || isBoundValueRecord(target)
         if (scopeRoot) { escaped = true; return }
         visit(target.id)
         if (target.type === 'for' && ['start', 'step', 'end'].includes(edge.targetInput)) {

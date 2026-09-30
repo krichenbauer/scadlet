@@ -1,6 +1,7 @@
 import { findCatalogEntry, FUNCTION_GRAPH_ALLOWED_NODE_TYPES } from '../editor/node-catalog'
 import { firstDataflowCycle } from '../editor/dataflow-cycle'
 import { loopStructureProblem } from '../editor/for-validation'
+import { isBoundValueRecord, isValueType, valueNodeType, type ValueType } from '../editor/value-types'
 import { defaultModuleGeometryInput, isOpenSCADIdentifier, moduleGeometryInputPortId, moduleNameProblem, moduleParameterDefaultIsValid, moduleParameterPortId, moduleParameterNameProblem, type FunctionResultType, type ModuleGeometryInput, type ModuleParameter, type ModuleParameterType } from '../editor/definitions'
 import {
   SCADLET_FORMAT,
@@ -435,7 +436,7 @@ function validateGraph(raw: unknown, graphKind: GraphKind, definition?: Definiti
   }
   const enclosingBindingNames = new Set<string>([
     ...(definition?.parameters ?? []).map((parameter) => parameter.name),
-    ...nodes.filter((node) => (node.type === 'number' || node.type === 'boolean' || node.type === 'vector3') && typeof node.parameters.bindingId === 'string')
+    ...nodes.filter(isBoundValueRecord)
       .map((node) => String(node.parameters.name)),
   ])
   const loopProblem = loopStructureProblem(nodes, connections, enclosingBindingNames)
@@ -474,7 +475,8 @@ function validateScopeBindings(nodes: readonly ScadletNodeDTO[], parameters: rea
   const names = new Set(parameters.map((parameter) => parameter.name))
   for (const parameter of parameters) bindings.set(parameter.id, parameter.type)
   for (const node of nodes) {
-    if (node.type !== 'number' && node.type !== 'boolean' && node.type !== 'vector3') continue
+    const valueType = valueNodeType(node.type)
+    if (!valueType) continue
     const bindingId = node.parameters.bindingId
     if (bindingId === undefined) continue
     const name = node.parameters.name
@@ -483,7 +485,7 @@ function validateScopeBindings(nodes: readonly ScadletNodeDTO[], parameters: rea
     }
     if (bindings.has(bindingId)) throw new ScadletProjectError(`Duplicate variable binding id "${bindingId}" in one scope.`)
     if (names.has(name)) throw new ScadletProjectError(`Duplicate binding name "${name}" in one scope.`)
-    bindings.set(bindingId, node.type === 'number' ? 'number' : node.type === 'boolean' ? 'boolean' : 'vector3')
+    bindings.set(bindingId, valueType)
     names.add(name)
   }
   for (const node of nodes) {
@@ -509,7 +511,7 @@ function validateScopeBindings(nodes: readonly ScadletNodeDTO[], parameters: rea
 
 function hasVariableBindingCycle(nodes: readonly ScadletNodeDTO[], connections: readonly ScadletConnectionDTO[]): boolean {
   const bindingNodeById = new Map(nodes
-    .filter((node) => (node.type === 'number' || node.type === 'boolean' || node.type === 'vector3') && typeof node.parameters.bindingId === 'string')
+    .filter(isBoundValueRecord)
     .map((node) => [String(node.parameters.bindingId), node.id]))
   const incoming = new Map<string, string[]>()
   for (const edge of connections) incoming.set(edge.target, [...(incoming.get(edge.target) ?? []), edge.source])
@@ -564,7 +566,7 @@ function validateDefinitions(raw: unknown): ScadletDefinition[] {
     }
     let resultType: FunctionResultType | undefined
     if (item.resultType !== undefined) {
-      if (item.resultType !== 'number' && item.resultType !== 'boolean' && item.resultType !== 'vector3') {
+      if (!isValueType(item.resultType)) {
         throw new ScadletProjectError(`Function definition "${item.id}" has an invalid "resultType".`)
       }
       resultType = item.resultType
@@ -622,7 +624,7 @@ function validateDefinitions(raw: unknown): ScadletDefinition[] {
     const parameters = validateModuleParameters(item.parameters)
     let resultType: FunctionResultType | undefined
     if (item.resultType !== undefined) {
-      if (item.resultType !== 'number' && item.resultType !== 'boolean' && item.resultType !== 'vector3') {
+      if (!isValueType(item.resultType)) {
         throw new ScadletProjectError(`Function definition "${item.id}" has an invalid "resultType".`)
       }
       resultType = item.resultType
@@ -697,7 +699,7 @@ function validateModuleParameters(raw: unknown): ModuleParameter[] {
     ids.add(item.id)
     if (moduleParameterNameProblem(item.name, names) !== null) throw new ScadletProjectError(`Module parameter "${item.name}" has an invalid or duplicate name.`)
     names.add(item.name)
-    if (item.type !== 'number' && item.type !== 'boolean' && item.type !== 'vector3') throw new ScadletProjectError(`Module parameter "${item.name}" has an unsupported type.`)
+    if (!isValueType(item.type)) throw new ScadletProjectError(`Module parameter "${item.name}" has an unsupported type.`)
     const type = item.type as ModuleParameterType
     if (!moduleParameterDefaultIsValid(type, item.default)) throw new ScadletProjectError(`Module parameter "${item.name}" has an invalid default.`)
     return { id: item.id, name: item.name, type, default: item.default }
@@ -717,7 +719,7 @@ function validateModuleGeometryInputs(raw: unknown): ModuleGeometryInput[] {
   })
 }
 
-function parameterSocketType(parameters: readonly ModuleParameter[], port: string): 'number' | 'boolean' | 'vector3' | undefined {
+function parameterSocketType(parameters: readonly ModuleParameter[], port: string): ValueType | undefined {
   const parameter = parameters.find((item) => moduleParameterPortId(item.id) === port)
   return parameter?.type
 }

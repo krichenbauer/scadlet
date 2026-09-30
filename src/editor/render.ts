@@ -25,6 +25,8 @@ import type { ConnectionGestureManager } from './connection-gesture'
 import { nearestSnapTarget, type SnapCandidate } from './connection-gesture'
 import type { ConnectionSelectionManager } from './connection-selection'
 import { canConnectSocketData } from './connection-compatibility'
+import { isConnectableSocketType } from './sockets'
+import { VALUE_TYPES, type ValueType } from './value-types'
 import { hasGeometryOutput } from './geometry-accent'
 import { compactIconElement, type CompactIconName } from '../components/icons'
 import { identifyNodeType, nodeTypeIcon, VARIABLE_REFERENCE_DRAG_MIME_TYPE } from './node-catalog'
@@ -216,7 +218,7 @@ export function attachRenderer(
       const side = socket.dataset.socketSide
       const socketType = socket.dataset.socketType
       if (!nodeId || !socketKey || (side !== 'input' && side !== 'output') ||
-        (socketType !== 'geometry' && socketType !== 'number' && socketType !== 'vector3' && socketType !== 'boolean')) continue
+        !isConnectableSocketType(socketType)) continue
       if (nodeId === active.origin.nodeId && socketKey === active.origin.socketKey && side === active.origin.side) continue
       const endpoint: { nodeId: string; key: string; side: 'input' | 'output' } = { nodeId, key: socketKey, side }
       const rect = socket.getBoundingClientRect()
@@ -1546,12 +1548,14 @@ function renderParameterPopover(control: ModuleParameterAddControl): HTMLElement
   typeField.textContent = t('definition.parameterType')
   const type = document.createElement('select')
   type.setAttribute('aria-label', t('definition.parameterType'))
-  const types = [
-    ['number', t('definition.parameterTypeNumber')],
-    ['boolean', t('definition.parameterTypeBoolean')],
-    ['vector3', t('definition.parameterTypeVector3')],
-  ] as const
-  for (const [value, label] of types) {
+  // Keyed by every value type, so a new type cannot be left out of this form.
+  const typeLabels: Record<ValueType, string> = {
+    number: t('definition.parameterTypeNumber'),
+    boolean: t('definition.parameterTypeBoolean'),
+    vector3: t('definition.parameterTypeVector3'),
+  }
+  for (const value of VALUE_TYPES) {
+    const label = typeLabels[value]
     const option = document.createElement('option')
     option.value = value
     option.textContent = label

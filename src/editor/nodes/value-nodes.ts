@@ -4,6 +4,7 @@ import type { DataflowNode } from 'rete-engine'
 import { t } from '../../i18n/translate'
 import { CheckboxControl, LabeledNumberControl, LabeledTextControl, OptionalNumberControl, TitleSelectControl } from '../controls'
 import { booleanSocket, numberSocket, unresolvedSocket, vector3Socket, type BooleanValue, type NumberValue, type Vector3Value } from '../sockets'
+import { isValueType, valueTypeSocket, type ValueType } from '../value-types'
 
 export interface NumberParams { value: number; name?: string; bindingId?: string }
 export interface BooleanParams { value: boolean; name?: string; bindingId?: string }
@@ -20,7 +21,7 @@ export interface ExponentialLogParams { operation: ExponentialLogOperation; x: n
 export type CompareOperator = '<' | '<=' | '>' | '>=' | '==' | '!='
 export interface CompareParams { operator: CompareOperator; a: number; b: number }
 type CompareControls = { operator: TitleSelectControl<CompareOperator>; a: LabeledNumberControl; b: LabeledNumberControl }
-export type ConditionalValueType = 'number' | 'boolean' | 'vector3'
+export type ConditionalValueType = ValueType
 export interface ConditionalParams { valueType?: ConditionalValueType }
 
 function finiteNumber(value: unknown, name: string): number {
@@ -122,14 +123,14 @@ export function validateCompareParams(value: unknown): CompareParams {
 export function validateConditionalParams(value: unknown): ConditionalParams {
   const params = object(value)
   if (params.valueType === undefined) return {}
-  if (params.valueType !== 'number' && params.valueType !== 'boolean' && params.valueType !== 'vector3') {
+  if (!isValueType(params.valueType)) {
     throw new Error('Invalid parameters: "valueType" must be number, boolean, vector3, or omitted')
   }
   return { valueType: params.valueType }
 }
 
 function socketForConditionalType(type: ConditionalValueType | undefined) {
-  return type === 'number' ? numberSocket : type === 'boolean' ? booleanSocket : type === 'vector3' ? vector3Socket : unresolvedSocket
+  return type ? valueTypeSocket(type) : unresolvedSocket
 }
 
 /** A literal Number is an OpenSCAD expression source, never a JavaScript calculation. */

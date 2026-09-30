@@ -1,5 +1,7 @@
 import { ClassicPreset } from 'rete'
 
+import type { ValueType } from './value-types'
+
 /**
  * A `ClassicPreset.InputControl<'number'>` with a short UI label, since
  * the base control has no label of its own. Reusable by any node that
@@ -91,14 +93,14 @@ export class Vector3Control extends ClassicPreset.Control {
 export class ModuleParameterAddControl extends ClassicPreset.Control {
   open = false
   name = ''
-  type: 'number' | 'boolean' | 'vector3' = 'number'
+  type: ValueType = 'number'
   defaultNumber = 0
   defaultBoolean = false
   defaultVector: [number, number, number] = [0, 0, 0]
   error: string | null = null
   onChange: () => void
-  onSubmit: (value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => boolean | void | Promise<boolean | void>
-  constructor(onChange: () => void, onSubmit: (value: { name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }) => boolean | void | Promise<boolean | void>) { super(); this.onChange = onChange; this.onSubmit = onSubmit }
+  onSubmit: (value: { name: string; type: ValueType; default: number | boolean | [number, number, number] }) => boolean | void | Promise<boolean | void>
+  constructor(onChange: () => void, onSubmit: (value: { name: string; type: ValueType; default: number | boolean | [number, number, number] }) => boolean | void | Promise<boolean | void>) { super(); this.onChange = onChange; this.onSubmit = onSubmit }
   show(): void {
     // Every invocation is a fresh parameter proposal. Validation failures
     // keep the current proposal open because they never call `show()` again.
@@ -121,7 +123,7 @@ export class ModuleParameterEditControl extends ModuleParameterAddControl {
    * open, which is how a user-cancelled confirmation remains editable. */
   onDelete: (id: string) => boolean | Promise<boolean> = () => false
   onMove: (id: string, direction: -1 | 1) => void | Promise<void> = () => {}
-  openParameter(parameter: { id: string; name: string; type: 'number' | 'boolean' | 'vector3'; default: number | boolean | [number, number, number] }, order: number): void {
+  openParameter(parameter: { id: string; name: string; type: ValueType; default: number | boolean | [number, number, number] }, order: number): void {
     this.parameterId = parameter.id; this.name = parameter.name; this.type = parameter.type; this.order = order; this.error = null; this.open = true
     if (parameter.type === 'number') this.defaultNumber = parameter.default as number
     else if (parameter.type === 'boolean') this.defaultBoolean = parameter.default as boolean

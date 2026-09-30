@@ -1,7 +1,7 @@
 import type { NodeEditor } from 'rete'
 import type { DataflowEngine } from 'rete-engine'
 
-import type { BooleanValue, GeometryValue, NumberValue, Vector3Value } from './sockets'
+import { hasMainGeometryOutput, type BooleanValue, type GeometryValue, type NumberValue, type Vector3Value } from './sockets'
 import type { Schemes } from './schemes'
 import type { DefinitionRegistry, ModuleDefinition, ModuleParameter, ModuleParameterDefault } from './definitions'
 import { analyzeFunctionDependencies } from './function-dependencies'
@@ -16,6 +16,7 @@ import { VariableReferenceNode } from './nodes/variable-reference-node'
 import { ForHeaderNode, ForResultNode } from './nodes/for-nodes'
 import { loopProblemFeedback, loopStructureProblem } from './for-validation'
 import { liveScopeSnapshot } from './scope-snapshot'
+import { isBoundValueRecord } from './value-types'
 
 /**
  * Evaluates the graph into a single OpenSCAD source string: one statement
@@ -66,7 +67,7 @@ export async function evaluateOpenSCAD(
   assertNoIncompleteReachableBranch(editor, [
     ...(mainSettings ? [mainSettings.id] : []),
     ...roots
-    .filter((node) => Boolean(node.outputs.geometry))
+    .filter((node) => hasMainGeometryOutput(node.outputs))
     // An untouched If draft has no upstream program edges and emits no
     // source. Treating it as a Main root merely because its output is
     // unconsumed would make harmless palette drafts block Render. Once any
@@ -199,7 +200,7 @@ function assertValidForLoops(editor: NodeEditor<Schemes>, definitions?: Definiti
     const { nodes, connections } = liveScopeSnapshot(editor, definitions, scope)
     const enclosingNames = new Set<string>([
       ...(scope ? definitions?.get(scope)?.parameters?.map((parameter) => parameter.name) ?? [] : []),
-      ...nodes.filter((node) => (node.type === 'number' || node.type === 'boolean' || node.type === 'vector3') && typeof node.parameters.bindingId === 'string')
+      ...nodes.filter(isBoundValueRecord)
         .map((node) => String(node.parameters.name)),
     ])
     const problem = loopStructureProblem(nodes, connections, enclosingNames)
@@ -325,7 +326,7 @@ export async function evaluateInspectNode(
     throw new Error(t('for.iteratorEscape'))
   }
   engine.reset()
-  if (node.outputs.geometry) return { kind: 'geometry', source: await evaluateOpenSCAD(editor, engine, nodeId, definitions) }
+  if (hasMainGeometryOutput(node.outputs)) return { kind: 'geometry', source: await evaluateOpenSCAD(editor, engine, nodeId, definitions) }
   const output = (await engine.fetch(nodeId)) as { value?: NumberValue | BooleanValue | Vector3Value }
   if (!output.value) return { kind: 'missing' }
   const scope = definitions?.scopeOf(nodeId)

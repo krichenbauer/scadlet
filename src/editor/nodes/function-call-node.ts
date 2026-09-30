@@ -1,7 +1,8 @@
 import { ClassicPreset } from 'rete'
 import type { DataflowNode } from 'rete-engine'
 
-import { booleanSocket, numberSocket, vector3Socket, type BooleanValue, type NumberValue, type Vector3Value } from '../sockets'
+import { type BooleanValue, type NumberValue, type Vector3Value } from '../sockets'
+import { valueTypeSocket } from '../value-types'
 import { t } from '../../i18n/translate'
 import { CheckboxControl, LabeledNumberControl, Vector3Control } from '../controls'
 import { moduleParameterPortId, type FunctionResultType, type ModuleDefinition, type ModuleParameter, type ModuleParameterDefault } from '../definitions'
@@ -86,7 +87,7 @@ export class FunctionCallNode extends ClassicPreset.Node<Record<string, ClassicP
   private materializeInputs(argumentsById: Record<string, ModuleParameterDefault>): void {
     for (const parameter of this.parameters) {
       const key = moduleParameterPortId(parameter.id)
-      const socket = parameter.type === 'number' ? numberSocket : parameter.type === 'boolean' ? booleanSocket : vector3Socket
+      const socket = valueTypeSocket(parameter.type)
       if (this.inputs[key]) continue
       this.addInput(key, new ClassicPreset.Input(socket, parameter.name))
       const fallback = argumentsById[parameter.id] ?? parameter.default
