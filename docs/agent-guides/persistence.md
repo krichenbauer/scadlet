@@ -29,8 +29,11 @@ Node persistence hooks belong in the catalog: register the stable `NodeTypeId`,
 creation/matching, typed ports, and `serializeParams`/`validateParams` hooks.
 Reuse `getPersistedParams()` for the complete semantic parameter object and
 shared validation primitives beside the parameter types. Validate all retained
-fallbacks, including inactive forms. Scope-wide constraints also require the shared validator and
-restore paths; adding a catalog entry alone is not always sufficient.
+fallbacks, including inactive forms. Scope-wide constraints belong in the
+[shared rule authorities](architecture.md#shared-rule-authorities) that
+validation, restore, and the live editor all call; adding a catalog entry alone
+is not always sufficient, and a rule enforced only on load or only live is a
+bug.
 
 ## Validation and restore
 

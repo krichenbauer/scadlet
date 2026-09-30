@@ -38,6 +38,19 @@ and render scheduling/cache state are transient. These categories must not be
 conflated with dirty/autosave notifications: a layout edit may require saving
 without requiring a new render.
 
+Every edit of persisted node state reports a semantic change, which drives
+Live preview and autosave. Catalog-created nodes are tracked automatically,
+including controls they add later (for example after an operation switch);
+state changed outside a control reports through the node's notify callback.
+
+Restore is its own editor mode, separate from notification suppression.
+Editor transactions suppress notifications to emit one change per action, but
+cleanup (such as ending Inspect when its node is deleted) must never depend on
+that suppression. Only restore may keep transient state across its provisional
+removals. Restore skips the For-loop guard and the type-transition pipes
+because the project was already validated; the socket-compatibility and
+dataflow-cycle guard still runs.
+
 Project activation flushes current work, validates/prepares the replacement,
 restores the existing editor/viewer, and changes the active autosave target only
 on success. The [persistence guide](persistence.md) owns failure recovery and
@@ -111,7 +124,34 @@ reads this cache, even when its generated source happens to equal a main graph.
 Generated source must be valid and readable. Preview, `.scad`, and `.stl` use
 the same source; no JSCAD/replicad/other preview semantics. Imported `.scad`
 is out of scope. Definitions are emitted once using the ordering described in
-[Definitions](definitions.md#dependency-order-and-recursion).
+[Definitions](definitions.md#dependency-order-and-recursion). Generated source
+never derives from display labels: OpenSCAD module and function names are
+explicit in code, so translated labels cannot change the output.
+
+## Shared rule authorities
+
+Each graph rule has exactly one implementation, called by the live editor,
+source generation, restore, and `.scadlet` validation alike. Anything the
+editor accepts must therefore save, reload, and generate the same source; a
+live check that is stricter or looser than validation is a bug. Extend these
+modules instead of re-deriving a rule locally. A new value type or binding kind
+starts in `value-types.ts` and `scope-bindings.ts`.
+
+| Rule | Authority (`src/editor/`) |
+| --- | --- |
+| Node types, ports, parameter validation, persistence hooks | `node-catalog.ts` |
+| Value types (Number, Boolean, Vector3) and their sockets | `value-types.ts` |
+| Scope bindings: binding table, taken names, reference resolution, naming rules | `scope-bindings.ts` |
+| For pairs, iterator bodies, iterator name reuse | `for-validation.ts` (`loopStructureProblem`) |
+| One live scope as plain node data for these rules | `scope-snapshot.ts` |
+| Connection compatibility and dataflow cycles | `connection-compatibility.ts`, `dataflow-cycle.ts` |
+| Geometry recognition by socket type | `geometry-accent.ts` `hasGeometryOutput` (styling: any Geometry output); `sockets.ts` `hasMainGeometryOutput` (Main roots and Inspect) |
+
+Rules are expressed over plain node records (`{ id, type, parameters }`), the
+`.scadlet` shape, so file validation and the live editor feed the same
+function; live adapters such as `liveScopeSnapshot` and `liveBindingRecords`
+convert Rete state. Never recognize Geometry, bindings, or node kinds by port
+names or labels.
 
 ## Viewer contract
 

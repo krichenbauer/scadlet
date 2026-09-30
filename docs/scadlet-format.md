@@ -8,8 +8,10 @@ The application/package version is independent of the format version.
 
 Files are UTF-8 JSON with extension `.scadlet` and MIME type `application/json`.
 The writer uses two-space indentation. No formal JSON Schema is provided;
-[`validate.ts`](../src/persistence/validate.ts) and the
-[node catalog](../src/editor/node-catalog.ts) implement validation.
+[`validate.ts`](../src/persistence/validate.ts), the
+[node catalog](../src/editor/node-catalog.ts), and the shared scope rules
+([`scope-bindings.ts`](../src/editor/scope-bindings.ts),
+[`for-validation.ts`](../src/editor/for-validation.ts)) implement validation.
 Storage, rollback, autosave, and version-change policy belong in
 [Persistence](agent-guides/persistence.md). Behavioural semantics belong in
 [Definitions](agent-guides/definitions.md) and [Editor and UX](agent-guides/editor-ux.md).
@@ -480,5 +482,7 @@ in [Persistence](agent-guides/persistence.md#bundled-examples).
 | Migration/validation | [validate.ts](../src/persistence/validate.ts) |
 | Serialization/restoration | [serialize.ts](../src/persistence/serialize.ts), [restore.ts](../src/persistence/restore.ts) |
 | Type identity and parameter hooks | [node-catalog.ts](../src/editor/node-catalog.ts) |
+| Value types | [value-types.ts](../src/editor/value-types.ts) |
+| Scope binding and For rules | [scope-bindings.ts](../src/editor/scope-bindings.ts), [for-validation.ts](../src/editor/for-validation.ts) |
 | File access and filenames | [file-service.ts](../src/persistence/file-service.ts), [filename.ts](../src/persistence/filename.ts) |
 | Viewer state | [geometry-viewer.ts](../src/components/geometry-viewer.ts) |

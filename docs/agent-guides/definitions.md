@@ -119,9 +119,9 @@ inside its body, unless that body also uses the enclosing iterator: generated
 source names bindings, so such a use would silently read the nested iterator.
 The nested header's Start, Step, and End belong to the enclosing scope and may
 use the enclosing iterator. Independent sibling pairs may reuse a name.
-Refusals explain the specific rule. Known literal zero steps and escaping dependencies are errors. The
-Step field never stores a literal zero: it marks the entry invalid and keeps
-the previous value.
+Refusals explain the specific rule. Known literal zero steps and escaping
+dependencies are errors. The Step field never stores a literal zero: it marks
+the entry invalid and keeps the previous value.
 
 A structurally valid result without connected valid Geometry emits no fragment
 and the whole pair is omitted. This draft state does not relax pair, scope,

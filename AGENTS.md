@@ -35,6 +35,10 @@ subject-specific contracts; read all affected areas for changes spanning them.
 - Use stable, language-independent IDs. Names, labels, positions, and DOM details
   are never semantic identity. Preserve existing work through edits and loads;
   never silently discard connected values or leave dangling wires.
+- Each graph rule has one implementation shared by live editing, source
+  generation, restore, and file validation, so anything the editor accepts
+  saves and reloads. Extend the shared rule modules listed in
+  [Architecture](docs/agent-guides/architecture.md#shared-rule-authorities).
 - Keep UI text, accessibility labels, code, comments, examples, and documentation
   in English. User-facing natural-language text uses the existing `t()` keys.
 - Make the smallest change that fulfills the task. Do not implement roadmap

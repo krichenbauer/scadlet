@@ -45,9 +45,13 @@ when subdivision improves reporting. `test.describe.serial(...)` is reserved
 for a narrowly documented case that cannot be represented as one independent
 test; serial tests still may not exchange browser or persistence state. Do not
 use retries, reduced worker counts, or broad serialization to mask a race.
+Before calling a failure flaky, reproduce it with `--repeat-each` under
+parallel load and compare against the unchanged code, then fix its cause.
 
 Wait for visible application state, persisted dirty-state completion, worker
-idle state, or stable rendered bounds. A fixed delay is acceptable only when
+idle state, or stable rendered bounds. Pointer-drag wiring waits for each new
+connection to exist before the next gesture: nodes re-render after wiring, and
+a stale socket position turns the next drag into a canvas pan. A fixed delay is acceptable only when
 the passage of a specified interval is itself the behavior under test, such as
 proving that no preview occurs inside/outside the documented debounce window.
 Worker-repeat diagnostics must use test-owned output paths. Retain failure
@@ -62,6 +66,13 @@ JavaScript evaluation is not a substitute. Cover keyboard, pointer, focus,
 accessible names/status, and touch behaviour for changed interactions, including
 cross-shadow-root popup dismissal. The configured browser suite is Chromium;
 do not describe it as certified coverage of other browsers.
+
+For a behaviour-preserving refactoring, first add characterization tests that
+pass against the unchanged code, especially for paths no test covers yet.
+Existing tests stay unchanged unless a change genuinely makes sense (for
+example a test that only restates removed internals); otherwise a failing
+existing test signals an unintended behaviour change. A behaviour fix gets a
+test that fails on the old code.
 
 ## Required checks and completion report
 
