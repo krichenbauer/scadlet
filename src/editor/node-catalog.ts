@@ -311,30 +311,43 @@ function validateDifferenceParams(value: unknown): VariadicBooleanParams {
  * so constructing/restoring a node with non-default parameters never
  * spuriously marks the project dirty.
  *
- * Idempotent per control (`wrappedControls`): Cylinder/Sphere replace
- * some of their own controls at runtime (e.g. switching radius/diameter/
- * tapered mode removes and re-adds `r`/`d`/`r1`/`r2`, per their own
- * `updateSizeControls()`); the NODE_CATALOG wrapper below re-runs this
- * function on every `onControlsChanged` call so freshly-added
- * replacement controls get wrapped too, without double-wrapping (and
- * double-firing `notifyDirty` for) controls that already were.
+ * Idempotent per control (`wrappedControls`): many nodes add or replace
+ * controls at runtime (added parameter forms, Vector Math's Factor after an
+ * operation switch, Call signature changes). Every later `addControl` of a
+ * catalog-created node is therefore wrapped as well, without relying on the
+ * node to report it, and without double-wrapping (and double-firing
+ * `notifyDirty` for) controls that already were.
  */
 const wrappedControls = new WeakSet<ClassicPreset.Control>()
+const watchedNodes = new WeakSet<Schemes['Node']>()
+
+function wrapControl(control: ClassicPreset.Control | undefined, notifyDirty: () => void): void {
+  if (!control || wrappedControls.has(control)) return
+  if (typeof (control as { setValue?: unknown }).setValue !== 'function') return
+
+  wrappedControls.add(control)
+  const withSetValue = control as unknown as { setValue: (value: unknown) => void }
+  const originalSetValue = withSetValue.setValue.bind(control)
+  withSetValue.setValue = (value: unknown) => {
+    originalSetValue(value)
+    notifyDirty()
+  }
+}
 
 function wireDirtyNotifications(node: Schemes['Node'], notifyDirty: (() => void) | undefined): void {
   if (!notifyDirty) return
 
-  for (const control of Object.values(node.controls)) {
-    if (!control || wrappedControls.has(control)) continue
-    if (typeof (control as { setValue?: unknown }).setValue !== 'function') continue
+  for (const control of Object.values(node.controls)) wrapControl(control, notifyDirty)
 
-    wrappedControls.add(control)
-    const withSetValue = control as unknown as { setValue: (value: unknown) => void }
-    const originalSetValue = withSetValue.setValue.bind(control)
-    withSetValue.setValue = (value: unknown) => {
-      originalSetValue(value)
-      notifyDirty()
-    }
+  // Controls may also appear after construction without the node reporting
+  // it, e.g. Vector Math's Factor after an operation switch. Wrapping every
+  // later `addControl` makes each such input report its edits as well.
+  if (watchedNodes.has(node)) return
+  watchedNodes.add(node)
+  const addControl = node.addControl.bind(node) as (key: string, control: ClassicPreset.Control) => void
+  ;(node as unknown as { addControl: (key: string, control: ClassicPreset.Control) => void }).addControl = (key, control) => {
+    addControl(key, control)
+    wrapControl(control, notifyDirty)
   }
 }
 

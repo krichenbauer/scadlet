@@ -61,8 +61,11 @@ test('Mirror and Resize start argument-less, add useful forms, render through Op
     await expect(node.locator('.node-param-row')).toHaveCount(0)
   }
 
+  const wires = editor.locator('.connection[data-real-connection="true"]')
   await connect(page, cube.locator('.node-port--output .node-socket'), mirror.locator('.node-socket[data-socket-side="input"][data-socket-key="geometry"]'))
+  await expect(wires).toHaveCount(1)
   await connect(page, mirror.locator('.node-port--output .node-socket'), resize.locator('.node-socket[data-socket-side="input"][data-socket-key="geometry"]'))
+  await expect(wires).toHaveCount(2)
   const source = page.locator('scadlet-app .scad-output')
   // Without added parameters both nodes emit OpenSCAD's argument-less calls.
   await expect(source).toContainText('resize() {\n    mirror() {\n        cube();', { timeout: 15_000 })

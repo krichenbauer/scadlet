@@ -334,14 +334,21 @@ test('nested loops may reuse an iterator name unless the inner body also uses th
   const translate = editor.locator('.node[data-node-type="translate"]')
   const wires = editor.locator('.connection[data-real-connection="true"]')
 
-  await connect(page, cube.locator('.node-port--output .node-socket'), translate.locator('.node-socket[data-socket-side="input"][data-socket-key="geometry"]'))
+  // Each drag re-renders its nodes (a For result grows a slot row), so wait
+  // for every wire before measuring the next socket; a stale position would
+  // turn the drag into a canvas pan.
+  const wire = async (source: Locator, target: Locator, expected: number): Promise<void> => {
+    await connect(page, source, target)
+    await expect(wires).toHaveCount(expected)
+  }
+  await expect(wires).toHaveCount(2)
+  await wire(cube.locator('.node-port--output .node-socket'), translate.locator('.node-socket[data-socket-side="input"][data-socket-key="geometry"]'), 3)
   // Body first: an iterator may only be wired into Geometry that already
   // reaches its matching result.
-  await connect(page, translate.locator('.node-port--output .node-socket'), innerResult.locator('.node-socket[data-socket-key^="child:"]').first())
-  await connect(page, innerResult.locator('.node-port--output .node-socket'), outerResult.locator('.node-socket[data-socket-key^="child:"]').first())
-  await connect(page, inner.locator('.node-socket[data-socket-key="value"]'), translate.locator('.node-socket[data-socket-key="x"]'))
-  await connect(page, outer.locator('.node-socket[data-socket-key="value"]'), inner.locator('.node-socket[data-socket-side="input"][data-socket-key="end"]'))
-  await expect(wires).toHaveCount(7)
+  await wire(translate.locator('.node-port--output .node-socket'), innerResult.locator('.node-socket[data-socket-key^="child:"]').first(), 4)
+  await wire(innerResult.locator('.node-port--output .node-socket'), outerResult.locator('.node-socket[data-socket-key^="child:"]').first(), 5)
+  await wire(inner.locator('.node-socket[data-socket-key="value"]'), translate.locator('.node-socket[data-socket-key="x"]'), 6)
+  await wire(outer.locator('.node-socket[data-socket-key="value"]'), inner.locator('.node-socket[data-socket-side="input"][data-socket-key="end"]'), 7)
 
   // OpenSCAD evaluates the inner range before the inner `i` exists, so the
   // same name is unambiguous here and renders through the bundled WASM.
