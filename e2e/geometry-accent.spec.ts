@@ -130,7 +130,7 @@ test('renders a restrained Geometry accent for live Geometry outputs and matchin
   await openEmptyProject(page)
 
   const palette = page.locator('node-palette')
-  for (const type of ['cube', 'translate', 'union']) {
+  for (const type of ['cube', 'translate', 'mirror', 'resize', 'union']) {
     await expect(palette.locator(`.node-item[data-node-type="${type}"]`)).toHaveClass(/node-item--geometry-output/)
   }
   for (const type of ['number', 'vector3', 'arithmetic', 'compare', 'conditional']) {

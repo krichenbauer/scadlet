@@ -46,7 +46,8 @@ export class CylinderNode extends ClassicPreset.Node<Record<string, ClassicPrese
     this.values.mode = mode
     if (mode === 'radius') this.addNumber('r', t('control.radius'), this.values.r ?? 5)
     if (mode === 'diameter') this.addNumber('d', t('control.diameter'), this.values.d ?? 10)
-    if (mode === 'tapered') { this.addNumber('r1', t('control.radiusBottom'), this.values.r1 ?? 5); this.addNumber('r2', t('control.radiusTop'), this.values.r2 ?? 5) }
+    // Distinct radii, so a newly added tapered form is visibly a cone.
+    if (mode === 'tapered') { this.addNumber('r1', t('control.radiusBottom'), this.values.r1 ?? 5); this.addNumber('r2', t('control.radiusTop'), this.values.r2 ?? 2) }
   }
   private removeSizePorts(): void {
     for (const key of ['r', 'd', 'r1', 'r2']) {
@@ -73,7 +74,8 @@ export class CylinderNode extends ClassicPreset.Node<Record<string, ClassicPrese
         })),
       })
     }
-    if (this.values.center === undefined) actions.push({ id: 'add-center', label: t('control.center'), run: () => { this.addCenter(false); this.changed() } })
+    // Leaving Center out already means `false`; adding it starts enabled.
+    if (this.values.center === undefined) actions.push({ id: 'add-center', label: t('control.center'), run: () => { this.addCenter(true); this.changed() } })
     if (this.values.fn === undefined) actions.push({ id: 'add-fn', label: t('control.fn'), run: () => { this.addNumber('fn', t('control.fn'), 30); this.changed() } })
     return actions
   }

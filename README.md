@@ -9,8 +9,9 @@ and teaching, with a focused subset of the OpenSCAD language.
 
 ## What you can do
 
-- Combine 3D primitives, transforms, ordered Boolean operations, conditional
-  geometry, and numeric `For` loops.
+- Combine 3D primitives, transforms (Translate, Rotate, Scale, Mirror, and
+  Resize), ordered Boolean operations, conditional geometry, and numeric `For`
+  loops.
 - Drive geometry with typed Number, Boolean, and Vector3 values, math,
   conditionals, scoped variables, and reusable Modules and Functions, including
   recursive calls. Adjust scope-level detail with **SCAD settings**.

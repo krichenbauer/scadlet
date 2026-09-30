@@ -10,6 +10,6 @@ import { VectorTransformNode } from './vector-transform-node'
  */
 export class RotateNode extends VectorTransformNode {
   constructor(params: Partial<Vector3Params> = {}, notify?: () => void, requestRemoveForm?: (keys: readonly string[], label: string) => Promise<boolean>) {
-    super(t('node.rotate'), { ...DEFAULT_ROTATE_PARAMS, ...params }, rotateToOpenSCAD, notify, requestRemoveForm)
+    super(t('node.rotate'), 'rotate', { ...DEFAULT_ROTATE_PARAMS, ...params }, rotateToOpenSCAD, notify, requestRemoveForm)
   }
 }

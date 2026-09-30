@@ -10,6 +10,8 @@ import { RotateNode } from './nodes/rotate-node'
 import { ScaleNode } from './nodes/scale-node'
 import { SphereNode } from './nodes/sphere-node'
 import { TranslateNode } from './nodes/translate-node'
+import { MirrorNode } from './nodes/mirror-node'
+import { ResizeNode } from './nodes/resize-node'
 import { UnionNode } from './nodes/union-node'
 import { IfNode } from './nodes/if-node'
 import { ArithmeticNode, BasicMathNode, BooleanNode, CompareNode, ConditionalNode, ExponentialLogNode, MinMaxNode, NumberNode, PiNode, TrigonometryNode, Vector3Node, VectorMathNode, validateArithmeticParams, validateBasicMathParams, validateBooleanParams, validateCompareParams, validateConditionalParams, validateExponentialLogParams, validateMinMaxParams, validateNumberParams, validateTrigonometryParams, validateVector3ValueParams, validateVectorMathParams, type TrigonometryOperation, type VectorMathOperation } from './nodes/value-nodes'
@@ -17,11 +19,11 @@ import { type VariadicBooleanParams } from './nodes/boolean-op-node'
 import { validateCubeParams } from '../openscad/cube'
 import { validateCylinderParams } from '../openscad/cylinder'
 import { validateSphereParams } from '../openscad/sphere'
-import { validateVector3Params } from '../openscad/transform'
+import { validateResizeParams, validateVector3Params } from '../openscad/transform'
 import type { CubeParams } from '../openscad/cube'
 import type { CylinderParams } from '../openscad/cylinder'
 import type { SphereParams } from '../openscad/sphere'
-import type { Vector3Params } from '../openscad/transform'
+import type { ResizeParams, Vector3Params } from '../openscad/transform'
 import type { SocketType } from './sockets'
 import { ModuleInputsNode, ModuleOutputNode } from './nodes/module-interface-nodes'
 import { ModuleCallNode, type ModuleCallParams } from './nodes/module-call-node'
@@ -66,6 +68,8 @@ export type NodeTypeId =
   | 'translate'
   | 'rotate'
   | 'scale'
+  | 'mirror'
+  | 'resize'
   | 'difference'
   | 'union'
   | 'intersection'
@@ -108,6 +112,8 @@ const NODE_TYPE_ICON: Record<NodeTypeId, CompactIconName> = {
   translate: 'translate',
   rotate: 'rotate',
   scale: 'scale',
+  mirror: 'mirror',
+  resize: 'resize',
   difference: 'difference',
   union: 'union',
   intersection: 'intersection',
@@ -827,6 +833,61 @@ const CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     matches: (node) => node instanceof ScaleNode,
     serializeParams: (node) => (node as ScaleNode).getPersistedParams() as unknown as Record<string, unknown>,
     validateParams: (value) => validateVector3Params(value, 'Scale') as unknown as Record<string, unknown>,
+  },
+  {
+    type: 'mirror',
+    category: 'transformations',
+    labelKey: 'node.mirror',
+    paletteDescriptionKey: 'palette.description.mirror',
+    inputs: ['geometry'],
+    outputs: ['geometry'],
+    isInputPort: (port, parameters) => {
+      const params = parameters as unknown as Vector3Params
+      return (params.representation === 'vector' && port === 'vector')
+        || ((params.representation ?? 'none') === 'xyz' && ['x', 'y', 'z'].includes(port))
+    },
+    inputSocketType: (port) => port === 'geometry' ? 'geometry' : port === 'vector' ? 'vector3' : ['x', 'y', 'z'].includes(port) ? 'number' : undefined,
+    outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
+    create: (context, params) => {
+      let node!: MirrorNode
+      node = new MirrorNode(
+        params ? validateVector3Params(params, 'Mirror') : undefined,
+        () => context.onControlsChanged(node.id),
+        (keys, label) => context.requestRemoveForm?.(node.id, keys, label) ?? Promise.resolve(true),
+      )
+      return node
+    },
+    matches: (node) => node instanceof MirrorNode,
+    serializeParams: (node) => (node as MirrorNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateVector3Params(value, 'Mirror') as unknown as Record<string, unknown>,
+  },
+  {
+    type: 'resize',
+    category: 'transformations',
+    labelKey: 'node.resize',
+    paletteDescriptionKey: 'palette.description.resize',
+    inputs: ['geometry'],
+    outputs: ['geometry'],
+    isInputPort: (port, parameters) => {
+      const params = parameters as unknown as ResizeParams
+      return (params.representation === 'vector' && port === 'vector')
+        || ((params.representation ?? 'none') === 'xyz' && ['x', 'y', 'z'].includes(port))
+        || (port === 'auto' && params.auto !== undefined)
+    },
+    inputSocketType: (port) => port === 'geometry' ? 'geometry' : port === 'vector' ? 'vector3' : port === 'auto' ? 'boolean' : ['x', 'y', 'z'].includes(port) ? 'number' : undefined,
+    outputSocketType: (port) => port === 'geometry' ? 'geometry' : undefined,
+    create: (context, params) => {
+      let node!: ResizeNode
+      node = new ResizeNode(
+        params ? validateResizeParams(params) : undefined,
+        () => context.onControlsChanged(node.id),
+        (keys, label) => context.requestRemoveForm?.(node.id, keys, label) ?? Promise.resolve(true),
+      )
+      return node
+    },
+    matches: (node) => node instanceof ResizeNode,
+    serializeParams: (node) => (node as ResizeNode).getPersistedParams() as unknown as Record<string, unknown>,
+    validateParams: (value) => validateResizeParams(value) as unknown as Record<string, unknown>,
   },
   {
     type: 'difference',

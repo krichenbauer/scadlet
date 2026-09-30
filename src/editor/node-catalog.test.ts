@@ -20,6 +20,8 @@ describe('NODE_CATALOG', () => {
         'translate',
         'rotate',
         'scale',
+        'mirror',
+        'resize',
         'difference',
         'union',
         'intersection',
@@ -64,6 +66,8 @@ describe('NODE_CATALOG', () => {
     expect(findCatalogEntry('translate')?.category).toBe('transformations')
     expect(findCatalogEntry('rotate')?.category).toBe('transformations')
     expect(findCatalogEntry('scale')?.category).toBe('transformations')
+    expect(findCatalogEntry('mirror')?.category).toBe('transformations')
+    expect(findCatalogEntry('resize')?.category).toBe('transformations')
     expect(findCatalogEntry('difference')?.category).toBe('boolean-operations')
     expect(findCatalogEntry('union')?.category).toBe('boolean-operations')
     expect(findCatalogEntry('intersection')?.category).toBe('boolean-operations')
@@ -115,7 +119,7 @@ describe('NODE_CATALOG', () => {
 
   it('provides localized explanatory copy for every ordinary palette entry', () => {
     const paletteEntries = NODE_CATALOG.filter((entry) => entry.palette !== false)
-    expect(paletteEntries).toHaveLength(24)
+    expect(paletteEntries).toHaveLength(26)
     for (const entry of paletteEntries) {
       expect(entry.paletteDescriptionKey).toBeTruthy()
       const description = t(entry.paletteDescriptionKey!)
@@ -156,14 +160,14 @@ describe('NODE_CATALOG', () => {
     expect(editor.getConnections()).toEqual([])
   })
 
-  it('create() builds a usable instance for each of the six new node types', async () => {
+  it('create() builds a usable instance for each listed node type', async () => {
     const editor = new NodeEditor<Schemes>()
-    for (const type of ['sphere', 'translate', 'rotate', 'scale', 'union', 'intersection']) {
+    for (const type of ['sphere', 'translate', 'rotate', 'scale', 'mirror', 'resize', 'union', 'intersection']) {
       const entry = findCatalogEntry(type)!
       const node = entry.create(noopContext)
       await editor.addNode(node)
     }
-    expect(editor.getNodes()).toHaveLength(6)
+    expect(editor.getNodes()).toHaveLength(8)
   })
 
   it('every entry declares its stable input/output port ids', () => {
@@ -171,6 +175,17 @@ describe('NODE_CATALOG', () => {
     expect(findCatalogEntry('translate')).toMatchObject({ inputs: ['geometry'], outputs: ['geometry'] })
     expect(findCatalogEntry('translate')!.isInputPort!('x', { x: 0, y: 0, z: 0, representation: 'xyz' })).toBe(true)
     expect(findCatalogEntry('translate')!.isInputPort!('vector', { x: 0, y: 0, z: 0, representation: 'vector' })).toBe(true)
+    // Mirror and Resize start argument-less: an omitted representation is `none`.
+    for (const type of ['mirror', 'resize'] as const) {
+      const entry = findCatalogEntry(type)!
+      expect(entry).toMatchObject({ category: 'transformations', inputs: ['geometry'], outputs: ['geometry'] })
+      expect(entry.isInputPort!('x', { x: 1, y: 0, z: 0 })).toBe(false)
+      expect(entry.isInputPort!('x', { x: 1, y: 0, z: 0, representation: 'xyz' })).toBe(true)
+      expect(entry.inputSocketType('vector', { x: 1, y: 0, z: 0, representation: 'vector' })).toBe('vector3')
+    }
+    expect(findCatalogEntry('resize')!.isInputPort!('auto', { x: 10, y: 10, z: 10, representation: 'none', auto: true })).toBe(true)
+    expect(findCatalogEntry('resize')!.isInputPort!('auto', { x: 10, y: 10, z: 10, representation: 'none' })).toBe(false)
+    expect(findCatalogEntry('resize')!.inputSocketType('auto', {})).toBe('boolean')
     expect(findCatalogEntry('difference')).toMatchObject({ inputs: ['base', 'subtract'], outputs: ['geometry'] })
     expect(findCatalogEntry('union')).toMatchObject({ inputs: [], outputs: ['geometry'] })
     expect(findCatalogEntry('scad-settings')).toMatchObject({ inputs: [], outputs: [], allowedScopes: ['main', 'module'] })

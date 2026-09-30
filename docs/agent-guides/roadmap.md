@@ -13,9 +13,7 @@ settled by their feature tasks.
    before dependent geometry features: general polygon point data needs lists,
    and text needs Strings. Candidate operations include indexing, `len`,
    `concat`, `lookup`, `search`, `str`, `chr`, `ord`, and later list comprehensions.
-2. **Missing simple Geometry nodes.** Prioritize Mirror and Resize, retaining
-   the existing scope, persistence, and effective-output rules.
-3. **2D Geometry and extrusion.** Design 2D primitives, 2D Boolean composition,
+2. **2D Geometry and extrusion.** Design 2D primitives, 2D Boolean composition,
    and linear/rotational extrusion as a coherent extension. Settle dimensional
    typing, compatible connections, and the transition to the existing 3D
    preview/export path together. General polygons and text follow their

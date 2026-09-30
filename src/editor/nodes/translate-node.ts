@@ -5,6 +5,6 @@ import { VectorTransformNode } from './vector-transform-node'
 /** The `translate([x, y, z]) { ... }` transform. See `VectorTransformNode` for the shared node shape. */
 export class TranslateNode extends VectorTransformNode {
   constructor(params: Partial<Vector3Params> = {}, notify?: () => void, requestRemoveForm?: (keys: readonly string[], label: string) => Promise<boolean>) {
-    super(t('node.translate'), { ...DEFAULT_TRANSLATE_PARAMS, ...params }, translateToOpenSCAD, notify, requestRemoveForm)
+    super(t('node.translate'), 'translate', { ...DEFAULT_TRANSLATE_PARAMS, ...params }, translateToOpenSCAD, notify, requestRemoveForm)
   }
 }

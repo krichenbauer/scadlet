@@ -12,7 +12,10 @@ type ScadSettingsControls = Record<string, ClassicPreset.Control> & {
   actions: ParameterActionsControl
 }
 
-const DEFAULTS: Readonly<Record<ScadSettingKind, number>> = { fn: 30, fa: 12, fs: 2 }
+// Values a newly added setting starts with. OpenSCAD's own defaults ($fa 12,
+// $fs 2) would change nothing, so $fa/$fs start at the finer values the
+// OpenSCAD manual suggests for smooth curves.
+const DEFAULTS: Readonly<Record<ScadSettingKind, number>> = { fn: 30, fa: 1, fs: 0.4 }
 
 function settingLabel(kind: ScadSettingKind): string {
   return t(`settings.${kind}`)

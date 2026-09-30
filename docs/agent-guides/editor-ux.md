@@ -16,7 +16,12 @@ creating invalid nodes.
 
 A node starts with its smallest useful semantic signature. Add/remove optional
 arguments explicitly; alternative forms represent one OpenSCAD parameter.
-Transforms start with a useful default vector form but allow its removal.
+Without added parameters, a node emits OpenSCAD's own argument-less behaviour.
+Translate, Rotate, and Scale start with a useful default vector form; Mirror
+and Resize start without one (`mirror()`/`resize()`), and every transform
+allows removing its form. An added parameter starts with a value that visibly
+differs from leaving it out: added Booleans such as Center or Keep proportions
+start enabled, and added settings do not repeat OpenSCAD's defaults.
 An inline literal is a preserved direct fallback: a compatible connected
 expression overrides and disables it, and disconnection restores it. Whole
 Vector3 overrides retain inactive component wires and fallbacks. Representation

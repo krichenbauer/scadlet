@@ -15,6 +15,19 @@ export type Vector3Representation = 'xyz' | 'vector' | 'none'
 export const DEFAULT_TRANSLATE_PARAMS: Vector3Params = { x: 0, y: 0, z: 0 }
 export const DEFAULT_ROTATE_PARAMS: Vector3Params = { x: 0, y: 0, z: 0 }
 export const DEFAULT_SCALE_PARAMS: Vector3Params = { x: 1, y: 1, z: 1 }
+/** Mirror and Resize start without arguments, exactly like OpenSCAD's
+ * argument-less `mirror()`/`resize()`. The retained X/Y/Z are the values a
+ * vector form starts with once added: the YZ plane (left/right mirror) and a
+ * visible 10 x 10 x 10 target size. */
+export const DEFAULT_MIRROR_PARAMS: Vector3Params = { x: 1, y: 0, z: 0, representation: 'none' }
+export const DEFAULT_RESIZE_PARAMS: Vector3Params = { x: 10, y: 10, z: 10, representation: 'none' }
+
+/** Resize additionally carries OpenSCAD's optional `auto` flag ("Keep
+ * proportions"): with it, axes set to 0 scale proportionally. Omitted means
+ * the argument is absent. */
+export interface ResizeParams extends Vector3Params {
+  auto?: boolean
+}
 
 export interface TransformResult {
   code: string
@@ -59,6 +72,16 @@ export function scaleToOpenSCAD(params: Vector3Params, input: string | undefined
   return vectorTransformToOpenSCAD('scale', 'Scale', params, input)
 }
 
+/** Composes an input fragment into a `mirror([x, y, z]) { ... }` block; the vector is the mirror plane's normal. */
+export function mirrorToOpenSCAD(params: Vector3Params, input: string | undefined): TransformResult {
+  return vectorTransformToOpenSCAD('mirror', 'Mirror', params, input)
+}
+
+/** Composes an input fragment into a `resize([x, y, z]) { ... }` block; an axis of 0 keeps its size. */
+export function resizeToOpenSCAD(params: Vector3Params, input: string | undefined): TransformResult {
+  return vectorTransformToOpenSCAD('resize', 'Resize', params, input)
+}
+
 /**
  * Validates persisted `.scadlet` parameters shared by Translate/Rotate/
  * Scale, throwing a descriptive `Error` on invalid input. `label` (e.g.
@@ -76,6 +99,18 @@ export function validateVector3Params(value: unknown, label: string): Vector3Par
       throw new Error(`Invalid ${label} parameter "representation"`)
     }
     result.representation = obj.representation
+  }
+  return result
+}
+
+/** Validates persisted Resize parameters: the shared vector fields plus the
+ * optional Boolean `auto`. */
+export function validateResizeParams(value: unknown): ResizeParams {
+  const result: ResizeParams = validateVector3Params(value, 'Resize')
+  const auto = (value as Record<string, unknown>).auto
+  if (auto !== undefined) {
+    if (typeof auto !== 'boolean') throw new Error('Invalid Resize parameter "auto": expected a boolean')
+    result.auto = auto
   }
   return result
 }

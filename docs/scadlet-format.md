@@ -82,8 +82,8 @@ nonempty and unique within their graph. IDs are opaque: no UUID shape is require
 The complete current catalog is:
 
 ```text
-cube cylinder sphere translate rotate scale difference union intersection
-number boolean vector3 pi arithmetic trigonometry basic-math vector-math
+cube cylinder sphere translate rotate scale mirror resize difference union
+intersection number boolean vector3 pi arithmetic trigonometry basic-math vector-math
 min-max exponential-log compare conditional if for for-result scad-settings
 module-inputs module-output module-call function-inputs function-output
 function-call variable-reference
@@ -230,6 +230,16 @@ Vector exposes only Vector3 `vector`; None exposes no value inputs and emits an
 argumentless transform around its Geometry. XYZ literals remain stored in every
 representation. Default Translate/Rotate values are zero; Scale values are one.
 Rotate uses Euler degrees, not axis-angle form.
+
+`mirror` and `resize` use the same fields, ports, and representations, but an
+omitted `representation` means `none`: both start without arguments and emit
+OpenSCAD's argument-less `mirror()`/`resize()`. Their retained literals are the
+values an added XYZ form starts with (Mirror `1, 0, 0`, Resize `10, 10, 10`).
+Mirror's vector is the normal of the mirror plane through the origin. Resize
+sets an exact size, where an axis of `0` keeps its size; it additionally stores
+an optional boolean `auto` ("Keep proportions") that, when present, activates
+a Boolean input `auto` and emits `auto=` so that `0` axes scale proportionally.
+Both are additive v8 node types.
 
 ### Ordered Boolean Geometry inputs
 
@@ -438,8 +448,8 @@ Within supported shapes, missing parameter signatures normalize to empty arrays,
 old Cube representations infer from `size`, missing transform representation is
 XYZ, missing Compare fallbacks become zero, and missing collapse means expanded.
 Recursion adds no fields. Typed Value inputs, For pairs, extended Difference
-slots, PI, Number negate, Vector Math, Min/Max, and nested iterator name reuse
-are additive v8 capabilities;
+slots, PI, Number negate, Vector Math, Min/Max, Mirror, Resize, and nested
+iterator name reuse are additive v8 capabilities;
 older graphs without them retain their meaning. Do not remove migrations or
 rewrite historical fixtures merely because the current writer emits v8.
 

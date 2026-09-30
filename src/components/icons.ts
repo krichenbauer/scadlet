@@ -6,7 +6,7 @@ export type CompactIconName =
   | 'plus' | 'copy' | 'cut' | 'paste' | 'trash' | 'sort-alpha' | 'clock' | 'chevron-up' | 'chevron-down'
   // Node-family/header icons (node-style.md "Icons in nodes and palette").
   | 'cube' | 'cylinder' | 'sphere'
-  | 'translate' | 'rotate' | 'scale'
+  | 'translate' | 'rotate' | 'scale' | 'mirror' | 'resize'
   | 'union' | 'difference' | 'intersection'
   | 'value' | 'compare' | 'math' | 'conditional' | 'loop'
   | 'settings'
@@ -29,6 +29,11 @@ const paths: Record<CompactIconName, string> = {
   translate: 'M12 2v20M2 12h20M12 2l-3 4M12 2l3 4M12 22l-3-4M12 22l3-4M2 12l4-3M2 12l4 3M22 12l-4-3M22 12l-4 3',
   rotate: 'M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5',
   scale: 'M4 20l6-6M4 20v-5M4 20h5M20 4l-6 6M20 4v5M20 4h-5',
+  // A shape and its reflection on either side of a dashed mirror plane.
+  mirror: 'M12 2v3M12 8v3M12 14v3M12 20v2M3 18l6-12v12ZM21 18l-6-12v12Z',
+  // A box under a double-headed dimension arrow: an exact target size,
+  // deliberately unlike Scale's outward diagonal arrows.
+  resize: 'M5 10h14v10H5ZM5 5h14M5 5l3-2M5 5l3 2M19 5l-3-2M19 5l-3 2',
   // The Boolean operations render through BOOLEAN_OPERATION_ICON_PARTS below.
   // These result outlines retain compactIconPath()'s total lookup contract.
   union: 'M3 12a6 6 0 1 0 12 0a6 6 0 1 0-12 0M9 12a6 6 0 1 0 12 0a6 6 0 1 0-12 0',

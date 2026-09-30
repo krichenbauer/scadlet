@@ -4,20 +4,23 @@ import type { DataflowNode } from 'rete-engine'
 import { t } from '../../i18n/translate'
 import type { TransformResult, Vector3Params, Vector3Representation } from '../../openscad/transform'
 import { LabeledNumberControl, ParameterActionsControl, type ParameterAction, type RemovableRow } from '../controls'
-import { geometrySocket, numberSocket, vector3Socket, type GeometryValue, type NumberValue, type Vector3Value } from '../sockets'
+import { geometrySocket, numberSocket, vector3Socket, type BooleanValue, type GeometryValue, type NumberValue, type Vector3Value } from '../sockets'
 
 type VectorTransformControls = {
   x?: LabeledNumberControl
   y?: LabeledNumberControl
   z?: LabeledNumberControl
   actions: ParameterActionsControl
-}
+} & Record<string, ClassicPreset.Control | undefined>
+
+export type VectorTransformInputs = Record<string, (GeometryValue | NumberValue | Vector3Value | BooleanValue)[] | undefined>
 
 /**
  * Shared shape for OpenSCAD's single-child vector transforms
- * (translate/rotate/scale): one geometry input, an X/Y/Z (or Vector)
- * control set chosen through the header Add menu, and one geometry
- * output. Extracted alongside `openscad/transform.ts`'s
+ * (translate/rotate/scale/mirror/resize): one geometry input, an X/Y/Z (or
+ * Vector) control set chosen through the header Add menu, and one geometry
+ * output. Subclasses may add further optional arguments through the small
+ * protected hooks below (Resize's `auto`). Extracted alongside `openscad/transform.ts`'s
  * `vectorTransformToOpenSCAD` because `TranslateNode`/`RotateNode`/
  * `ScaleNode` would otherwise be near-identical duplicates of both the
  * node wiring and the codegen call.
@@ -31,8 +34,11 @@ export class VectorTransformNode
   implements DataflowNode
 {
   private readonly toOpenSCAD: (params: Vector3Params, input: string | undefined) => TransformResult
-  private readonly notify?: () => void
-  private readonly requestRemoveForm?: (keys: readonly string[], label: string) => Promise<boolean>
+  /** The OpenSCAD module name. Explicit, because a translated display label
+   * must never become generated source. */
+  private readonly openscadName: string
+  protected readonly notify?: () => void
+  protected readonly requestRemoveForm?: (keys: readonly string[], label: string) => Promise<boolean>
   /** `undefined` means the last remaining form was removed - a valid,
    * syntactically empty `translate()`/`rotate()`/`scale()` call. */
   private representation: Exclude<Vector3Representation, 'none'> | undefined
@@ -40,12 +46,14 @@ export class VectorTransformNode
 
   constructor(
     label: string,
+    openscadName: string,
     defaults: Vector3Params,
     toOpenSCAD: (params: Vector3Params, input: string | undefined) => TransformResult,
     notify?: () => void,
     requestRemoveForm?: (keys: readonly string[], label: string) => Promise<boolean>,
   ) {
     super(label)
+    this.openscadName = openscadName
     this.toOpenSCAD = toOpenSCAD
     this.notify = notify
     this.requestRemoveForm = requestRemoveForm
@@ -71,11 +79,11 @@ export class VectorTransformNode
     }
   }
 
-  data(inputs: Record<string, (GeometryValue | NumberValue | Vector3Value)[] | undefined>): { geometry: GeometryValue } {
+  data(inputs: VectorTransformInputs): { geometry: GeometryValue } {
     const input = inputs.geometry?.[0]?.code
     if (this.representation === undefined) {
       if (!input) return { geometry: this.toOpenSCAD({ x: 0, y: 0, z: 0 }, input) }
-      return { geometry: this.toOpenSCADExpressionNoArgs(input) }
+      return { geometry: this.toOpenSCADExpressionNoArgs(input, this.extraArguments(inputs)) }
     }
     if (this.representation === 'vector') {
       const vector = inputs.vector?.[0]?.code
@@ -83,13 +91,20 @@ export class VectorTransformNode
         const error = `${this.label} is missing its Vector input`
         return { geometry: { code: `// ${error}`, error } }
       }
-      return { geometry: this.toOpenSCADExpression(vector, input) }
+      return { geometry: this.toOpenSCADExpression(vector, input, this.extraArguments(inputs)) }
     }
     const x = inputs.x?.[0]?.code ?? String(this.xyzLiteral.x)
     const y = inputs.y?.[0]?.code ?? String(this.xyzLiteral.y)
     const z = inputs.z?.[0]?.code ?? String(this.xyzLiteral.z)
-    return { geometry: this.toOpenSCADExpression(`[${x}, ${y}, ${z}]`, input) }
+    return { geometry: this.toOpenSCADExpression(`[${x}, ${y}, ${z}]`, input, this.extraArguments(inputs)) }
   }
+
+  /** Further optional Add-menu entries of a subclass. */
+  protected extraActions(): ParameterAction[] { return [] }
+  /** Further row-level Remove actions of a subclass. */
+  protected extraRemovableRows(): RemovableRow[] { return [] }
+  /** Further `name=value` arguments of a subclass, after the vector. */
+  protected extraArguments(_inputs: VectorTransformInputs): string[] { return [] }
 
   private addActiveRepresentation(representation: Exclude<Vector3Representation, 'none'>): void {
     if (representation === 'vector') {
@@ -122,22 +137,22 @@ export class VectorTransformNode
     return ['vector', 'x', 'y', 'z'].filter((key) => Boolean(this.inputs[key]))
   }
 
-  /** Header Add menu entries - only shown once the single vector form has
-   * been removed (this node has exactly one addable category). */
+  /** Header Add menu entries: the vector forms while none is active, plus
+   * any absent optional argument of a subclass. */
   private actions(): readonly ParameterAction[] {
-    if (this.representation) return []
-    return [
+    const forms: ParameterAction[] = this.representation ? [] : [
       { id: 'add-xyz', label: t('mode.xyz'), run: () => { this.addActiveRepresentation('xyz'); this.representation = 'xyz'; this.notify?.() } },
       { id: 'add-vector', label: t('mode.vector'), run: () => { this.addActiveRepresentation('vector'); this.representation = 'vector'; this.notify?.() } },
     ]
+    return [...forms, ...this.extraActions()]
   }
 
-  /** Row-level Remove button: the node's one removable vector form. */
+  /** Row-level Remove buttons: the vector form plus any subclass argument. */
   removableRows(): readonly RemovableRow[] {
     const keys = this.activeRepresentationKeys()
-    if (keys.length === 0 || !this.representation) return []
+    if (keys.length === 0 || !this.representation) return this.extraRemovableRows()
     const label = this.representation === 'vector' ? t('mode.vector') : t('mode.xyz')
-    return [{ key: keys[0]!, label, requestRemove: () => this.requestRemoveRepresentation() }]
+    return [{ key: keys[0]!, label, requestRemove: () => this.requestRemoveRepresentation() }, ...this.extraRemovableRows()]
   }
 
   private async requestRemoveRepresentation(): Promise<boolean> {
@@ -153,18 +168,17 @@ export class VectorTransformNode
     return true
   }
 
-  private toOpenSCADExpression(vector: string, input: string | undefined): TransformResult {
+  private toOpenSCADExpression(vector: string, input: string | undefined, extra: readonly string[]): TransformResult {
     // The current generator accepts literal Vector3Params. Passing an
     // expression here is intentional: this is the one semantic boundary
     // where a connected value replaces an inline literal.
     if (!input) return this.toOpenSCAD({ x: 0, y: 0, z: 0 }, input)
-    const name = this.label.toLowerCase()
-    return { code: `${name}(${vector}) {\n${input.split('\n').map((line) => `    ${line}`).join('\n')}\n}` }
+    return { code: `${this.openscadName}(${[vector, ...extra].join(', ')}) {\n${input.split('\n').map((line) => `    ${line}`).join('\n')}\n}` }
   }
 
-  /** The removed-form case: a syntactically valid, argument-less call. */
-  private toOpenSCADExpressionNoArgs(input: string): TransformResult {
-    const name = this.label.toLowerCase()
-    return { code: `${name}() {\n${input.split('\n').map((line) => `    ${line}`).join('\n')}\n}` }
+  /** No vector form: OpenSCAD's own argument-less call (plus any optional
+   * subclass argument). */
+  private toOpenSCADExpressionNoArgs(input: string, extra: readonly string[]): TransformResult {
+    return { code: `${this.openscadName}(${extra.join(', ')}) {\n${input.split('\n').map((line) => `    ${line}`).join('\n')}\n}` }
   }
 }

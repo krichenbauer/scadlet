@@ -61,7 +61,8 @@ export class CubeNode extends ClassicPreset.Node<Record<string, ClassicPreset.So
         })),
       })
     }
-    if (!this.controls.center) actions.push({ id: 'add-center', label: t('control.center'), run: () => { this.addCenter(false); this.changed() } })
+    // Leaving Center out already means `false`; adding it starts enabled.
+    if (!this.controls.center) actions.push({ id: 'add-center', label: t('control.center'), run: () => { this.addCenter(true); this.changed() } })
     return actions
   }
 
