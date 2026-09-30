@@ -37,6 +37,7 @@ import { VariableReferenceNode, type VariableBindingResolution } from './nodes/v
 import { VARIABLE_REFERENCE_DRAG_MIME_TYPE } from './node-catalog'
 import { ForHeaderNode, ForResultNode, createDefaultForParams } from './nodes/for-nodes'
 import { loopProblemFeedback, loopStructureProblem, type LoopStructureProblem } from './for-validation'
+import { liveScopeSnapshot, upstreamNodeIds } from './scope-snapshot'
 import {
   cloneGraphClipboardPayload,
   graphClipboardCommandForKey,
@@ -53,21 +54,7 @@ import {
  * dependencies. This is transient presentation data, never graph state. */
 function inspectParticipatingNodeIds(editor: NodeEditor<Schemes>, rootNodeId: string | null): Set<string> {
   if (!rootNodeId || !editor.getNode(rootNodeId)) return new Set()
-  const incoming = new Map<string, string[]>()
-  for (const connection of editor.getConnections()) {
-    const sources = incoming.get(connection.target) ?? []
-    sources.push(connection.source)
-    incoming.set(connection.target, sources)
-  }
-  const ids = new Set<string>()
-  const pending = [rootNodeId]
-  while (pending.length > 0) {
-    const id = pending.pop()!
-    if (ids.has(id)) continue
-    ids.add(id)
-    pending.push(...(incoming.get(id) ?? []))
-  }
-  return ids
+  return upstreamNodeIds(editor.getConnections(), [rootNodeId])
 }
 
 export interface SCADletEditor {
@@ -492,17 +479,8 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     if (graphTransactionSuspended || restoringProject) return context
     const scope = definitions.scopeOf(context.data.source)
     if (scope !== definitions.scopeOf(context.data.target)) return context
-    const scopedNodes = editor.getNodes().filter((node) => definitions.scopeOf(node.id) === scope)
-    const nodes = scopedNodes.flatMap((node) => {
-      const type = identifyNodeType(node)
-      const entry = type ? findCatalogEntry(type) : undefined
-      return type && entry ? [{ id: node.id, type, parameters: entry.serializeParams(node) }] : []
-    })
+    const { nodes, connections } = liveScopeSnapshot(editor, definitions, scope)
     if (!nodes.some((node) => node.type === 'for' || node.type === 'for-result')) return context
-    const ids = new Set(nodes.map((node) => node.id))
-    const connections = editor.getConnections().filter((edge) => ids.has(edge.source) && ids.has(edge.target)).map((edge) => ({
-      id: edge.id, source: edge.source, sourceOutput: String(edge.sourceOutput), target: edge.target, targetInput: String(edge.targetInput),
-    }))
     connections.push({
       id: context.data.id, source: context.data.source, sourceOutput: String(context.data.sourceOutput),
       target: context.data.target, targetInput: String(context.data.targetInput),
@@ -793,19 +771,10 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
       return false
     }
     if (node instanceof ForHeaderNode) {
-      const scopedNodes = editor.getNodes().filter((candidate) => definitions.scopeOf(candidate.id) === scope).flatMap((candidate) => {
-        const type = identifyNodeType(candidate)
-        const entry = type ? findCatalogEntry(type) : undefined
-        if (!type || !entry) return []
-        const parameters = entry.serializeParams(candidate)
-        return [{ id: candidate.id, type, parameters: candidate.id === node.id ? { ...parameters, name } : parameters }]
-      })
-      const ids = new Set(scopedNodes.map((candidate) => candidate.id))
-      const edges = editor.getConnections().filter((edge) => ids.has(edge.source) && ids.has(edge.target)).map((edge) => ({
-        id: edge.id, source: edge.source, sourceOutput: String(edge.sourceOutput), target: edge.target, targetInput: String(edge.targetInput),
-      }))
+      // Check the scope as it would be with the proposed iterator name.
+      const proposed = liveScopeSnapshot(editor, definitions, scope, new Map([[node.id, { ...node.getPersistedParams(), name }]]))
       const enclosingNames = new Set(bindingNamesInScope(editor, definitions, scope, node.bindingId))
-      const loopProblem = loopStructureProblem(scopedNodes, edges, enclosingNames)
+      const loopProblem = loopStructureProblem(proposed.nodes, proposed.connections, enclosingNames)
       if (loopProblem?.code === 'name') { showFeedback('variable.duplicateName'); return false }
       if (loopProblem?.code === 'shadow') { showLoopFeedback(loopProblem); return false }
     }
@@ -1175,20 +1144,12 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
         }
       }
     }
-    const currentNodes = editor.getNodes().filter((node) => definitions.scopeOf(node.id) === payload.scope).flatMap((node) => {
-      const type = identifyNodeType(node)
-      const entry = type ? findCatalogEntry(type) : undefined
-      return type && entry ? [{ id: node.id, type, parameters: entry.serializeParams(node) }] : []
-    })
+    const current = liveScopeSnapshot(editor, definitions, payload.scope)
     const plannedNodes = plan.nodes.map((node) => ({ id: node.id, type: node.type, parameters: node.parameters as Record<string, unknown> }))
-    const ids = new Set([...currentNodes, ...plannedNodes].map((node) => node.id))
-    const currentConnections = editor.getConnections().filter((edge) => ids.has(edge.source) && ids.has(edge.target)).map((edge) => ({
-      id: edge.id, source: edge.source, sourceOutput: String(edge.sourceOutput), target: edge.target, targetInput: String(edge.targetInput),
-    }))
     const structural = plan.structuralPairs.map((pair) => ({
       id: crypto.randomUUID(), source: pair.headerId, sourceOutput: 'loop', target: pair.resultId, targetInput: 'loop',
     }))
-    const loopProblem = loopStructureProblem([...currentNodes, ...plannedNodes], [...currentConnections, ...plan.connections, ...structural], new Set(bindingNamesInScope(editor, definitions, payload.scope)))
+    const loopProblem = loopStructureProblem([...current.nodes, ...plannedNodes], [...current.connections, ...plan.connections, ...structural], new Set(bindingNamesInScope(editor, definitions, payload.scope)))
     if (loopProblem) throw new Error(loopProblemFeedback(loopProblem))
     return plan
   }
@@ -2952,23 +2913,11 @@ export async function createEditor(container: HTMLElement): Promise<SCADletEdito
     isBodylessForResultRoot: (rootNodeId?: string) => {
       const bodyless = (node: Schemes['Node']): boolean => node instanceof ForResultNode
         && !editor.getConnections().some((edge) => edge.target === node.id && String(edge.targetInput).startsWith('child:'))
-      const incoming = new Map<string, string[]>()
-      for (const edge of editor.getConnections()) {
-        incoming.set(edge.target, [...(incoming.get(edge.target) ?? []), edge.source])
-      }
-      const dependsOnBodylessResult = (rootIds: readonly string[]): boolean => {
-        const seen = new Set<string>()
-        const pending = [...rootIds]
-        while (pending.length > 0) {
-          const id = pending.pop()!
-          if (seen.has(id)) continue
-          seen.add(id)
+      const dependsOnBodylessResult = (rootIds: readonly string[]): boolean =>
+        [...upstreamNodeIds(editor.getConnections(), rootIds)].some((id) => {
           const node = editor.getNode(id)
-          if (node && bodyless(node)) return true
-          pending.push(...(incoming.get(id) ?? []))
-        }
-        return false
-      }
+          return Boolean(node && bodyless(node))
+        })
       if (rootNodeId !== undefined) return dependsOnBodylessResult([rootNodeId])
       const mainIds = new Set(editor.getNodes()
         .filter((node) => definitions.scopeOf(node.id) === null)

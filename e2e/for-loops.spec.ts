@@ -376,3 +376,38 @@ test('nested loops may reuse an iterator name unless the inner body also uses th
   await expect(editor.locator('.connection[data-real-connection="true"]')).toHaveCount(7)
   await expect(page.locator('scadlet-app .scad-output')).toContainText('for (i = [0 : 1 : i])', { timeout: 15_000 })
 })
+
+test('the live For guard refuses an escaping iterator wire and an iterator renamed like a Value', async ({ page }) => {
+  await ready(page)
+  const editor = page.locator('node-editor')
+  const canvas = await waitForBoundingBox(editor)
+  const feedback = editor.locator('.editor-feedback')
+  const wires = editor.locator('.connection[data-real-connection="true"]')
+  await dropPaletteNode(page, 'for', { x: canvas.x + 60, y: canvas.y + 40 })
+  await dropPaletteNode(page, 'translate', { x: canvas.x + 60, y: canvas.y + 260 })
+  await dropPaletteNode(page, 'number', { x: canvas.x + 330, y: canvas.y + 260 })
+  const header = editor.locator('.node[data-node-type="for"]')
+  const translate = editor.locator('.node[data-node-type="translate"]')
+  const number = editor.locator('.node[data-node-type="number"]')
+  await expect(wires).toHaveCount(1)
+
+  // The Translate does not feed the matching For result, so the iterator
+  // would contribute outside its loop body.
+  await connect(page, header.locator('.node-socket[data-socket-key="value"]'), translate.locator('.node-socket[data-socket-key="x"]'))
+  await expect(feedback).toHaveText('A For iterator can only contribute to its matching For result body.')
+  await expect(wires).toHaveCount(1)
+
+  // An iterator may not take the name of a Value in its scope.
+  const rename = async (node: Locator, name: string): Promise<void> => {
+    await node.locator('.node-more-summary').click()
+    await node.getByRole('menuitem', { name: 'Rename', exact: true }).click()
+    await node.locator('input.node-title').fill(name)
+    await node.locator('input.node-title').press('Enter')
+  }
+  await rename(number, 'n')
+  await expect(number.locator('.node-title')).toHaveText('n')
+  await rename(header, 'n')
+  await expect(feedback).toHaveText('A binding with this name already exists in this scope.')
+  await expect(header.locator('.node-title')).toHaveText('i')
+  await waitForAutosave(page)
+})

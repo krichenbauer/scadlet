@@ -14,8 +14,8 @@ import { t } from '../i18n/translate'
 import { isValueBindingNode, resolveBindingInScope } from './bindings'
 import { VariableReferenceNode } from './nodes/variable-reference-node'
 import { ForHeaderNode, ForResultNode } from './nodes/for-nodes'
-import { identifyNodeType, findCatalogEntry } from './node-catalog'
 import { loopProblemFeedback, loopStructureProblem } from './for-validation'
+import { liveScopeSnapshot } from './scope-snapshot'
 
 /**
  * Evaluates the graph into a single OpenSCAD source string: one statement
@@ -196,20 +196,7 @@ function assertNoIncompleteReachableBranch(editor: NodeEditor<Schemes>, roots: r
 function assertValidForLoops(editor: NodeEditor<Schemes>, definitions?: DefinitionRegistry): void {
   const scopes = new Set<string | null>([null, ...(definitions?.list().map((definition) => definition.id) ?? [])])
   for (const scope of scopes) {
-    const liveNodes = editor.getNodes().filter((node) => (definitions?.scopeOf(node.id) ?? null) === scope)
-    const nodes = liveNodes.flatMap((node) => {
-      const type = identifyNodeType(node)
-      const entry = type ? findCatalogEntry(type) : undefined
-      return type && entry ? [{ id: node.id, type, parameters: entry.serializeParams(node) }] : []
-    })
-    const ids = new Set(nodes.map((node) => node.id))
-    const connections = editor.getConnections().filter((edge) => ids.has(edge.source) && ids.has(edge.target)).map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      sourceOutput: String(edge.sourceOutput),
-      target: edge.target,
-      targetInput: String(edge.targetInput),
-    }))
+    const { nodes, connections } = liveScopeSnapshot(editor, definitions, scope)
     const enclosingNames = new Set<string>([
       ...(scope ? definitions?.get(scope)?.parameters?.map((parameter) => parameter.name) ?? [] : []),
       ...nodes.filter((node) => (node.type === 'number' || node.type === 'boolean' || node.type === 'vector3') && typeof node.parameters.bindingId === 'string')

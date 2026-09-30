@@ -385,6 +385,11 @@ Geometry-input operations, which are reached only through the internal
   test currently asserts that an escaping iterator wire is refused with
   feedback, or that renaming an iterator to a Value name is refused.
 - **Depends on:** none.
+- **Status:** done (section 9.6). The live-scope builders now share
+  `liveScopeSnapshot`, and two identical upstream walks share
+  `upstreamNodeIds`. The other traversals (for example
+  `assertNoIncompleteReachableBranch` and `hasVariableBindingCycle`) are
+  unchanged.
 
 ### RF-05 — Module and Function definition lifecycles are duplicated and have diverged
 
@@ -966,7 +971,7 @@ contract. Characterization tests pin current behaviour everywhere else.
 
 | WP | Boundary | Findings | Files / responsibilities | Prerequisite tests | Extra verification |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Extract the live scope snapshot helper (upstream-closure helper optional) | RF-04 | new `editor/scope-snapshot.ts`; `editor.ts`, `evaluate.ts` call sites | Section 7 | Unit and E2E For, clipboard, variables |
+| 1 | **Done** (section 9.6): extract the live scope snapshot helper (upstream-closure helper optional) | RF-04 | new `editor/scope-snapshot.ts`; `editor.ts`, `evaluate.ts` call sites | Section 7 | Unit and E2E For, clipboard, variables |
 | 2 | Consolidate E2E helpers into `e2e/support.ts` | RF-15 | `e2e/*.spec.ts` | Record test titles and count (109) | Same titles and count after |
 | 3 | Remove verified-dead facade members and template assets; refresh stale comments | RF-18 | `editor.ts`, `src/assets/*`, `public/icons.svg`, comments | Search proof per item | `pnpm build` output lists no removed asset |
 | 4 | Catalog/node port parity tests (tests only) | RF-09 | new unit tests | — | — |
@@ -1082,7 +1087,10 @@ and `for-validation` types.
   `for-loops.spec.ts` cover the `preflightClipboardPaste` call site.
 
 **Completion criteria:** the four inline builders are removed and each call
-site uses the helper; all new and existing tests pass; `pnpm test`,
+site uses the helper; all new and existing tests pass. Existing tests stay
+as they are unless a change genuinely makes sense (a test that only
+restates old internals, for example); a failing test otherwise signals an
+unintended behaviour change; `pnpm test`,
 `pnpm exec tsc --noEmit`, `pnpm build`, `pnpm test:e2e`, and
 `git diff --check` all succeed; the diff touches only the files listed; the
 report states that no documented contract changed.
@@ -1410,3 +1418,43 @@ overwrote the intact stored original.
 - A refused structural wire, such as a For loop boundary, leaves a graph that
   cannot be saved until repaired. The warning and the backup cover it, but no
   specific repair hint is shown.
+
+### 9.6 Shared live scope snapshot (RF-04, WP 1)
+
+A behaviour-preserving refactoring made on 2026-09-30, following section 7.
+
+**Changes:**
+
+| Area | Change |
+| --- | --- |
+| New [scope-snapshot.ts](../src/editor/scope-snapshot.ts) | `liveScopeSnapshot(editor, definitions, scope, parameterOverrides?)` returns one scope's nodes (with catalog-serialized parameters, editor order, unknown nodes skipped) and its internal connections (ports as strings); `upstreamNodeIds(connections, roots)` returns roots plus their dependencies |
+| [editor.ts](../src/editor/editor.ts) | The For guard pipe, the iterator branch of `renameValueBinding` (with the proposed name as an override), and `preflightClipboardPaste` use `liveScopeSnapshot`; `inspectParticipatingNodeIds` and `isBodylessForResultRoot` use `upstreamNodeIds` |
+| [evaluate.ts](../src/editor/evaluate.ts) | `assertValidForLoops` uses `liveScopeSnapshot` |
+
+Every call site's enclosing-name set, the prospective edge in the For guard,
+and all messages and pipe order are unchanged.
+
+**Tests:**
+
+- The characterization E2E test was added before refactoring and passed 5 of
+  5 runs on the old code. In `e2e/for-loops.spec.ts`, "the live For guard
+  refuses an escaping iterator wire and an iterator renamed like a Value"
+  covers both previously untested guard paths.
+- New `src/editor/scope-snapshot.test.ts`:
+  - per-scope contents and order, with cross-scope wires excluded;
+  - equality with a copy of the former inline construction for Main, a
+    Module, a rename override, and a registry-less host;
+  - the override affecting only its node;
+  - `upstreamNodeIds` behaviour.
+- No existing test changed. All 722 existing unit tests and all existing E2E
+  tests pass as before.
+
+**Verification** (same environment as section 8):
+
+| Check | Result |
+| --- | --- |
+| `pnpm test` | Pass. 83 files, 725 tests passed |
+| `pnpm exec tsc --noEmit` | Pass. Exit 0 |
+| `pnpm build` | Pass. Exit 0, same chunk-size warning as the baseline |
+| `pnpm test:e2e` | Pass. 118 passed in 37.9 s |
+| `git diff --check` | Pass. Exit 0 |
